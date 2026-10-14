@@ -70,25 +70,25 @@ The same Evidence can support different questions: trace a feature across module
 
 ### Keep the strength of a claim visible
 
-| Label | Meaning |
-| --- | --- |
-| **Observed** | Present in the supplied artifact or captured event. |
-| **Derived** | Produced by a parser or an explicit relationship rule. |
+| Label        | Meaning                                                           |
+| ------------ | ----------------------------------------------------------------- |
+| **Observed** | Present in the supplied artifact or captured event.               |
+| **Derived**  | Produced by a parser or an explicit relationship rule.            |
 | **Inferred** | A conclusion supported by observations but not directly observed. |
-| **Unknown** | Unselected, unsupported, ambiguous, truncated, or unobserved. |
+| **Unknown**  | Unselected, unsupported, ambiguous, truncated, or unobserved.     |
 
 A static import edge does not prove a module executed. A matching output for selected cases verifies only that comparison dimension for those cases; it does not establish universal behavioral equivalence. Human judgment still chooses hypotheses, cases, and the boundary a result supports.
 
 ## Choose a path
 
-| Question or artifact | Where to begin | Boundary |
-| --- | --- | --- |
-| Learn how an analysis graph works | `node ree.mjs lab --open` | Fictional teaching data; no target analysis. |
-| Preview an artifact or available workflow | `node ree.mjs inspect PATH` / `node ree.mjs types` | Classification and catalogs are not proof of support or behavior. |
-| Analyze JavaScript or Electron source | `node ree.mjs analyze PATH --authorized --out NEW_DIR` | Static analysis after explicit authorization and local build; supplied app is not launched. |
-| Inspect native code | REA CLI or MCP with a selected Ghidra, Hopper, or IDA route | Bring-your-own provider; host, license, and workflow requirements differ. |
-| Inspect Android, firmware, databases, captures, or other formats | Follow the matching [REA guide](UPSTREAM_REA_README.md) | Each route has its own parser, provider, host, and side-effect limits. |
-| Compare runtime behavior | Use a supported runtime observation or process-capture workflow | Runtime capture is separate from static analysis and is not available for every target. |
+| Question or artifact                                             | Where to begin                                                  | Boundary                                                                                    |
+| ---------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Learn how an analysis graph works                                | `node ree.mjs lab --open`                                       | Fictional teaching data; no target analysis.                                                |
+| Preview an artifact or available workflow                        | `node ree.mjs inspect PATH` / `node ree.mjs types`              | Classification and catalogs are not proof of support or behavior.                           |
+| Analyze JavaScript or Electron source                            | `node ree.mjs analyze PATH --authorized --out NEW_DIR`          | Static analysis after explicit authorization and local build; supplied app is not launched. |
+| Inspect native code                                              | REA CLI or MCP with a selected Ghidra, Hopper, or IDA route     | Bring-your-own provider; host, license, and workflow requirements differ.                   |
+| Inspect Android, firmware, databases, captures, or other formats | Follow the matching [REA guide](UPSTREAM_REA_README.md)         | Each route has its own parser, provider, host, and side-effect limits.                      |
+| Compare runtime behavior                                         | Use a supported runtime observation or process-capture workflow | Runtime capture is separate from static analysis and is not available for every target.     |
 
 Provider declarations, installed tools, provider discovery, and a verified run are different states. A recognized extension or catalog entry does not establish that the matching backend works on your machine. See the [compatibility notes](#compatibility-and-readiness) before choosing a provider.
 
@@ -143,15 +143,15 @@ This repository-scoped connection does not change account-wide Codex settings, t
 
 ## Repository map
 
-| Path | What lives there |
-| --- | --- |
-| [`ree.mjs`](ree.mjs), [`rel/`](rel/) | REE CLI, preview and authorization boundary, Mac readiness, lesson server, and Evidence Explorer. |
-| [`experiments/rel-visual-lab/`](experiments/rel-visual-lab/) | Local introductory lesson. |
-| [`experiments/rel-first-lab/`](experiments/rel-first-lab/) | Source-owned analysis example and recorded verification. |
-| [`scripts/rea.mjs`](scripts/rea.mjs) | REA CLI and MCP dispatcher. |
-| [`src/application/`](src/application/), [`src/domain/`](src/domain/) | Shared investigation workflows, Evidence, graphs, comparisons, and domain rules. |
-| [`src/composition/`](src/composition/), [`src/contracts/`](src/contracts/) | Provider wiring and CLI/MCP input and output contracts. |
-| [`docs/`](docs/) | Architecture, provider guides, engineering map, and development guidance. |
+| Path                                                                       | What lives there                                                                                  |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| [`ree.mjs`](ree.mjs), [`rel/`](rel/)                                       | REE CLI, preview and authorization boundary, Mac readiness, lesson server, and Evidence Explorer. |
+| [`experiments/rel-visual-lab/`](experiments/rel-visual-lab/)               | Local introductory lesson.                                                                        |
+| [`experiments/rel-first-lab/`](experiments/rel-first-lab/)                 | Source-owned analysis example and recorded verification.                                          |
+| [`scripts/rea.mjs`](scripts/rea.mjs)                                       | REA CLI and MCP dispatcher.                                                                       |
+| [`src/application/`](src/application/), [`src/domain/`](src/domain/)       | Shared investigation workflows, Evidence, graphs, comparisons, and domain rules.                  |
+| [`src/composition/`](src/composition/), [`src/contracts/`](src/contracts/) | Provider wiring and CLI/MCP input and output contracts.                                           |
+| [`docs/`](docs/)                                                           | Architecture, provider guides, engineering map, and development guidance.                         |
 
 The `rel/` and `experiments/rel-*` paths remain for compatibility. REE is the current project identity; REA remains the analysis engine and MCP server identity.
 
