@@ -11,6 +11,15 @@ This checkout is the **REE project**, which adds an approachable interface on to
 - Keep upstream docs and licensing intact. If the REE English README changes, preserve the archived upstream README and the translated onboarding test's source.
 - Follow the inherited REA repository rules below for production engine work.
 
+## Preserve the engineering foundation
+
+- Treat the inherited REA engine as REE's technical foundation. The Mac-first REE interface is an added entry point, not a replacement for or scope limit on the engine.
+- Before substantial changes, inspect the relevant inherited architecture, provider adapters, contracts, consumers, guides, and validation. Understand which guarantees the existing implementation provides before redesigning it.
+- Keep inherited CLI and MCP workflows, provider families, Evidence semantics, reconstruction capabilities, and supported platform paths available. A provider missing from one developer's machine remains part of the system; distinguish declared support, local readiness, and verified execution.
+- Do not narrow engine behavior to match the latest experiment, especially when experiments focus on JavaScript or small fixtures. Do not replace a mature mechanism with a shallow abstraction for accessibility, presentation, branding, or ease of maintenance alone.
+- Make REE additions complementary and additive where possible. When changing inherited behavior, identify the concrete improvement, preserve its contracts, and use meaningful comparative verification to detect lost capabilities. Report unverified providers and boundaries plainly.
+- Preserve attribution, upstream licensing, and useful compatibility. Clearly distinguish inherited capabilities from REE additions in public documentation and engineering reports.
+
 ## Branch policy
 
 Use the remote default branch (`main` at this update) for this repository’s work and pushes. Refresh `origin/HEAD` before choosing a destination. Preserve dirty work in older checkouts before consolidation. REE is the product name; retained `rel/` paths are compatibility paths.

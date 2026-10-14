@@ -14,7 +14,7 @@ A local investigation workbench for turning software artifacts into evidence-bac
 
 ---
 
-REE gives the REA analysis engine a deliberate front door and an evidence-centered workflow. **REE** is this project's identity, onboarding, and beginner CLI. **REA** is the inherited analysis engine and MCP server. The repository preserves that foundation, its licensing, and its attribution while developing a more approachable way into the system.
+REE gives the REA analysis engine a deliberate front door and an evidence-centered workflow. **REE** is this project's identity, onboarding, and beginner CLI. **REA** is the inherited analysis engine and MCP server. The Mac-first entry point adds a more approachable way into the system; it does not narrow the engine's capabilities or replace its mature workflows. The repository preserves that foundation, its licensing, and its attribution while building on it.
 
 The aim is disciplined understanding: identify the artifact, choose an analysis route that fits it, retain where each result came from, and keep conclusions within the evidence collected. No single provider or reconstruction check explains every system.
 
@@ -95,6 +95,8 @@ Provider declarations, installed tools, provider discovery, and a verified run a
 ## Under the surface
 
 REE is intentionally a small front door over a much broader inherited engine. The engine's architecture keeps caller-facing adapters, shared workflows, domain rules, and provider-specific details in distinct layers.
+
+The beginner interface and the experiments developed around it are only a small sample of the engine. REA's provider ecosystem, CLI and MCP workflows, Evidence contracts, reconstruction tools, and Linux, macOS, and Windows paths remain part of REE's foundation. Routes that need an external provider remain available even when that provider is not installed on a particular Mac. The [source-verified engineering map](docs/ree-engineering-map.md) distinguishes inherited capabilities, REE additions, and behavior that has actually been verified.
 
 - **CLI and MCP:** one-shot commands and a long-lived `rea` MCP server expose shared application workflows through different interfaces. MCP provides the full REA tool set, with its own capabilities and authority; it is not limited to REE's guarded static path.
 - **Analysis routes:** built-in source and format parsers work alongside optional native and specialist providers. Provider selection and operation ownership are explicit; one failing provider does not silently become another.
