@@ -108,7 +108,9 @@ These are implemented workflows with specific limits, not a promise that every c
 The engine contains routes for JavaScript/Electron, native binaries, managed .NET metadata, Android packages, Apple artifacts, firmware, WebAssembly, EVM bytecode, Go and Rust metadata, SQLite, browser/Electron observations, process capture, and recorded network or signal data. Some routes are built in; others need a compatible external tool or provider. Start with the guide for the artifact or question:
 
 - **JavaScript and Electron:** [application graph](docs/javascript-application-graph.md), [feature and version workflows](docs/javascript-application-workflows.md), [runtime observations](docs/javascript-runtime-observation.md), [runtime reconciliation](docs/javascript-runtime-reconciliation.md).
-- **Native and managed code:** [native investigation](docs/native-investigation.md); [Android](docs/android-analysis.md).
+- **Native binaries:** [native investigation](docs/native-investigation.md).
+- **Managed .NET:** [managed code](docs/managed-code-analysis.md).
+- **Android:** [package analysis](docs/android-analysis.md).
 - **Data and captures:** [SQLite](docs/sqlite-databases.md), [packet captures](docs/pcap-analysis.md), [signal recordings](docs/signal-recordings.md).
 - **Firmware and bytecode:** [firmware](docs/firmware-analysis.md), [WebAssembly](docs/wasm-artifacts.md), [EVM bytecode](docs/evm-bytecode.md).
 
