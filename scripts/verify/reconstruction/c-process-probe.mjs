@@ -1,18 +1,16 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createEvidenceBundle } from "../../../dist/domain/evidenceBundle.js";
+import {
+  executeApprovedReconstructionProcessProbeBatch,
+  prepareReconstructionProcessProbeBatch,
+} from "../../../dist/application/ReconstructionProbeBatchService.js";
 
 const repositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -373,221 +371,189 @@ const feedback = approveRecommendedProbes
       const variation = recommendation.argument_variations[0];
       assert.ok(
         variation,
-        "The approved probe must select a recorded variation",
+        "The probe must select a recorded argument variation",
       );
-      const selectedValue = variation.candidate_values[0];
-      assert.ok(selectedValue, "The selected probe value must be present");
-      assert.match(selectedValue, /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/u);
-      assert.notEqual(selectedValue, variation.observed_value);
-
-      const sourceById = new Map(
-        records.map((record) => [record.evidence_id, record]),
-      );
-      const scenarioForApprovedFixture = async (sourceId, expectedBinary) => {
-        assert.ok(
-          recommendation.evidence_links.includes(sourceId),
-          "Each executable source must be cited by the recommendation",
-        );
-        const sourceEvidence = sourceById.get(sourceId);
-        assert.equal(sourceEvidence?.operation, "capture_process_scenario");
-        assert.equal(sourceEvidence?.predicate_type, "rea.process-capture");
-        const captured = sourceEvidence.normalized_result;
-        const committedScenario = captured.manifest.scenario;
-        assert.equal(
-          await realpath(committedScenario.executable),
-          await realpath(expectedBinary),
-        );
-        assert.equal(
-          await realpath(committedScenario.working_directory),
-          await realpath(outputRoot),
-        );
-        assert.deepEqual(committedScenario.environment, {});
-        assert.deepEqual(committedScenario.events, []);
-        assert.deepEqual(committedScenario.filesystem_observation_paths, []);
-        assert.equal(
-          captured.manifest.executable_identity.state,
-          "path_metadata_unchanged",
-        );
-        const expectedDigest = digest(await readFile(expectedBinary));
-        assert.equal(
-          captured.manifest.selected_executable_sha256,
-          expectedDigest,
-        );
-        assert.equal(captured.manifest.executable_sha256, expectedDigest);
-        assert.equal(captured.manifest.executable_identity.reason, null);
-        const originalArguments = committedScenario.arguments;
-        assert.ok(Array.isArray(originalArguments));
-        assert.ok(
-          originalArguments.every((argument) => typeof argument === "string"),
-        );
-        assert.deepEqual(originalArguments, [
-          selectedProbe.unit_price,
-          String(selectedProbe.quantity),
-        ]);
-        assert.equal(
-          originalArguments[variation.argument_index],
-          variation.observed_value,
-        );
-        const approvedArguments = [...originalArguments];
-        approvedArguments[variation.argument_index] = selectedValue;
-        const scenario = { ...committedScenario, arguments: approvedArguments };
-        delete scenario.executable_sha256;
-        return scenario;
-      };
-
-      const leftScenario = await scenarioForApprovedFixture(
+      const sourceIds = [
         variation.left_source_evidence_id,
-        authorityBinary,
-      );
-      const rightScenario = await scenarioForApprovedFixture(
         variation.right_source_evidence_id,
-        candidateBinary,
+      ];
+      const selections = variation.candidate_values
+        .slice(0, 2)
+        .map((candidate_value) => ({
+          left_source_evidence_id: sourceIds[0],
+          right_source_evidence_id: sourceIds[1],
+          argument_index: variation.argument_index,
+          candidate_value,
+        }));
+      assert.equal(selections.length, 2);
+      const verificationRequest = {
+        specification: specificationDraft.specification,
+        evidence_bundle: createEvidenceBundle(records),
+      };
+      const selectedPlan = prepareReconstructionProcessProbeBatch({
+        verification_request: verificationRequest,
+        selections: [...selections, selections[0]],
+        max_probes: 2,
+      });
+      assert.equal(selectedPlan.ok, true);
+      if (!selectedPlan.ok) throw new Error(selectedPlan.error.message);
+      const plan = selectedPlan.value;
+      assert.equal(
+        plan.probes.length,
+        2,
+        "Duplicate recommendations must deduplicate",
       );
-      assert.deepEqual(leftScenario.arguments, rightScenario.arguments);
+      assert.equal(plan.deduplicated_selection_count, 1);
+      assert.deepEqual(plan.execution_budget, {
+        max_probes: 2,
+        process_captures: 4,
+        comparisons: 2,
+        retries: 0,
+      });
+      const overBudget = prepareReconstructionProcessProbeBatch({
+        verification_request: verificationRequest,
+        selections,
+        max_probes: 1,
+      });
+      assert.equal(
+        overBudget.ok,
+        false,
+        "Unique probes over budget must be rejected",
+      );
+      const changedPlan = {
+        ...plan,
+        probes: plan.probes.map((probe, index) =>
+          index === 0
+            ? {
+                ...probe,
+                left_scenario: {
+                  ...probe.left_scenario,
+                  arguments: [
+                    "1.03",
+                    ...probe.left_scenario.arguments.slice(1),
+                  ],
+                },
+              }
+            : probe,
+        ),
+      };
+      let invalidPlanCaptures = 0;
+      const invalidApproval =
+        await executeApprovedReconstructionProcessProbeBatch(
+          changedPlan,
+          plan.plan_sha256,
+          {
+            validateTarget: async () => {
+              invalidPlanCaptures += 1;
+              return true;
+            },
+            capture: async () => {
+              invalidPlanCaptures += 1;
+              throw new Error("must not execute");
+            },
+          },
+        );
+      assert.equal(
+        invalidApproval.ok,
+        false,
+        "Mutated plans require renewed approval",
+      );
+      assert.equal(
+        invalidPlanCaptures,
+        0,
+        "Invalid plans must not validate or execute targets",
+      );
+      const failedCapturePlan =
+        await executeApprovedReconstructionProcessProbeBatch(
+          plan,
+          plan.plan_sha256,
+          {
+            validateTarget: async ({ executable, expected_sha256 }) =>
+              digest(await readFile(executable)) === expected_sha256,
+            capture: async () => {
+              throw new Error("fixture capture failure");
+            },
+          },
+        );
+      assert.equal(failedCapturePlan.ok, true);
+      if (!failedCapturePlan.ok)
+        throw new Error(failedCapturePlan.error.message);
+      assert.equal(failedCapturePlan.value.normalized_result.state, "partial");
+      assert.equal(failedCapturePlan.value.normalized_result.probes.length, 1);
       const approval = {
         state: "approved-for-this-run",
-        approval: "explicit --approve-recommended-probes command-line flag",
-        probe_budget: { variations: 1, process_captures: 2, comparisons: 1 },
-        parent_verification_evidence_id: verification.evidence_id,
-        recommendation,
-        selected_argument_variation: variation,
-        scenarios: [leftScenario, rightScenario],
+        approval:
+          "explicit --approve-recommended-probes command-line flag, bound to immutable plan digest",
+        plan_sha256: plan.plan_sha256,
+        execution_budget: plan.execution_budget,
+        plan,
       };
       await writeFile(
         join(outputRoot, "feedback-probe.approval.json"),
         `${JSON.stringify(approval, null, 2)}\n`,
       );
-
-      const leftCapture = await captureScenario(
-        "feedback-authority",
-        leftScenario,
-      );
-      const rightCapture = await captureScenario(
-        "feedback-candidate",
-        rightScenario,
-      );
-      const followupPair = {
-        left: {
-          path: join(outputRoot, "feedback-authority.capture.json"),
-          evidence: leftCapture,
-        },
-        right: {
-          path: join(outputRoot, "feedback-candidate.capture.json"),
-          evidence: rightCapture,
-        },
-      };
-      const followupComparison = await compare(
-        "feedback",
-        followupPair.left,
-        followupPair.right,
-      );
-      assert.equal(followupComparison.normalized_result.terminal, "changed");
-
-      const historyRecords = [
-        ...records,
-        specificationEvidence,
-        verification,
-        leftCapture,
-        rightCapture,
-        followupComparison,
-      ];
-      const feedbackBundle = createEvidenceBundle(historyRecords);
-      const feedbackSpecificationInputPath = join(
-        outputRoot,
-        "feedback-specification.input.json",
-      );
-      await writeFile(
-        feedbackSpecificationInputPath,
-        `${JSON.stringify(
-          {
-            name: "Bounded C rounding investigation with approved follow-up",
-            evidence_bundle: feedbackBundle,
-            comparisons: [
-              {
-                comparison_evidence_id: controlComparison.evidence_id,
-                dimensions: ["terminal"],
-              },
-              {
-                comparison_evidence_id: probeComparison.evidence_id,
-                dimensions: ["terminal"],
-              },
-              {
-                comparison_evidence_id: followupComparison.evidence_id,
-                dimensions: ["terminal"],
-              },
-            ],
+      const batch = await executeApprovedReconstructionProcessProbeBatch(
+        plan,
+        plan.plan_sha256,
+        {
+          validateTarget: async ({ executable, expected_sha256 }) =>
+            digest(await readFile(executable)) === expected_sha256,
+          capture: async (scenario) => {
+            const label = `batch-${scenario.arguments[0]}-${scenario.executable === authorityBinary ? "authority" : "candidate"}`;
+            return await captureScenario(label, scenario);
           },
-          null,
-          2,
-        )}\n`,
+        },
       );
-      const feedbackSpecificationRun = run(process.execPath, [
-        cliPath,
-        "derive-reconstruction-specification",
-        feedbackSpecificationInputPath,
-        "--format",
-        "json",
-      ]);
-      const feedbackSpecificationEvidence = JSON.parse(
-        feedbackSpecificationRun.stdout,
-      );
+      assert.equal(batch.ok, true);
+      if (!batch.ok) throw new Error(batch.error.message);
       await writeFile(
-        join(outputRoot, "feedback-specification.evidence.json"),
-        `${JSON.stringify(feedbackSpecificationEvidence, null, 2)}\n`,
+        join(outputRoot, "feedback-probe-batch.evidence.json"),
+        `${JSON.stringify(batch.value, null, 2)}\n`,
       );
-      const feedbackVerificationInputPath = join(
-        outputRoot,
-        "feedback-verification.input.json",
+      const result = batch.value.normalized_result;
+      assert.equal(result.state, "complete");
+      assert.equal(result.probes.length, 2);
+      assert.ok(
+        result.probes.every(
+          ({ status, verification_status }) =>
+            status === "compared" && verification_status === "fail",
+        ),
       );
-      await writeFile(
-        feedbackVerificationInputPath,
-        `${JSON.stringify(
-          {
-            specification:
-              feedbackSpecificationEvidence.normalized_result.specification,
-            evidence_bundle: feedbackBundle,
-          },
-          null,
-          2,
-        )}\n`,
+      assert.equal(
+        result.evidence_bundle.records.length,
+        records.length + 4 + 2 + 1,
       );
-      const feedbackVerificationRun = run(process.execPath, [
-        cliPath,
-        "verify-reconstruction",
-        feedbackVerificationInputPath,
-        "--format",
-        "json",
-      ]);
-      const feedbackVerification = JSON.parse(feedbackVerificationRun.stdout);
-      await writeFile(
-        join(outputRoot, "feedback-verification.evidence.json"),
-        `${JSON.stringify(feedbackVerification, null, 2)}\n`,
-      );
-      const followupClaim =
-        feedbackVerification.normalized_result.claims.items.find(
-          ({ comparison_evidence_id, dimension }) =>
-            comparison_evidence_id === followupComparison.evidence_id &&
-            dimension === "terminal",
-        );
-      assert.equal(followupClaim?.status, "fail");
       return {
         state: "executed-and-reverified",
         approval_evidence_path: join(
           outputRoot,
           "feedback-probe.approval.json",
         ),
-        approved_argument_variation: variation,
-        new_capture_evidence_ids: [
-          leftCapture.evidence_id,
-          rightCapture.evidence_id,
-        ],
-        followup_comparison_evidence_id: followupComparison.evidence_id,
-        followup_specification_evidence_id:
-          feedbackSpecificationEvidence.evidence_id,
-        followup_verification_evidence_id: feedbackVerification.evidence_id,
-        followup_terminal_claim_status: followupClaim.status,
-        evidence_record_count: feedbackBundle.records.length,
-        probe_budget: approval.probe_budget,
+        batch_evidence_path: join(
+          outputRoot,
+          "feedback-probe-batch.evidence.json",
+        ),
+        plan_sha256: plan.plan_sha256,
+        selected_probe_count: plan.probes.length,
+        deduplicated_selection_count: plan.deduplicated_selection_count,
+        new_capture_evidence_ids: result.probes.flatMap(
+          ({ left_capture_evidence_id, right_capture_evidence_id }) => [
+            left_capture_evidence_id,
+            right_capture_evidence_id,
+          ],
+        ),
+        followup_comparison_evidence_ids: result.probes.map(
+          ({ comparison_evidence_id }) => comparison_evidence_id,
+        ),
+        followup_terminal_claim_statuses: result.probes.map(
+          ({ verification_status }) => verification_status,
+        ),
+        evidence_record_count: result.evidence_bundle.records.length,
+        invalid_plan_rejected_before_execution: invalidPlanCaptures === 0,
+        over_budget_plan_rejected: !overBudget.ok,
+        capture_failure_stopped_without_retry:
+          failedCapturePlan.value.normalized_result.state === "partial",
+        execution_budget: plan.execution_budget,
       };
     })()
   : {
@@ -595,7 +561,6 @@ const feedback = approveRecommendedProbes
       execution_flag: "--approve-recommended-probes",
       executed: false,
     };
-
 const summary = {
   hypothesis,
   declared_domain: domain,
