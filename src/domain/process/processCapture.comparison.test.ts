@@ -95,6 +95,27 @@ it("does not classify lifecycle timing jitter as a behavioral change", () => {
       capture,
     ),
   ).toMatchObject({ status: "changed", exit: "changed" });
+
+  expect(
+    compareFullyObserved(
+      {
+        ...capture,
+        settlement: {
+          state: "unverifiable",
+          elapsed_ms: 97,
+          cleanup_outcome: "cleaned",
+        },
+      },
+      {
+        ...capture,
+        settlement: {
+          state: "alive_at_deadline",
+          elapsed_ms: 94,
+          cleanup_outcome: "cleaned",
+        },
+      },
+    ),
+  ).toMatchObject({ status: "changed", exit: "changed" });
 });
 
 it("compares raw terminal and process observations while honoring normalization shape", () => {
