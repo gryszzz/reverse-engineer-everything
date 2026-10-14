@@ -180,9 +180,9 @@ const registerReconstructionVerificationCommand = (
       "Verify finite reconstruction claims against a portable Evidence bundle",
     inputSchema: reconstructionVerificationRequestSchema,
     workflow: async (input) => {
-      const { verifyReconstructionEvidenceValidated } =
+      const { verifyReconstructionEvidence } =
         await import("../application/ReconstructionVerificationService.js");
-      const result = verifyReconstructionEvidenceValidated(input);
+      const result = verifyReconstructionEvidence(input);
       return result.ok
         ? { ok: true, value: jsonValueSchema.parse(result.value.evidence) }
         : result;
