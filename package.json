@@ -228,6 +228,7 @@
     "build:ghidra-windows-fixture": "node scripts/create-ghidra-windows-fixture.mjs",
     "verify:fixtures": "npm run build:fixtures && node scripts/verify-conformance-fixtures.mjs",
     "verify:ree-investigation-boundary": "npm run build:cached && node scripts/verify/reconstruction/c-process-probe.mjs",
+    "verify:ree-cross-language-tax": "npm run build:cached && node scripts/verify/reconstruction/cross-language-tax-probe.mjs",
     "verify:readiness": "npm run build:cached && npm run verify:fixtures && node scripts/verify-reconstruction-readiness.mjs",
     "verify:package": "npm run build:cached && node scripts/verify-package.mjs",
     "verify:package:windows": "npm run build:cached && node scripts/verify-windows-package.mjs",

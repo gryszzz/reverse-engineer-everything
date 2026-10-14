@@ -21,6 +21,7 @@ import {
 } from "../domain/process/processComparison.js";
 import { PROCESS_PROVIDER } from "../domain/process/processEvidenceProvider.js";
 import { parseProcessCapture } from "../domain/process/processCaptureParsing.js";
+import { processTraceSpecificationSchema } from "../domain/process/processTraceSpecification.js";
 import {
   processScenarioCommitment,
   processScenarioSchema,
@@ -61,6 +62,7 @@ const selectedProbePlanSchema = z.strictObject({
   right_executable_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
   source_comparison_evidence_id: z.string().startsWith("ev_"),
   source_claim_id: z.string().min(1),
+  trace_specification: processTraceSpecificationSchema.optional(),
 });
 
 const planBodySchema = z
@@ -193,6 +195,19 @@ export const prepareReconstructionProcessProbeBatch = (
             "A process probe can be planned only for a selected terminal reconstruction claim.",
           ),
         );
+      const sourceComparison = records.get(match.comparison_evidence_id);
+      const traceSpecificationValue = sourceComparison?.parameters.trace_spec;
+      const traceSpecification =
+        traceSpecificationValue === undefined
+          ? undefined
+          : processTraceSpecificationSchema.safeParse(traceSpecificationValue);
+      if (traceSpecification !== undefined && !traceSpecification.success)
+        return err(
+          inputFailure(
+            "selections",
+            "The source comparison Evidence contains an invalid trace specification.",
+          ),
+        );
       const left = sourceProcessScenario(
         records.get(selection.left_source_evidence_id),
         selection.left_source_evidence_id,
@@ -229,6 +244,9 @@ export const prepareReconstructionProcessProbeBatch = (
         right_executable_sha256: right.value.executable_sha256,
         source_comparison_evidence_id: match.comparison_evidence_id,
         source_claim_id: sourceClaim.claim_id,
+        ...(traceSpecification === undefined
+          ? {}
+          : { trace_specification: traceSpecification.data }),
       });
     }
     const probes = [...prepared.values()].sort((left, right) =>
@@ -382,7 +400,12 @@ export const executeApprovedReconstructionProcessProbeBatch = async (
       }
       const left = parseProcessCapture(leftCapture.normalized_result);
       const right = parseProcessCapture(rightCapture.normalized_result);
-      const comparisonResult = compareProcessCaptures(left, right);
+      const comparisonResult =
+        probe.trace_specification === undefined
+          ? compareProcessCaptures(left, right)
+          : compareProcessCaptures(left, right, {
+              traceSpecification: probe.trace_specification,
+            });
       const comparison = createProcessComparisonEvidence(
         leftCapture,
         rightCapture,

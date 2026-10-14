@@ -398,6 +398,12 @@ const feedback = approveRecommendedProbes
       assert.equal(selectedPlan.ok, true);
       if (!selectedPlan.ok) throw new Error(selectedPlan.error.message);
       const plan = selectedPlan.value;
+      assert.ok(
+        plan.probes.every(
+          ({ trace_specification }) => trace_specification !== undefined,
+        ),
+        "Approved probes must retain the source comparison trace specification",
+      );
       assert.equal(
         plan.probes.length,
         2,

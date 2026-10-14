@@ -199,6 +199,23 @@ and one comparison. Its approval record and new Evidence are saved alongside
 the original run. It does not provide a general-purpose approved probe
 executor for arbitrary targets.
 
+The separate Python and Ruby tax fixture checks whether that workflow crosses
+implementation languages and executable wrappers. At 100 cents, both return
+8 cents; at 99 cents, Python's decimal half-up rounding returns 8 while Ruby's
+integer truncation returns 7. The verifier recommends the neighboring values
+98 and 100. The approved batch confirms the divergence at 98 and agreement at
+100 while retaining the source comparison's trace rules, so output timing
+jitter does not change an otherwise matching terminal result. Run it on macOS
+with the system Python 3 and Ruby:
+
+```bash
+npm run verify:ree-cross-language-tax -- --approve-recommended-probes
+```
+
+The fixtures are owned, local command-line programs. Their finite terminal
+observations demonstrate this workflow across two languages; they do not prove
+the tax policy is correct or establish equivalence beyond these inputs.
+
 ## Choose a provider
 
 List the available providers and their supported operations:

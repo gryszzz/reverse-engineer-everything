@@ -341,18 +341,18 @@ describe("reconstruction verification outcomes", () => {
     });
   });
 
-  it("uses a terminal counterexample to propose adjacent decimal argv probes", () => {
+  it("proposes matching decimal argv values across different wrapper arguments", () => {
     const left = source(
       "1",
       "controlled-replay",
       "observed",
-      captureWithArguments("/tmp/authority", ["1.05", "10"]),
+      captureWithArguments("/tmp/authority", ["authority.py", "99"]),
     );
     const right = source(
       "2",
       "controlled-replay",
       "observed",
-      captureWithArguments("/tmp/candidate", ["1.05", "10"]),
+      captureWithArguments("/tmp/candidate", ["candidate.rb", "99"]),
     );
     const comparison = processComparison(left, right, processResult("changed"));
     const result = verifyReconstruction(
@@ -374,16 +374,9 @@ describe("reconstruction verification outcomes", () => {
         {
           left_source_evidence_id: left.evidence_id,
           right_source_evidence_id: right.evidence_id,
-          argument_index: 0,
-          observed_value: "1.05",
-          candidate_values: ["1.04", "1.06"],
-        },
-        {
-          left_source_evidence_id: left.evidence_id,
-          right_source_evidence_id: right.evidence_id,
           argument_index: 1,
-          observed_value: "10",
-          candidate_values: ["9", "11"],
+          observed_value: "99",
+          candidate_values: ["98", "100"],
         },
       ],
     });

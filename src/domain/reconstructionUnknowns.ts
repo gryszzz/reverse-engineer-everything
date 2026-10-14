@@ -161,11 +161,11 @@ export const reconstructionProbes = (
     if (
       leftArguments === undefined ||
       rightArguments === undefined ||
-      leftArguments.length !== rightArguments.length ||
-      leftArguments.some((value, index) => value !== rightArguments[index])
+      leftArguments.length !== rightArguments.length
     )
       continue;
     const argumentVariations = leftArguments.flatMap((value, argumentIndex) => {
+      if (value !== rightArguments[argumentIndex]) return [];
       const candidateValues = decimalNeighbors(value);
       return candidateValues === undefined
         ? []
