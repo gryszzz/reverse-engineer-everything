@@ -324,6 +324,54 @@ its chosen cases, authority, and comparison dimensions. It does not establish
 global behavioral equivalence or select the cases needed to discover a bug.
 That selection and the candidate implementation still require human judgment.
 
+### Cross-technology probe of claim scope and uncertainty
+
+A second owned fixture exercised the same boundary through native C binaries,
+not the JavaScript source analyzer. The original computes a floating-point
+product; the candidate rounds it with `floor(product + 0.5)`. Both were compiled
+locally and run through REA Process Capture on macOS using Node 24.19.0, which
+is inside the package engine range. Their source, binaries, scenarios and
+Evidence remain outside the checkout at `/tmp/ree-bridge-c-probe-20261014`.
+
+- For `199 × 3`, both printed `597.00`. The terminal comparison was unchanged,
+  while the overall process comparison was `unknown`: filesystem and process
+  dimensions were unobserved, and process capture lists those limits explicitly.
+  A claim for only the terminal dimension passed; an overall claim remained
+  unknown. Comparison Evidence:
+  `ev_81007ed1904de91b399dcd5cdbc5d5d98b371ffd4f2c9d107e907045bcd8375c`.
+- For `1.05 × 10`, the original printed `10.50` and the candidate printed
+  `11.00`. REA located the first terminal divergence, and both the terminal and
+  overall claims failed. Comparison Evidence:
+  `ev_9b351b6ff9affe428554afe8fe9e2297b7f575685976d2eb974fd63633e86b72`.
+
+This is a useful separation of evidence: dimension-scoped claims let an analyst
+make a narrow statement when other dimensions are unavailable, while the
+overall result stays unknown. A pass still says only that a selected comparison
+dimension matched for the captured scenario. The claim schema binds a comparison
+Evidence ID and dimension, but its title is free text and it has no field for
+an input domain, boundary coverage, or rationale for case selection. The
+captures preserve the exact arguments, so the evidence is inspectable; the
+verifier does not infer that `199 × 3` represents all prices or quantities.
+
+The broader structures already support parts of a disciplined investigation.
+Residual unknowns can be scoped, tied to supporting and contradicting Evidence,
+related to dependencies, and assigned required authority, confidence,
+environment, and recommended operation/rationale. Reconstruction obligations
+can require named case kinds, fixture authority, verifier authority, and
+Evidence-backed closure. Those mechanisms keep gaps visible and make an
+analyst's chosen obligations reviewable. They do not represent competing
+hypotheses with predicted outcomes, generate discriminating inputs, or decide
+when a sample is representative. A recommended probe is guidance, not an
+executable experiment plan.
+
+The practical bridge currently consists of preserving observations and
+unknowns, helping an engineer record obligations and case evidence, and
+checking explicit finite comparisons. The missing judgment is in formulating
+the hypothesis, selecting high-information cases, and stating the supported
+behavioral boundary. The experiment does not show that REA's comparison or
+verification logic is defective; it shows which decisions those mechanisms
+intentionally leave to the investigator.
+
 The controlled files, captures, comparison Evidence, and reproduction scripts
 for this pass were kept outside the checkout under
 `/tmp/ree-capability-demo.yG6faS`; they are local experiment artifacts, not a
