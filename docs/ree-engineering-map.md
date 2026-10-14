@@ -199,16 +199,15 @@ identities; the GitHub repository is now `gryszzz/reverse-engineer-everything`.
 The source fork has not yet established its own distributable package identity.
 
 The checkout pins Node `24.18.0` in `.nvmrc` and npm `11.16.0` in
-`packageManager`. The declared engine range is Node `^22.19.0 || ^24.11.0 ||
-
-> =26.0.0`; SQLite requires Node `24.15+`or`26+`. `npm ci`installs the
-> lockfile-defined graph. TypeScript is compiled using`tsconfig.build.json`,
-> then `scripts/bundle-runtime.mjs`produces CLI/MCP runtime artifacts. Turborepo
-> coordinates cached build, test preparation, static checks and generated
-> metadata. Native providers and tools such as Ghidra, Hopper, JADX, WABT,
-> Binwalk, TShark and sigrok have separate prerequisites and are not all npm
-> dependencies.`frida`is optional.`third_party/` contains pinned or documented
-> vendored integrations and submodules.
+`packageManager`. The declared engine range is Node
+`^22.19.0 || ^24.11.0 || >=26.0.0`; SQLite requires Node `24.15+` or `26+`.
+`npm ci` installs the lockfile-defined graph. TypeScript is compiled using
+`tsconfig.build.json`, then `scripts/bundle-runtime.mjs` produces CLI/MCP runtime
+artifacts. Turborepo coordinates cached builds, test preparation, static checks
+and generated metadata. Native providers and tools such as Ghidra, Hopper, JADX,
+WABT, Binwalk, TShark and sigrok have separate prerequisites and are not all npm
+dependencies. `frida` is optional. `third_party/` contains pinned or documented
+vendored integrations and submodules.
 
 Vitest projects are divided by proof boundary: domain, services, adapters,
 composition, filesystem/process/CLI/MCP boundaries, acceptance, conformance,
