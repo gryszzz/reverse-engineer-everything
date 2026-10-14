@@ -276,6 +276,59 @@ start a fresh build under this unsupported, low-memory runtime.
 
 ## Established strengths and unresolved scope
 
+### Demonstrated boundary from analysis to reconstruction
+
+A small, self-owned JavaScript fixture was analyzed in two versions. Static
+Evidence retained the `lineTotal` function, parameter and property-read nodes,
+source ranges, and relationships. It did **not** encode the multiplication
+operator in the semantic graph, and the export-return-shape projection marked
+the `BinaryExpression` value unknown. The source files remain necessary when
+turning these observations into code; the Evidence record is not a source
+archive.
+
+The reconstruction-obligation generator produced one required
+`package-lifecycle` obligation for this fixture's package. It generated no
+obligation for the ordinary arithmetic function. This follows its current
+policy table: selected application boundaries and semantic resource/process
+nodes generate candidates, while generic functions and expressions do not.
+The obligation ledger is therefore a useful claim and ownership gate, not an
+automatic specification for every recovered function.
+
+Version comparison controls separated content changes from identity churn:
+
+- An unchanged copy analyzed from another directory retained the same root
+  artifact digest and graph identity; comparison reported 11 unchanged items,
+  with no additions, removals, or changes.
+- Changing only `pricing.js` produced one medium-confidence semantic-key match
+  classified as a changed JavaScript asset. The complete graph comparison also
+  reported five additions and five removals, mostly module nodes whose
+  identities are scoped to the artifact version, plus the root artifact node.
+  Those unmatched modules are not proof that five independent behaviors were
+  added and removed. The detailed matching counts expose the distinction; the
+  summary alone does not.
+
+A process-capture experiment then compared the original multiplication with an
+intentionally incorrect candidate that rounds every line total. The candidate
+matched four selected integer cases. A trace specification that ignored only
+frame sequence and observation time classified the terminal dimension as
+unchanged, and `verifyReconstruction` passed that one declared claim. The whole
+process comparison remained changed because settlement timing differed. Adding
+positive and negative fractional cases produced original output
+`[0,597,697,0,10.5,-10.5]` and candidate output `[0,597,697,0,11,-10]`; the
+terminal claim then failed with the output divergence attached to Evidence.
+
+This verifies that process capture, finite-trace comparison, and
+the reconstruction verifier can be composed into a precise finite claim. It
+also demonstrates the limit: closure means every declared claim passed under
+its chosen cases, authority, and comparison dimensions. It does not establish
+global behavioral equivalence or select the cases needed to discover a bug.
+That selection and the candidate implementation still require human judgment.
+
+The controlled files, captures, comparison Evidence, and reproduction scripts
+for this pass were kept outside the checkout under
+`/tmp/ree-capability-demo.yG6faS`; they are local experiment artifacts, not a
+committed fixture suite or persistent release Evidence.
+
 ### Verified strengths
 
 - REE's beginner path distinguishes preview, static analysis and provider-led
@@ -307,10 +360,14 @@ start a fresh build under this unsupported, low-memory runtime.
 
 1. **Investigation graph across existing operations.** The services already
    consume linked Evidence for static graphs, runtime observations, version
-   differences and reconstruction checks. A guided workflow could join these
-   operations while preserving the exact parent IDs, provenance and unknowns.
-   Test it with one analyst question and measure whether it yields a clearer
-   verified result than manually chaining tools.
+   differences and reconstruction checks. The source-owned JavaScript verifier
+   already composes two static analyses, a version comparison, one feature
+   trace and a common export-shape comparison; a separate verifier reconciles
+   static analysis with supplied runtime Evidence. The remaining question is
+   whether a user-facing workflow should connect those existing paths and
+   reconstruction claims while preserving parent IDs, provenance and
+   unknowns. Measure that against the current scripts and manual CLI/MCP flow
+   before adding orchestration.
 2. **Provider readiness as evidence.** The current layers distinguish candidate
    discovery from selection and execution. A structured readiness report could
    clarify which part is missing for a selected workflow without claiming an
