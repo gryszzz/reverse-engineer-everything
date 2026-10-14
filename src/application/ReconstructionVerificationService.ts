@@ -87,7 +87,7 @@ export const evaluateReconstructionVerificationValidated = (
   try {
     return ok(verifyReconstruction(input.specification, input.evidence_bundle));
   } catch (cause: unknown) {
-    if (cause instanceof z.ZodError)
+    if (cause instanceof z.ZodError || cause instanceof TypeError)
       return err(workflowInputError(OPERATION, cause));
     return err(
       new AnalysisProtocolError("Reconstruction verification failed", {
