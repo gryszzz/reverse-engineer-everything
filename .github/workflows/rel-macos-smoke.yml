@@ -59,7 +59,10 @@ jobs:
       - name: Build native-host REA runtime on macOS
         run: npm run build:cached
       - name: Discover and verify a bounded C counterexample
-        run: node scripts/verify/reconstruction/c-process-probe.mjs "$RUNNER_TEMP/ree-c-investigation" --approve-recommended-probes --refine-candidate
+        run: |
+          node scripts/verify/reconstruction/c-process-probe.mjs "$RUNNER_TEMP/ree-c-proposal" --approve-recommended-probes --refine-candidate
+          proposal_digest="$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).proposal_sha256)' "$RUNNER_TEMP/ree-c-proposal/candidate-refinement/candidate-patch-proposal.json")"
+          node scripts/verify/reconstruction/c-process-probe.mjs "$RUNNER_TEMP/ree-c-approved" --approve-recommended-probes --refine-candidate "--approve-proposed-patch=$proposal_digest"
       - name: Verify a cross-language tax reconstruction probe loop
         run: node scripts/verify/reconstruction/cross-language-tax-probe.mjs --approve-recommended-probes
       - name: Verify real Mac-side REA MCP discovery

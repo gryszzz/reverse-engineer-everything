@@ -26,25 +26,36 @@ const approveRecommendedProbes = scriptArguments.includes(
   "--approve-recommended-probes",
 );
 const refineCandidate = scriptArguments.includes("--refine-candidate");
+const proposalApproval = scriptArguments
+  .find((argument) => argument.startsWith("--approve-proposed-patch="))
+  ?.slice("--approve-proposed-patch=".length);
 const requestedOutputRoot = scriptArguments.find(
   (argument) =>
     argument !== "--approve-recommended-probes" &&
-    argument !== "--refine-candidate",
+    argument !== "--refine-candidate" &&
+    !argument.startsWith("--approve-proposed-patch="),
 );
 if (
   scriptArguments.some(
     (argument) =>
       argument.startsWith("--") &&
       argument !== "--approve-recommended-probes" &&
-      argument !== "--refine-candidate",
+      argument !== "--refine-candidate" &&
+      !argument.startsWith("--approve-proposed-patch="),
   )
 )
   throw new Error(
-    "Usage: c-process-probe.mjs [new-output-directory] [--approve-recommended-probes] [--refine-candidate]",
+    "Usage: c-process-probe.mjs [new-output-directory] [--approve-recommended-probes] [--refine-candidate] [--approve-proposed-patch=<sha256>]",
   );
 if (refineCandidate && !approveRecommendedProbes)
   throw new Error(
     "Candidate refinement requires --approve-recommended-probes so its bounded source probes are explicitly approved first.",
+  );
+if (proposalApproval !== undefined && !refineCandidate)
+  throw new Error("Patch approval requires --refine-candidate.");
+if (proposalApproval !== undefined && !/^[a-f0-9]{64}$/u.test(proposalApproval))
+  throw new Error(
+    "--approve-proposed-patch must contain the SHA-256 shown in a prior candidate patch proposal.",
   );
 const outputRoot = requestedOutputRoot
   ? resolve(requestedOutputRoot)
@@ -72,6 +83,202 @@ const run = (executable, args, options = {}) => {
 };
 
 const digest = (value) => createHash("sha256").update(value).digest("hex");
+
+const findCallArguments = (source, name) => {
+  const matches = [...source.matchAll(new RegExp(`\\b${name}\\s*\\(`, "gu"))];
+  if (matches.length !== 1) return undefined;
+  const match = matches[0];
+  const open = source.indexOf("(", match.index);
+  let quote;
+  let escaped = false;
+  let lineComment = false;
+  let blockComment = false;
+  let parentheses = 1;
+  let brackets = 0;
+  let braces = 0;
+  let argumentStart = open + 1;
+  const arguments_ = [];
+  let close = -1;
+  for (let index = open + 1; index < source.length; index += 1) {
+    const current = source[index];
+    const next = source[index + 1];
+    if (lineComment) {
+      if (current === "\n") lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (current === "*" && next === "/") {
+        blockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote !== undefined) {
+      if (escaped) escaped = false;
+      else if (current === "\\") escaped = true;
+      else if (current === quote) quote = undefined;
+      continue;
+    }
+    if (current === "/" && next === "/") {
+      lineComment = true;
+      index += 1;
+    } else if (current === "/" && next === "*") {
+      blockComment = true;
+      index += 1;
+    } else if (current === '"' || current === "'") quote = current;
+    else if (current === "(") parentheses += 1;
+    else if (current === ")") {
+      parentheses -= 1;
+      if (parentheses === 0) {
+        arguments_.push({ start: argumentStart, end: index });
+        close = index;
+        break;
+      }
+    } else if (current === "[") brackets += 1;
+    else if (current === "]") brackets -= 1;
+    else if (current === "{") braces += 1;
+    else if (current === "}") braces -= 1;
+    else if (
+      current === "," &&
+      parentheses === 1 &&
+      brackets === 0 &&
+      braces === 0
+    ) {
+      arguments_.push({ start: argumentStart, end: index });
+      argumentStart = index + 1;
+    }
+  }
+  if (close < 0 || arguments_.length !== 2) return undefined;
+  return {
+    start: match.index,
+    end: close + 1,
+    arguments: arguments_.map(({ start, end }) => {
+      while (/\s/u.test(source[start] ?? "")) start += 1;
+      while (end > start && /\s/u.test(source[end - 1] ?? "")) end -= 1;
+      return { start, end, text: source.slice(start, end) };
+    }),
+  };
+};
+
+const sourceLineAt = (source, offset) => {
+  const lineStart = source.lastIndexOf("\n", offset - 1) + 1;
+  const newline = source.indexOf("\n", offset);
+  return {
+    number: source.slice(0, lineStart).split("\n").length,
+    start: lineStart,
+    end: newline < 0 ? source.length : newline,
+  };
+};
+
+const replaceSourceRange = (source, range, replacement) =>
+  source.slice(0, range.start) + replacement + source.slice(range.end);
+
+const replacementPatch = (source, range, replacement, targetName) => {
+  const location = sourceLineAt(source, range.start);
+  const originalLine = source.slice(location.start, location.end);
+  const relativeStart = range.start - location.start;
+  const relativeEnd = range.end - location.start;
+  const proposedLine =
+    originalLine.slice(0, relativeStart) +
+    replacement +
+    originalLine.slice(relativeEnd);
+  return [
+    "--- a/candidate.c",
+    `+++ b/${targetName}`,
+    `@@ -${location.number},1 +${location.number},1 @@`,
+    `-${originalLine}`,
+    `+${proposedLine}`,
+    "",
+  ].join("\n");
+};
+
+const proposeOutputExpressionTransfer = ({
+  authoritySource,
+  candidateSource,
+  comparison,
+}) => {
+  const observation = comparison.normalized_result;
+  if (
+    observation.status !== "changed" ||
+    observation.terminal !== "changed" ||
+    observation.first_divergence.status !== "found" ||
+    observation.first_divergence.dimension !== "terminal" ||
+    observation.first_divergence.left === null ||
+    observation.first_divergence.right === null ||
+    canonicalString(observation.first_divergence.left) ===
+      canonicalString(observation.first_divergence.right)
+  )
+    return {
+      state: "insufficient-evidence",
+      reason:
+        "A confirmed terminal divergence is required before proposing a source change.",
+    };
+  const authorityCall = findCallArguments(authoritySource, "printf");
+  const candidateCall = findCallArguments(candidateSource, "printf");
+  if (authorityCall === undefined || candidateCall === undefined)
+    return {
+      state: "insufficient-source-structure",
+      reason:
+        "Both programs must contain exactly one balanced printf call with two arguments.",
+    };
+  const [authorityFormat, authorityExpression] = authorityCall.arguments;
+  const [candidateFormat, candidateExpression] = candidateCall.arguments;
+  if (
+    authorityFormat.text !== candidateFormat.text ||
+    authorityExpression.text === candidateExpression.text
+  )
+    return {
+      state: "insufficient-source-alignment",
+      reason:
+        "The output format arguments must match and the output expressions must differ.",
+    };
+  const patch = replacementPatch(
+    candidateSource,
+    candidateExpression,
+    authorityExpression.text,
+    "candidate.c",
+  );
+  const location = sourceLineAt(candidateSource, candidateExpression.start);
+  const sourceIdentity = {
+    authority_source_sha256: digest(authoritySource),
+    candidate_source_sha256: digest(candidateSource),
+  };
+  const proposalSha256 = digest(
+    canonicalString({
+      version: 1,
+      ...sourceIdentity,
+      patch,
+    }),
+  );
+  return {
+    state: "proposed-awaiting-approval",
+    proposal_sha256: proposalSha256,
+    method: "matched-output-expression-transfer",
+    basis_comparison_evidence_id: comparison.evidence_id,
+    observed_terminal_difference: {
+      reference: observation.first_divergence.left,
+      candidate: observation.first_divergence.right,
+    },
+    source_identity: sourceIdentity,
+    matched_output_format: authorityFormat.text,
+    candidate_expression: candidateExpression.text,
+    reference_expression: authorityExpression.text,
+    candidate_source_range: {
+      start: candidateExpression.start,
+      end: candidateExpression.end,
+      line: location.number,
+      start_column: candidateExpression.start - location.start + 1,
+      end_column: candidateExpression.end - location.start,
+    },
+    patch,
+    rationale:
+      "A captured terminal mismatch is linked to the only output call whose format matches between the owned reference and candidate; the proposal transfers the differing expression and preserves the candidate's surrounding source.",
+    limitations:
+      "This is a constrained source-differential proposal. It transfers a matching reference expression; it does not infer the expression's meaning or demonstrate independent semantic synthesis.",
+  };
+};
+
+const canonicalString = (value) => JSON.stringify(value);
 
 const compiler = process.env.CC ?? "clang";
 const compilerVersion = run(compiler, ["--version"]).stdout.split("\n", 1)[0];
@@ -375,50 +582,92 @@ const runCandidateRefinement = async (batchEvidence) => {
   await mkdir(refinementRoot);
 
   const candidateText = candidateSource.toString("utf8");
-  const formula = "floor(unit_price * quantity + 0.5)";
-  const replaceFormulaOnce = (replacement) => {
-    assert.equal(
-      candidateText.split(formula).length - 1,
-      1,
-      "The owned candidate must contain exactly one expected rounding expression",
-    );
-    return candidateText.replace(formula, replacement);
-  };
-
-  // This deliberately narrow patch is a negative control: it fixes the one
-  // observed input, then the approved neighbors test whether that is enough.
-  const overfitSource = replaceFormulaOnce(
-    "(unit_price == 1.05 && quantity == 10 ? unit_price * quantity : floor(unit_price * quantity + 0.5))",
+  const proposal = proposeOutputExpressionTransfer({
+    authoritySource: authoritySource.toString("utf8"),
+    candidateSource: candidateText,
+    comparison: probeComparison,
+  });
+  const proposalPath = join(refinementRoot, "candidate-patch-proposal.json");
+  const proposalPatchPath = join(
+    refinementRoot,
+    "candidate-patch-proposal.patch",
   );
-  const refinedSource = replaceFormulaOnce("unit_price * quantity");
+  await writeFile(proposalPath, `${JSON.stringify(proposal, null, 2)}\n`);
+  if (proposal.patch !== undefined)
+    await writeFile(proposalPatchPath, proposal.patch);
+  if (proposal.state !== "proposed-awaiting-approval") {
+    const report = {
+      ...proposal,
+      proposal_path: proposalPath,
+      patch_path: proposal.patch === undefined ? null : proposalPatchPath,
+      application: "not-applied",
+    };
+    await writeFile(
+      join(refinementRoot, "candidate-refinement.report.json"),
+      `${JSON.stringify(report, null, 2)}\n`,
+    );
+    return report;
+  }
+  if (proposalApproval === undefined) {
+    const report = {
+      ...proposal,
+      proposal_path: proposalPath,
+      patch_path: proposalPatchPath,
+      application: "awaiting-explicit-digest-approval",
+      approval_argument: `--approve-proposed-patch=${proposal.proposal_sha256}`,
+    };
+    await writeFile(
+      join(refinementRoot, "candidate-refinement.report.json"),
+      `${JSON.stringify(report, null, 2)}\n`,
+    );
+    await writeFile(
+      join(refinementRoot, "candidate-refinement.evidence-bundle.json"),
+      `${JSON.stringify(batchEvidence.normalized_result.evidence_bundle, null, 2)}\n`,
+    );
+    return report;
+  }
+  assert.equal(
+    proposalApproval,
+    proposal.proposal_sha256,
+    "Approval digest must match the freshly generated patch and both source snapshots",
+  );
+
+  const authorityCall = findCallArguments(
+    authoritySource.toString("utf8"),
+    "printf",
+  );
+  const candidateCall = findCallArguments(candidateText, "printf");
+  assert.ok(authorityCall && candidateCall);
+  const referenceExpression = authorityCall.arguments[1];
+  const candidateExpression = candidateCall.arguments[1];
+  const approvedSource = replaceSourceRange(
+    candidateText,
+    candidateExpression,
+    referenceExpression.text,
+  );
+  const overfitExpression =
+    `(unit_price == ${selectedProbe.unit_price} && quantity == ${selectedProbe.quantity} ` +
+    `? (${referenceExpression.text}) : (${candidateExpression.text}))`;
+  const overfitSource = replaceSourceRange(
+    candidateText,
+    candidateExpression,
+    overfitExpression,
+  );
   const overfitSourcePath = join(refinementRoot, "candidate-overfit.c");
-  const refinedSourcePath = join(refinementRoot, "candidate-refined.c");
+  const approvedSourcePath = join(refinementRoot, "candidate-approved.c");
   const overfitBinary = join(refinementRoot, "candidate-overfit");
-  const refinedBinary = join(refinementRoot, "candidate-refined");
+  const approvedBinary = join(refinementRoot, "candidate-approved");
   await Promise.all([
     writeFile(overfitSourcePath, overfitSource),
-    writeFile(refinedSourcePath, refinedSource),
+    writeFile(approvedSourcePath, approvedSource),
     writeFile(
       join(refinementRoot, "candidate-overfit.patch"),
-      [
-        "--- a/candidate.c",
-        "+++ b/candidate-overfit.c",
-        "@@ -10,1 +10,1 @@",
-        `- printf("%.2f\\n", ${formula});`,
-        `+ printf("%.2f\\n", (unit_price == 1.05 && quantity == 10 ? unit_price * quantity : ${formula}));`,
-        "",
-      ].join("\n"),
-    ),
-    writeFile(
-      join(refinementRoot, "candidate-refined.patch"),
-      [
-        "--- a/candidate.c",
-        "+++ b/candidate-refined.c",
-        "@@ -10,1 +10,1 @@",
-        `- printf("%.2f\\n", ${formula});`,
-        '+ printf("%.2f\\n", unit_price * quantity);',
-        "",
-      ].join("\n"),
+      replacementPatch(
+        candidateText,
+        candidateExpression,
+        overfitExpression,
+        "candidate-overfit.c",
+      ),
     ),
   ]);
 
@@ -465,7 +714,7 @@ const runCandidateRefinement = async (batchEvidence) => {
 
   const builds = await Promise.all([
     compileScratch("candidate-overfit", overfitSourcePath, overfitBinary),
-    compileScratch("candidate-refined", refinedSourcePath, refinedBinary),
+    compileScratch("candidate-approved", approvedSourcePath, approvedBinary),
   ]);
   const scenarios = [
     { id: "control", input: control },
@@ -534,7 +783,10 @@ const runCandidateRefinement = async (batchEvidence) => {
   };
 
   const overfitComparisons = await compareCandidate("overfit", overfitBinary);
-  const refinedComparisons = await compareCandidate("refined", refinedBinary);
+  const approvedComparisons = await compareCandidate(
+    "approved",
+    approvedBinary,
+  );
   const evidenceBundle = createEvidenceBundle(evidenceRecords);
   const verifyComparisons = async (label, comparisons) => {
     const specificationInputPath = join(
@@ -615,9 +867,9 @@ const runCandidateRefinement = async (batchEvidence) => {
     "overfit",
     overfitComparisons,
   );
-  const refinedVerification = await verifyComparisons(
-    "refined",
-    refinedComparisons,
+  const approvedVerification = await verifyComparisons(
+    "approved",
+    approvedComparisons,
   );
   assert.deepEqual(overfitVerification.statuses, {
     control: "pass",
@@ -626,7 +878,7 @@ const runCandidateRefinement = async (batchEvidence) => {
     "neighbor-above": "fail",
     "additional-quantity": "fail",
   });
-  assert.deepEqual(refinedVerification.statuses, {
+  assert.deepEqual(approvedVerification.statuses, {
     control: "pass",
     counterexample: "pass",
     "neighbor-below": "pass",
@@ -640,22 +892,24 @@ const runCandidateRefinement = async (batchEvidence) => {
   );
 
   const report = {
-    state: "observed-refinement-complete",
+    ...proposal,
+    state: "approved-proposal-verified",
+    proposal_path: proposalPath,
+    patch_path: proposalPatchPath,
+    approval: {
+      state: "approved-for-this-run",
+      argument: `--approve-proposed-patch=${proposalApproval}`,
+      proposal_sha256: proposal.proposal_sha256,
+    },
     authority_source_sha256: digest(authoritySource),
     original_candidate_source_sha256: digest(candidateSource),
     original_candidate_preserved: true,
-    proposed_change: {
-      basis_comparison_evidence_id: probeComparison.evidence_id,
-      observation:
-        "At the captured half-unit counterexample, the candidate rounds the product to a whole unit while the authority preserves two decimal places.",
-      rejected_overfit_source_path: overfitSourcePath,
-      rejected_overfit_source_sha256: digest(overfitSource),
-      refined_source_path: refinedSourcePath,
-      refined_source_sha256: digest(refinedSource),
-      patch_path: join(refinementRoot, "candidate-refined.patch"),
-      change:
-        "Replace whole-unit rounding with the original product expression.",
+    approved_candidate: {
+      source_path: approvedSourcePath,
+      source_sha256: digest(approvedSource),
     },
+    rejected_overfit_source_path: overfitSourcePath,
+    rejected_overfit_source_sha256: digest(overfitSource),
     builds,
     overfit_verification: {
       status: overfitVerification.verificationEvidence.normalized_result.status,
@@ -663,9 +917,10 @@ const runCandidateRefinement = async (batchEvidence) => {
       decision:
         "rejected because the targeted example fix regresses neighboring and additional inputs",
     },
-    refined_verification: {
-      status: refinedVerification.verificationEvidence.normalized_result.status,
-      claim_statuses: refinedVerification.statuses,
+    approved_proposal_verification: {
+      status:
+        approvedVerification.verificationEvidence.normalized_result.status,
+      claim_statuses: approvedVerification.statuses,
       decision: "accepted for these five observed terminal claims only",
     },
     evidence_bundle_path: join(
@@ -680,16 +935,16 @@ const runCandidateRefinement = async (batchEvidence) => {
       refinementRoot,
       "overfit.verification.evidence.json",
     ),
-    refined_specification_evidence_path: join(
+    approved_specification_evidence_path: join(
       refinementRoot,
-      "refined.specification.evidence.json",
+      "approved.specification.evidence.json",
     ),
-    refined_verification_evidence_path: join(
+    approved_verification_evidence_path: join(
       refinementRoot,
-      "refined.verification.evidence.json",
+      "approved.verification.evidence.json",
     ),
     limitation:
-      "This analyst-authored patch and finite owned C fixture do not demonstrate autonomous patch synthesis or general behavioral equivalence.",
+      "This source-differential expression transfer and finite owned C fixture do not demonstrate semantic patch synthesis or general behavioral equivalence.",
   };
   await Promise.all([
     writeFile(

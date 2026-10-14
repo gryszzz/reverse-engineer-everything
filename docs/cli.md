@@ -194,20 +194,32 @@ specification derivation and verification again:
 npm run verify:ree-investigation-boundary -- --approve-recommended-probes
 ```
 
-The C investigation fixture also has an opt-in candidate refinement experiment:
+The C investigation fixture can propose a source change from the terminal
+counterexample and the two owned source files. It only supports a single
+`printf` call whose format argument matches; it proposes transferring the
+differing output expression from the reference. This is source-differential
+transfer, not semantic code synthesis. The first run saves the proposal and
+does not materialize, build, or execute the proposed candidate:
 
 ```sh
-npm run verify:ree-investigation-boundary -- --approve-recommended-probes --refine-candidate
+npm run verify:ree-investigation-boundary -- /tmp/ree-c-proposal --approve-recommended-probes --refine-candidate
 ```
 
-This compiles scratch copies of the owned candidate, tests a counterexample-only
-negative control against the approved neighboring probes, and verifies a
-narrow analyst-authored formula change against the retained and additional
-terminal observations. Source patches, build details, captures, comparison
-Evidence, derived specifications, verification Evidence, and a summary are
-saved under `candidate-refinement/` in the chosen output directory. The checked-in
-fixture is preserved. Passing means these finite terminal claims matched; it
-does not establish general behavioral equivalence or autonomous patch synthesis.
+Review `candidate-refinement/candidate-patch-proposal.json` and its `.patch`
+file. The proposal SHA-256 binds the patch and both source snapshots. To apply
+that same proposal in a new disposable run, pass the reviewed digest:
+
+```sh
+npm run verify:ree-investigation-boundary -- /tmp/ree-c-approved --approve-recommended-probes --refine-candidate --approve-proposed-patch=<sha256-from-proposal>
+```
+
+Only a digest match materializes the candidate copy. The harness then builds
+it, rejects a counterexample-only negative control using neighboring and extra
+quantity inputs, and verifies the approved proposal against five finite
+terminal claims. Builds, captures, comparison Evidence, specifications,
+verification Evidence, and the report are saved under `candidate-refinement/`.
+The checked-in fixture remains unchanged. A pass does not establish general
+behavioral equivalence or independent semantic synthesis.
 
 This experiment is limited to one argument variation, two process captures,
 and one comparison. Its approval record and new Evidence are saved alongside
