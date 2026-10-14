@@ -7,6 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createEvidenceBundle } from "../../../dist/domain/evidenceBundle.js";
+import { synthesizeBlackBoxExpression } from "./black-box-expression-synthesis.mjs";
 import {
   executeApprovedReconstructionProcessProbeBatch,
   prepareReconstructionProcessProbeBatch,
@@ -26,6 +27,7 @@ const approveRecommendedProbes = scriptArguments.includes(
   "--approve-recommended-probes",
 );
 const refineCandidate = scriptArguments.includes("--refine-candidate");
+const blackBoxSynthesis = scriptArguments.includes("--black-box-synthesis");
 const proposalApproval = scriptArguments
   .find((argument) => argument.startsWith("--approve-proposed-patch="))
   ?.slice("--approve-proposed-patch=".length);
@@ -33,6 +35,7 @@ const requestedOutputRoot = scriptArguments.find(
   (argument) =>
     argument !== "--approve-recommended-probes" &&
     argument !== "--refine-candidate" &&
+    argument !== "--black-box-synthesis" &&
     !argument.startsWith("--approve-proposed-patch="),
 );
 if (
@@ -41,12 +44,15 @@ if (
       argument.startsWith("--") &&
       argument !== "--approve-recommended-probes" &&
       argument !== "--refine-candidate" &&
+      argument !== "--black-box-synthesis" &&
       !argument.startsWith("--approve-proposed-patch="),
   )
 )
   throw new Error(
-    "Usage: c-process-probe.mjs [new-output-directory] [--approve-recommended-probes] [--refine-candidate] [--approve-proposed-patch=<sha256>]",
+    "Usage: c-process-probe.mjs [new-output-directory] [--approve-recommended-probes] [--refine-candidate] [--black-box-synthesis] [--approve-proposed-patch=<sha256>]",
   );
+if (blackBoxSynthesis && !refineCandidate)
+  throw new Error("Black-box synthesis requires --refine-candidate.");
 if (refineCandidate && !approveRecommendedProbes)
   throw new Error(
     "Candidate refinement requires --approve-recommended-probes so its bounded source probes are explicitly approved first.",
@@ -446,6 +452,12 @@ const capturePair = async (label, input) => {
   };
 };
 
+const terminalOutput = (captureRecord) =>
+  captureRecord.evidence.normalized_result.frames
+    .map(({ data }) => data)
+    .join("")
+    .trim();
+
 const controlPair = await capturePair("control", control);
 const controlComparison = await compare(
   "control",
@@ -582,11 +594,104 @@ const runCandidateRefinement = async (batchEvidence) => {
   await mkdir(refinementRoot);
 
   const candidateText = candidateSource.toString("utf8");
-  const proposal = proposeOutputExpressionTransfer({
-    authoritySource: authoritySource.toString("utf8"),
-    candidateSource: candidateText,
-    comparison: probeComparison,
-  });
+  let proposal;
+  if (blackBoxSynthesis) {
+    const observations = [
+      {
+        id: "control",
+        input: {
+          unit_price: Number(control.unit_price),
+          quantity: control.quantity,
+        },
+        expected_stdout: terminalOutput(controlPair.left),
+        comparison_evidence_id: controlComparison.evidence_id,
+      },
+      {
+        id: "counterexample",
+        input: {
+          unit_price: Number(selectedProbe.unit_price),
+          quantity: selectedProbe.quantity,
+        },
+        expected_stdout: terminalOutput(probePair.left),
+        comparison_evidence_id: probeComparison.evidence_id,
+      },
+    ];
+    const synthesis = synthesizeBlackBoxExpression(
+      observations.map(({ input, expected_stdout }) => ({
+        input,
+        expected_stdout,
+      })),
+    );
+    const candidateCall = findCallArguments(candidateText, "printf");
+    if (synthesis.state !== "unique-fit-in-declared-grammar") {
+      proposal = {
+        ...synthesis,
+        method: "bounded-enumerative-expression-search",
+        application: "not-applied",
+      };
+    } else if (candidateCall === undefined) {
+      proposal = {
+        state: "insufficient-candidate-structure",
+        reason:
+          "Candidate must contain exactly one balanced two-argument printf call.",
+        method: synthesis.method,
+      };
+    } else {
+      const [formatArgument, outputArgument] = candidateCall.arguments;
+      const patch = replacementPatch(
+        candidateText,
+        outputArgument,
+        synthesis.expression,
+        "candidate.c",
+      );
+      const sourceIdentity = {
+        candidate_source_sha256: digest(candidateSource),
+      };
+      const proposalSha256 = digest(
+        canonicalString({
+          version: 1,
+          method: synthesis.method,
+          ...sourceIdentity,
+          grammar: synthesis.grammar,
+          selected_hypothesis_id: synthesis.selected_hypothesis_id,
+          observations: observations.map(({ input, expected_stdout }) => ({
+            input,
+            expected_stdout,
+          })),
+          patch,
+        }),
+      );
+      proposal = {
+        state:
+          outputArgument.text === synthesis.expression
+            ? "candidate-already-matches-proposal"
+            : "proposed-awaiting-approval",
+        proposal_sha256: proposalSha256,
+        method: synthesis.method,
+        search: synthesis,
+        source_identity: sourceIdentity,
+        candidate_expression: outputArgument.text,
+        proposed_expression: synthesis.expression,
+        matched_output_format: formatArgument.text,
+        training_observations: observations,
+        basis_comparison_evidence_ids: observations.map(
+          ({ comparison_evidence_id }) => comparison_evidence_id,
+        ),
+        reference_source_provided_to_synthesizer: false,
+        rationale:
+          "A unique expression in the declared grammar matches captured reference outputs for the control and counterexample. The synthesis function receives only these input/output observations; the reference implementation is queried as an executable and its source expression is not passed to the proposer.",
+        limitations:
+          "This is a small, target-specific arithmetic grammar fit to two examples. It is not general program synthesis, and only separately captured holdouts can test whether the selected expression generalizes.",
+        patch,
+      };
+    }
+  } else {
+    proposal = proposeOutputExpressionTransfer({
+      authoritySource: authoritySource.toString("utf8"),
+      candidateSource: candidateText,
+      comparison: probeComparison,
+    });
+  }
   const proposalPath = join(refinementRoot, "candidate-patch-proposal.json");
   const proposalPatchPath = join(
     refinementRoot,
@@ -632,22 +737,28 @@ const runCandidateRefinement = async (batchEvidence) => {
     "Approval digest must match the freshly generated patch and both source snapshots",
   );
 
-  const authorityCall = findCallArguments(
-    authoritySource.toString("utf8"),
-    "printf",
-  );
+  const authorityCall = blackBoxSynthesis
+    ? undefined
+    : findCallArguments(authoritySource.toString("utf8"), "printf");
   const candidateCall = findCallArguments(candidateText, "printf");
-  assert.ok(authorityCall && candidateCall);
-  const referenceExpression = authorityCall.arguments[1];
+  assert.ok(candidateCall);
+  if (!blackBoxSynthesis) assert.ok(authorityCall);
+  const referenceExpression = authorityCall?.arguments[1];
   const candidateExpression = candidateCall.arguments[1];
+  const approvedExpression = blackBoxSynthesis
+    ? proposal.proposed_expression
+    : referenceExpression?.text;
+  assert.equal(typeof approvedExpression, "string");
   const approvedSource = replaceSourceRange(
     candidateText,
     candidateExpression,
-    referenceExpression.text,
+    approvedExpression,
   );
-  const overfitExpression =
-    `(unit_price == ${selectedProbe.unit_price} && quantity == ${selectedProbe.quantity} ` +
-    `? (${referenceExpression.text}) : (${candidateExpression.text}))`;
+  const overfitReplacement = blackBoxSynthesis
+    ? `((unit_price == ${selectedProbe.unit_price} && quantity == ${selectedProbe.quantity}) ? ${Number(selectedProbe.authority_output)} : (${candidateExpression.text}))`
+    : `(unit_price == ${selectedProbe.unit_price} && quantity == ${selectedProbe.quantity} ` +
+      `? (${referenceExpression?.text}) : (${candidateExpression.text}))`;
+  const overfitExpression = overfitReplacement;
   const overfitSource = replaceSourceRange(
     candidateText,
     candidateExpression,
@@ -943,8 +1054,9 @@ const runCandidateRefinement = async (batchEvidence) => {
       refinementRoot,
       "approved.verification.evidence.json",
     ),
-    limitation:
-      "This source-differential expression transfer and finite owned C fixture do not demonstrate semantic patch synthesis or general behavioral equivalence.",
+    limitation: blackBoxSynthesis
+      ? "The proposer fits a declared five-expression arithmetic grammar from two observations; this does not demonstrate general program synthesis or behavioral equivalence. The input domain and initial probe search remain human-authored, and the reference source remains present in the repository outside the proposer input boundary."
+      : "This source-differential expression transfer and finite owned C fixture do not demonstrate semantic patch synthesis or general behavioral equivalence.",
   };
   await Promise.all([
     writeFile(

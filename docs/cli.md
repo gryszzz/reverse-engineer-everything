@@ -221,6 +221,35 @@ verification Evidence, and the report are saved under `candidate-refinement/`.
 The checked-in fixture remains unchanged. A pass does not establish general
 behavioral equivalence or independent semantic synthesis.
 
+### Source-blind bounded expression synthesis
+
+The same owned C experiment also has a separate `--black-box-synthesis` mode.
+It compiles and queries the reference as an executable, then passes only the
+captured control and counterexample input/output values to a bounded expression
+search. The proposer does not receive the reference source expression. It
+searches five declared arithmetic forms, refuses ambiguous or unsupported fits,
+and proposes only when exactly one form explains both observations:
+
+```sh
+node scripts/verify/reconstruction/c-process-probe.mjs /tmp/ree-blackbox-proposal --approve-recommended-probes --refine-candidate --black-box-synthesis
+```
+
+Review the proposal and its digest, then start a fresh run with that digest to
+materialize and test the candidate change:
+
+```sh
+node scripts/verify/reconstruction/c-process-probe.mjs /tmp/ree-blackbox-approved --approve-recommended-probes --refine-candidate --black-box-synthesis --approve-proposed-patch=<sha256-from-proposal>
+```
+
+The approved candidate is compared on five terminal scenarios: the two
+training examples and three additional holdout cases. An input-specific negative
+control is expected to fail the neighboring and additional cases. The initial
+domain and mismatch search are human-authored; only the patch proposer is
+source-blind. This demonstrates a unique fit in a tiny arithmetic grammar, not
+general source recovery or proof of behavioral equivalence. The implementation
+of the reference remains present in this repository; source-blindness describes
+the proposer input boundary, not a secure isolation boundary.
+
 This experiment is limited to one argument variation, two process captures,
 and one comparison. Its approval record and new Evidence are saved alongside
 the original run. It does not provide a general-purpose approved probe

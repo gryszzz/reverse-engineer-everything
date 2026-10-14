@@ -63,6 +63,12 @@ jobs:
           node scripts/verify/reconstruction/c-process-probe.mjs "$RUNNER_TEMP/ree-c-proposal" --approve-recommended-probes --refine-candidate
           proposal_digest="$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).proposal_sha256)' "$RUNNER_TEMP/ree-c-proposal/candidate-refinement/candidate-patch-proposal.json")"
           node scripts/verify/reconstruction/c-process-probe.mjs "$RUNNER_TEMP/ree-c-approved" --approve-recommended-probes --refine-candidate "--approve-proposed-patch=$proposal_digest"
+      - name: Verify source-blind bounded expression synthesis
+        run: |
+          node --test scripts/verify/reconstruction/black-box-expression-synthesis.test.mjs
+          node scripts/verify/reconstruction/c-process-probe.mjs "$RUNNER_TEMP/ree-blackbox-proposal" --approve-recommended-probes --refine-candidate --black-box-synthesis
+          proposal_digest="$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).proposal_sha256)' "$RUNNER_TEMP/ree-blackbox-proposal/candidate-refinement/candidate-patch-proposal.json")"
+          node scripts/verify/reconstruction/c-process-probe.mjs "$RUNNER_TEMP/ree-blackbox-approved" --approve-recommended-probes --refine-candidate --black-box-synthesis "--approve-proposed-patch=$proposal_digest"
       - name: Verify a cross-language tax reconstruction probe loop
         run: node scripts/verify/reconstruction/cross-language-tax-probe.mjs --approve-recommended-probes
       - name: Verify real Mac-side REA MCP discovery
