@@ -469,6 +469,7 @@ const feedback = approveRecommendedProbes
         0,
         "Invalid plans must not validate or execute targets",
       );
+      const failedCaptureScenarios = [];
       const failedCapturePlan =
         await executeApprovedReconstructionProcessProbeBatch(
           plan,
@@ -476,7 +477,8 @@ const feedback = approveRecommendedProbes
           {
             validateTarget: async ({ executable, expected_sha256 }) =>
               digest(await readFile(executable)) === expected_sha256,
-            capture: async () => {
+            capture: async (scenario) => {
+              failedCaptureScenarios.push(scenario);
               throw new Error("fixture capture failure");
             },
           },
@@ -485,7 +487,50 @@ const feedback = approveRecommendedProbes
       if (!failedCapturePlan.ok)
         throw new Error(failedCapturePlan.error.message);
       assert.equal(failedCapturePlan.value.normalized_result.state, "partial");
-      assert.equal(failedCapturePlan.value.normalized_result.probes.length, 1);
+      const failedProbeResults =
+        failedCapturePlan.value.normalized_result.probes;
+      assert.equal(failedProbeResults.length, plan.probes.length);
+      assert.deepEqual(
+        failedProbeResults.map(({ selection, status, reason }) => ({
+          selection,
+          status,
+          reason,
+        })),
+        [
+          {
+            selection: plan.probes[0].selection,
+            status: "capture-failed",
+            reason: undefined,
+          },
+          {
+            selection: plan.probes[1].selection,
+            status: "not-run",
+            reason:
+              "Execution stopped after an earlier capture failure; this approved probe was not launched.",
+          },
+        ],
+        "Partial Evidence must preserve plan order and distinguish the failed probe from the skipped probe",
+      );
+      assert.equal(
+        failedCaptureScenarios.length,
+        1,
+        "The batch must not retry or launch later approved probes after a capture failure",
+      );
+      assert.deepEqual(
+        failedCaptureScenarios[0],
+        plan.probes[0].left_scenario,
+        "Only the first approved probe's left scenario may reach the failing capture adapter",
+      );
+      assert.equal(
+        failedProbeResults[0].right_capture_evidence_id,
+        undefined,
+        "A failed left capture must not fabricate a right capture or comparison",
+      );
+      assert.equal(
+        failedProbeResults[0].comparison_evidence_id,
+        undefined,
+        "A failed capture must not fabricate a comparison",
+      );
       const approval = {
         state: "approved-for-this-run",
         approval:
