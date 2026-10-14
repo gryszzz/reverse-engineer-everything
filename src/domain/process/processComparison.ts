@@ -137,13 +137,22 @@ export const processDimensionObservations = (
     case "interaction":
       return capture.interaction_events;
     case "exit":
-      return [{ ...capture.exit, settlement: capture.settlement }];
+      return [lifecycleOutcome(capture)];
     case "filesystem":
       return filesystemObservations(capture);
     case "process":
       return capture.process_samples;
   }
 };
+
+/** Project lifecycle outcomes without scheduler-dependent duration samples. */
+const lifecycleOutcome = (capture: ProcessCapture) => ({
+  ...capture.exit,
+  settlement: {
+    state: capture.settlement.state,
+    cleanup_outcome: capture.settlement.cleanup_outcome,
+  },
+});
 
 const classifyCollection = (
   left: readonly unknown[],
@@ -384,10 +393,7 @@ const compareDimensions = (
     exit:
       hasUnknown(left, "exit") || hasUnknown(right, "exit")
         ? "unknown"
-        : sameJsonValue(
-              { exit: left.exit, settlement: left.settlement },
-              { exit: right.exit, settlement: right.settlement },
-            )
+        : sameJsonValue(lifecycleOutcome(left), lifecycleOutcome(right))
           ? "unchanged"
           : "changed",
     filesystem: classify(

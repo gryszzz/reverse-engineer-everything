@@ -377,13 +377,20 @@ The reusable follow-up is now an owned fixture at
 Its verification harness enumerates a declared 100–200 cent unit-price range
 and four quantities, looking specifically for half-unit products under the
 stated rounding hypothesis. It found `1.05 × 10` on the first eligible probe.
-The finite trace specification ignores only frame sequence/time and settlement
-elapsed time; it retains exact terminal text and rendering, exit result,
-settlement state, and cleanup outcome. The integer control's terminal claim
-passes while the overall result stays unknown; the discovered counterexample
-fails. This confirms an existing REA trace facility can express useful,
-bounded normalization. The test author still supplies the hypothesis, domain,
-and probe rule.
+The finite trace specification ignores frame sequence/time, constrains exact
+raw terminal output and rendered screen content, and marks their capture order
+unordered. A hosted macOS run showed that rendering and process lifecycle events
+can arrive in a different journal order (and settlement may not appear in that
+journal) even when terminal evidence matches. Local captures also differed only
+in settlement duration. The process comparison now excludes that scheduler
+dependent measurement from its lifecycle outcome, while preserving it in the
+capture Evidence. Timing claims can still be stated explicitly in a trace. The
+fixture therefore does not claim lifecycle timing equivalence: the integer
+control's terminal claim passes while the overall result stays unknown; the
+discovered counterexample fails. This confirms an existing REA trace facility
+can express a useful, bounded output comparison, while also exposing that
+cross-platform process-event ordering needs its own explicit contract. The test
+author still supplies the hypothesis, domain, and probe rule.
 
 The harness is wired into the macOS smoke workflow and retains its generated
 captures, comparisons, trace specifications, and summary as a seven-day CI

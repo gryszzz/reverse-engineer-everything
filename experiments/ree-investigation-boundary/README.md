@@ -28,6 +28,12 @@ the terminal and overall counterexample claims fail and the control statuses
 match expectations. The macOS smoke workflow retains this output as a
 short-lived CI artifact.
 
+The finite-trace comparison constrains exact raw terminal output and rendered
+screen content, while treating their capture order as unordered. On macOS,
+process lifecycle journal order can vary even when terminal evidence matches,
+so the fixture does not claim lifecycle equivalence. That broader claim
+remains unknown.
+
 This is a demonstration of an investigation loop, not an autonomous REA feature.
 The human supplies the hypothesis, the candidate input domain, and the rule for
 selecting a probe. Enumeration can expose a counterexample within that bounded

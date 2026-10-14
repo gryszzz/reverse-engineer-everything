@@ -172,12 +172,8 @@ const compare = async (label, left, right) => {
       kind: "finite_traces",
       variants: [
         {
-          id: "raw-then-rendered",
-          trace: ["terminal-raw", "terminal-rendered"],
-        },
-        {
-          id: "rendered-then-raw",
-          trace: ["terminal-rendered", "terminal-raw"],
+          id: "one-terminal-output",
+          trace: [{ unordered: ["terminal-raw", "terminal-rendered"] }],
         },
       ],
     },

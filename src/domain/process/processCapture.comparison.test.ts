@@ -80,6 +80,23 @@ it("distinguishes added evidence from unknown observations", () => {
   }
 });
 
+it("does not classify lifecycle timing jitter as a behavioral change", () => {
+  const capture = emptyCapture();
+  expect(
+    compareFullyObserved(
+      { ...capture, settlement: { ...capture.settlement, elapsed_ms: 97 } },
+      { ...capture, settlement: { ...capture.settlement, elapsed_ms: 94 } },
+    ),
+  ).toMatchObject({ status: "unchanged", exit: "unchanged" });
+
+  expect(
+    compareFullyObserved(
+      { ...capture, exit: { ...capture.exit, code: 1 } },
+      capture,
+    ),
+  ).toMatchObject({ status: "changed", exit: "changed" });
+});
+
 it("compares raw terminal and process observations while honoring normalization shape", () => {
   const capture = emptyCapture();
   expect(
