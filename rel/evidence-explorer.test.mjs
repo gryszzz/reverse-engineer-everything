@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -122,4 +122,15 @@ test("read-only CLI emits JSON and DOT from a saved local file", () => {
   assert.equal(JSON.parse(json.stdout).matching, 1);
   assert.match(run("--dot").stdout, /digraph REE/);
   assert.equal(run("--unauthorized").status, 2);
+});
+
+test("rejects oversized Evidence files before reading or parsing them", () => {
+  const file = join(directory, "oversized-evidence.json");
+  writeFileSync(file, "");
+  truncateSync(file, 64 * 1024 * 1024 + 1);
+
+  assert.throws(
+    () => readEvidence(file),
+    /Evidence must be a regular JSON file of at most 64 MiB/u,
+  );
 });
