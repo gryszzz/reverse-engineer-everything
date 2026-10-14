@@ -107,7 +107,7 @@ The engine supports multiple formats, but the usable path depends on the artifac
 | HAR, SAZ, qlog, or packet capture      | Inspection of saved network records                                                    | Format and tool requirements vary. Reading a capture does not fetch URLs or perform live capture.                               |
 | Go or Rust binary metadata             | Embedded build or dependency metadata when present                                     | A missing metadata section is unknown metadata, not proof the binary uses no dependencies.                                      |
 
-For provider instructions, start from the [upstream documentation](UPSTREAM_REA_README.md) and the [advanced CLI guide](docs/cli.md). The [architecture diagram](docs/architecture.mermaid) and [testing guide](docs/testing.md) explain the underlying system and its validation approach.
+For provider instructions, start from the [upstream documentation](UPSTREAM_REA_README.md) and the [advanced CLI guide](docs/cli.md). The [architecture diagram](docs/architecture.mermaid), [source-verified engineering map](docs/ree-engineering-map.md), and [testing guide](docs/testing.md) explain the underlying system and its validation approach.
 
 ## Follow evidence from overview to detail
 
