@@ -343,8 +343,9 @@ export const executeApprovedReconstructionProcessProbeBatch = async (
       readonly left_capture_evidence_id?: string;
       readonly right_capture_evidence_id?: string;
       readonly comparison_evidence_id?: string;
-      readonly status: "compared" | "capture-failed";
+      readonly status: "compared" | "capture-failed" | "not-run";
       readonly failure?: string;
+      readonly reason?: string;
     }[] = [];
     for (const probe of plan.probes) {
       let leftCapture: Evidence;
@@ -426,6 +427,16 @@ export const executeApprovedReconstructionProcessProbeBatch = async (
           plan.execution_budget.comparisons
       )
         break;
+    }
+
+    if (completed.some(({ status }) => status === "capture-failed")) {
+      for (const probe of plan.probes.slice(completed.length))
+        completed.push({
+          selection: probe.selection,
+          status: "not-run",
+          reason:
+            "Execution stopped after an earlier capture failure; this approved probe was not launched.",
+        });
     }
 
     const addedClaims: ReconstructionClaim[] = [];

@@ -54,10 +54,10 @@ const digest = (value) => createHash("sha256").update(value).digest("hex");
 const writeJson = async (path, value) =>
   writeFile(path, `${JSON.stringify(value, null, 2)}\n`);
 
-const capture = async (label, executable, amountCents) => {
+const capture = async (label, executable, amountCents, mode = "tax") => {
   const scenario = {
     executable,
-    arguments: [String(amountCents)],
+    arguments: [String(amountCents), mode],
     working_directory: outputRoot,
     environment: {},
     timeout_ms: 5_000,
@@ -126,9 +126,19 @@ const compare = async (label, left, right) => {
   return evidence;
 };
 
-const comparePair = async (label, amountCents) => {
-  const left = await capture(`${label}.python`, pythonAuthority, amountCents);
-  const right = await capture(`${label}.ruby`, rubyCandidate, amountCents);
+const comparePair = async (label, amountCents, mode = "tax") => {
+  const left = await capture(
+    `${label}.python`,
+    pythonAuthority,
+    amountCents,
+    mode,
+  );
+  const right = await capture(
+    `${label}.ruby`,
+    rubyCandidate,
+    amountCents,
+    mode,
+  );
   return {
     left,
     right,
@@ -138,8 +148,14 @@ const comparePair = async (label, amountCents) => {
 
 const control = await comparePair("control-100-cents", 100);
 const counterexample = await comparePair("counterexample-99-cents", 99);
+const branch = await comparePair("refund-branch-99-cents", 99, "refund");
+const error = await comparePair("negative-amount-error", -1);
 assert.equal(control.comparison.normalized_result.terminal, "unchanged");
 assert.equal(counterexample.comparison.normalized_result.terminal, "changed");
+assert.equal(branch.comparison.normalized_result.terminal, "unchanged");
+assert.equal(branch.comparison.normalized_result.exit, "unchanged");
+assert.equal(error.comparison.normalized_result.terminal, "unchanged");
+assert.equal(error.comparison.normalized_result.exit, "unchanged");
 
 const sourceRecords = [
   control.left,
@@ -148,6 +164,12 @@ const sourceRecords = [
   counterexample.left,
   counterexample.right,
   counterexample.comparison,
+  branch.left,
+  branch.right,
+  branch.comparison,
+  error.left,
+  error.right,
+  error.comparison,
 ];
 const specificationInput = join(outputRoot, "specification-draft.input.json");
 await writeJson(specificationInput, {
@@ -161,6 +183,14 @@ await writeJson(specificationInput, {
     {
       comparison_evidence_id: counterexample.comparison.evidence_id,
       dimensions: ["terminal"],
+    },
+    {
+      comparison_evidence_id: branch.comparison.evidence_id,
+      dimensions: ["terminal", "exit"],
+    },
+    {
+      comparison_evidence_id: error.comparison.evidence_id,
+      dimensions: ["terminal", "exit"],
     },
   ],
 });
@@ -214,6 +244,18 @@ const plan = prepareReconstructionProcessProbeBatch({
 });
 assert.equal(plan.ok, true);
 if (!plan.ok) throw new Error(plan.error.message);
+const replayedPlan = prepareReconstructionProcessProbeBatch({
+  verification_request: verificationRequest,
+  selections,
+  max_probes: 2,
+});
+assert.equal(replayedPlan.ok, true);
+if (!replayedPlan.ok) throw new Error(replayedPlan.error.message);
+assert.equal(
+  replayedPlan.value.plan_sha256,
+  plan.value.plan_sha256,
+  "Replaying the same accumulated Evidence and selections must reproduce the plan digest",
+);
 assert.ok(
   plan.value.probes.every(
     ({ trace_specification }) => trace_specification !== undefined,
@@ -256,13 +298,55 @@ const followupStatuses = Object.fromEntries(
   ]),
 );
 assert.deepEqual(followupStatuses, { 98: "fail", 100: "pass" });
+
+let injectedCaptureCalls = 0;
+const interruptedBatch = await executeApprovedReconstructionProcessProbeBatch(
+  plan.value,
+  plan.value.plan_sha256,
+  {
+    validateTarget: async ({ executable, expected_sha256 }) =>
+      digest(await readFile(executable)) === expected_sha256,
+    capture: async () => {
+      injectedCaptureCalls += 1;
+      throw new Error("injected fixture capture failure");
+    },
+  },
+);
+assert.equal(interruptedBatch.ok, true);
+if (!interruptedBatch.ok) throw new Error(interruptedBatch.error.message);
+assert.equal(injectedCaptureCalls, 1, "A failed capture is not retried");
+assert.equal(interruptedBatch.value.normalized_result.state, "partial");
+assert.equal(
+  interruptedBatch.value.normalized_result.probes[0].status,
+  "capture-failed",
+);
+assert.equal(
+  interruptedBatch.value.normalized_result.probes.length,
+  plan.value.probes.length,
+  "The partial Evidence must account for every selected probe",
+);
+assert.equal(
+  interruptedBatch.value.normalized_result.probes[1].status,
+  "not-run",
+);
+assert.match(
+  interruptedBatch.value.normalized_result.probes[1].reason,
+  /was not launched/u,
+);
 const initialClaimStatuses = Object.fromEntries(
-  verificationResult.claims.items.map(({ comparison_evidence_id, status }) => [
-    comparison_evidence_id === control.comparison.evidence_id
-      ? "control"
-      : "counterexample",
-    status,
-  ]),
+  verificationResult.claims.items
+    .filter(({ comparison_evidence_id }) =>
+      [
+        control.comparison.evidence_id,
+        counterexample.comparison.evidence_id,
+      ].includes(comparison_evidence_id),
+    )
+    .map(({ comparison_evidence_id, status }) => [
+      comparison_evidence_id === control.comparison.evidence_id
+        ? "control"
+        : "counterexample",
+      status,
+    ]),
 );
 assert.deepEqual(initialClaimStatuses, {
   control: "pass",
@@ -278,6 +362,12 @@ console.log(
         "Ruby integer truncation",
       ],
       initial_terminal_claims: initialClaimStatuses,
+      branch_and_error_comparisons: {
+        refund_terminal: branch.comparison.normalized_result.terminal,
+        refund_exit: branch.comparison.normalized_result.exit,
+        negative_amount_terminal: error.comparison.normalized_result.terminal,
+        negative_amount_exit: error.comparison.normalized_result.exit,
+      },
       recommendation: {
         observed_value: variation.observed_value,
         candidate_values: variation.candidate_values,
@@ -286,6 +376,11 @@ console.log(
       approved_plan_sha256: plan.value.plan_sha256,
       followup_statuses: followupStatuses,
       evidence_record_count: batchResult.evidence_bundle.records.length,
+      deterministic_replay_plan_sha256: plan.value.plan_sha256,
+      injected_failure: {
+        state: interruptedBatch.value.normalized_result.state,
+        capture_calls: injectedCaptureCalls,
+      },
       limitation:
         "Owned finite terminal experiment. Results do not establish tax-policy correctness or general program equivalence.",
     },
