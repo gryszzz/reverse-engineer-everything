@@ -2,11 +2,11 @@
 
 # REE
 
-### Reverse Engineering Everything
+### Preserve the intelligence. Expand the possibilities.
 
-**Trace the system. Preserve the evidence.**
+**Reverse Engineering Everything**
 
-A local investigation workbench for turning software artifacts into evidence-backed explanations, comparisons, and bounded verification.
+A local investigation workbench built on the full REA analysis engine: native and managed binaries, apps, Android, firmware, runtime observations, and more.
 
 [Start here](#start-here) · [How the system fits together](#from-artifact-to-claim) · [Choose an investigation path](#choose-a-path) · [Explore the engine](#under-the-surface) · [Use with Codex](#connect-codex)
 
@@ -18,7 +18,7 @@ REE gives the REA analysis engine a deliberate front door and an evidence-center
 
 The aim is disciplined understanding: identify the artifact, choose an analysis route that fits it, retain where each result came from, and keep conclusions within the evidence collected. No single provider or reconstruction check explains every system.
 
-![REE investigation flow: artifacts pass through analysis routes into retained Evidence, which supports selected views, comparisons, and bounded claims.](docs/assets/ree-system-map.svg)
+![REE system map: diverse software artifacts enter selected REA analysis routes, produce provenance-rich Evidence, and support tracing, comparison, runtime reconciliation, and bounded reconstruction checks.](docs/assets/ree-system-map.svg)
 
 ## Start here
 

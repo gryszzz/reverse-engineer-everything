@@ -1,62 +1,119 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="900" height="750" viewBox="0 0 900 750" role="img" aria-labelledby="title desc">
-  <title id="title">REE investigation map</title>
-  <desc id="desc">Artifacts and supplied observations pass through distinct analysis routes into retained Evidence. Feature traces, comparisons, runtime reconciliation, and reconstruction checks use those records while keeping claims bounded by coverage and selected cases.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-labelledby="title desc">
+  <title id="title">REE — Preserve the intelligence. Expand the possibilities.</title>
+  <desc id="desc">A broad reverse-engineering system: software artifacts move through selected REA analysis routes into provenance-rich Evidence, which supports tracing, comparison, runtime reconciliation, and bounded reconstruction verification. REE, the REA CLI, and MCP share the inherited engine.</desc>
   <defs>
     <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
-      <path d="M32 0H0V32" fill="none" stroke="#d4e3f1" stroke-opacity=".045" stroke-width="1"/>
+      <path d="M32 0H0V32" fill="none" stroke="#8fa6c2" stroke-opacity=".055" stroke-width="1"/>
     </pattern>
-    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
-      <path d="M0 0 9 4.5 0 9Z" fill="#87a1b9"/>
-    </marker>
+    <linearGradient id="glow" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#173b49"/>
+      <stop offset="1" stop-color="#18243a"/>
+    </linearGradient>
   </defs>
-  <rect width="900" height="750" rx="18" fill="#101820"/>
-  <rect width="900" height="750" rx="18" fill="url(#grid)"/>
-  <path d="M0 74H900" stroke="#d4e3f1" stroke-opacity=".12"/>
-  <text x="42" y="48" fill="#f0f4f6" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="700" letter-spacing="2">REE / INVESTIGATION MAP</text>
-  <text x="858" y="48" text-anchor="end" fill="#a8b8c7" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="15">EVIDENCE IS THE HANDOFF</text>
+  <rect width="1200" height="700" rx="22" fill="#0b1220"/>
+  <rect width="1200" height="700" rx="22" fill="url(#grid)"/>
 
-  <g fill="#17232d" stroke="#526779" stroke-width="1.5">
-    <rect x="42" y="103" width="816" height="76" rx="10"/>
-    <rect x="42" y="222" width="816" height="94" rx="10"/>
-    <rect x="42" y="365" width="816" height="146" rx="12" stroke="#f2b66d" stroke-width="2" fill="#1a2832"/>
-    <rect x="42" y="560" width="816" height="96" rx="10"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace">
+    <text x="48" y="48" fill="#56e0bd" font-size="14" font-weight="700" letter-spacing="3">REE  /  REVERSE ENGINEERING EVERYTHING</text>
+    <text x="48" y="101" fill="#f4f7fb" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="35" font-weight="720" letter-spacing="-.8">Preserve the intelligence.</text>
+    <text x="48" y="142" fill="#f4f7fb" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="35" font-weight="720" letter-spacing="-.8">Expand the possibilities.</text>
+    <text x="1150" y="52" text-anchor="end" fill="#91a4ba" font-size="13" letter-spacing="1.6">FULL-SPECTRUM ANALYSIS</text>
   </g>
 
-  <g fill="#94a8ba" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" font-weight="700" letter-spacing="1.2">
-    <text x="64" y="130">01 / INPUT</text>
-    <text x="64" y="249">02 / ANALYSIS ROUTE</text>
-    <text x="64" y="393" fill="#f2b66d">03 / CANONICAL EVIDENCE</text>
-    <text x="64" y="587">04 / QUESTIONS</text>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="700" letter-spacing=".5">
+    <rect x="744" y="78" width="128" height="31" rx="15.5" fill="#122b34" stroke="#2c7069"/>
+    <text x="808" y="98" text-anchor="middle" fill="#79ead0">REE FRONT DOOR</text>
+    <rect x="882" y="78" width="104" height="31" rx="15.5" fill="#18243a" stroke="#385279"/>
+    <text x="934" y="98" text-anchor="middle" fill="#abc6f3">REA CLI</text>
+    <rect x="996" y="78" width="154" height="31" rx="15.5" fill="#18243a" stroke="#385279"/>
+    <text x="1073" y="98" text-anchor="middle" fill="#abc6f3">MCP SERVER</text>
+    <text x="1150" y="133" text-anchor="end" fill="#73879e" font-size="11" font-weight="500" letter-spacing=".2">Three entry points. One shared engine.</text>
   </g>
 
-  <text x="64" y="159" fill="#edf2f5" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="21" font-weight="620">Source or binary · version pair · supplied observation</text>
-
-  <g fill="#edf2f5" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="21" font-weight="620">
-    <text x="64" y="281">REE static path</text>
-    <text x="339" y="281">REA built-in parser</text>
-    <text x="637" y="281">Selected provider</text>
-  </g>
-  <g fill="none" stroke="#87a1b9" stroke-width="1.6" marker-end="url(#arrow)">
-    <path d="M450 179V214"/>
-    <path d="M450 316V357"/>
-    <path d="M450 511V552"/>
-  </g>
-
-  <g fill="#f0f4f6" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="21">
-    <text x="64" y="430">Artifact identity + digest</text>
-    <text x="64" y="461">Operation + provider · facts + source links</text>
-    <text x="64" y="492">Confidence + authority · coverage + unknowns</text>
-  </g>
-
-  <g fill="#edf2f5" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="20" font-weight="600">
-    <text x="64" y="618">Feature trace</text>
-    <text x="459" y="618">Compare versions</text>
-    <text x="64" y="644">Reconcile runtime</text>
-    <text x="459" y="644">Check obligations</text>
+  <g>
+    <rect x="48" y="178" width="252" height="402" rx="14" fill="#111d2c" stroke="#304257"/>
+    <path d="M48 192a14 14 0 0 1 14-14h224a14 14 0 0 1 14 14v48H48Z" fill="#142536"/>
+    <text x="70" y="207" fill="#73a9ff" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="700" letter-spacing="1.6">01  /  ARTIFACTS</text>
+    <text x="70" y="229" fill="#91a4ba" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="13">Many formats. One investigation.</text>
+    <g font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="15" fill="#e4ebf3">
+      <text x="70" y="282">Source and applications</text>
+      <text x="70" y="334">Native and managed code</text>
+      <text x="70" y="386">Android and Apple artifacts</text>
+      <text x="70" y="438">Firmware and bytecode</text>
+      <text x="70" y="490">Databases and captures</text>
+      <text x="70" y="542">Runtime and signal records</text>
+    </g>
+    <g fill="#73a9ff">
+      <circle cx="70" cy="277" r="3"/><circle cx="70" cy="329" r="3"/><circle cx="70" cy="381" r="3"/>
+      <circle cx="70" cy="433" r="3"/><circle cx="70" cy="485" r="3"/><circle cx="70" cy="537" r="3"/>
+    </g>
   </g>
 
-  <path d="M42 670H858" stroke="#d4e3f1" stroke-opacity=".15"/>
-  <circle cx="50" cy="695" r="4" fill="#f2b66d"/>
-  <text x="64" y="695" fill="#d3dee6" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="17">Derived results keep parent links. Claims stay within chosen evidence,</text>
-  <text x="64" y="714" fill="#d3dee6" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="17">authority, cases, and comparison dimensions.</text>
+  <g>
+    <rect x="326" y="178" width="252" height="402" rx="14" fill="#111d2c" stroke="#304257"/>
+    <path d="M326 192a14 14 0 0 1 14-14h224a14 14 0 0 1 14 14v48H326Z" fill="#142536"/>
+    <text x="348" y="207" fill="#73a9ff" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="700" letter-spacing="1.6">02  /  ANALYSIS ROUTES</text>
+    <text x="348" y="229" fill="#91a4ba" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="13">Chosen for the artifact and question.</text>
+    <g>
+      <rect x="348" y="263" width="208" height="72" rx="9" fill="#162638" stroke="#324961"/>
+      <text x="364" y="290" fill="#f0f4f8" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="15" font-weight="650">Built-in parsers</text>
+      <text x="364" y="313" fill="#91a4ba" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12">Format-aware, bounded analysis</text>
+      <rect x="348" y="352" width="208" height="72" rx="9" fill="#162638" stroke="#324961"/>
+      <text x="364" y="379" fill="#f0f4f8" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="15" font-weight="650">Specialist providers</text>
+      <text x="364" y="402" fill="#91a4ba" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12">Selected tools, explicit ownership</text>
+      <rect x="348" y="441" width="208" height="72" rx="9" fill="#162638" stroke="#324961"/>
+      <text x="364" y="468" fill="#f0f4f8" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="15" font-weight="650">Runtime observation</text>
+      <text x="364" y="491" fill="#91a4ba" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12">Captured evidence, separate route</text>
+    </g>
+    <text x="348" y="548" fill="#e7ba77" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12">Provider availability and limits vary.</text>
+  </g>
+
+  <g>
+    <rect x="604" y="178" width="252" height="402" rx="14" fill="url(#glow)" stroke="#50cbb0" stroke-width="1.6"/>
+    <path d="M604 192a14 14 0 0 1 14-14h224a14 14 0 0 1 14 14v48H604Z" fill="#17313d"/>
+    <text x="626" y="207" fill="#72e5cb" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="700" letter-spacing="1.6">03  /  EVIDENCE</text>
+    <text x="626" y="229" fill="#a8c5c8" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="13">The durable handoff between workflows.</text>
+    <g font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+      <text x="626" y="282" fill="#f0f8f6" font-size="15" font-weight="650">Identity and source links</text>
+      <text x="626" y="306" fill="#b2c9c9" font-size="12">Artifact · operation · provider</text>
+      <path d="M626 327H834" stroke="#7cb6ad" stroke-opacity=".3"/>
+      <text x="626" y="362" fill="#f0f8f6" font-size="15" font-weight="650">Observations and derivations</text>
+      <text x="626" y="386" fill="#b2c9c9" font-size="12">Facts · relations · confidence</text>
+      <path d="M626 407H834" stroke="#7cb6ad" stroke-opacity=".3"/>
+      <text x="626" y="442" fill="#f0f8f6" font-size="15" font-weight="650">Coverage and uncertainty</text>
+      <text x="626" y="466" fill="#b2c9c9" font-size="12">Limits · unknowns · authority</text>
+    </g>
+    <rect x="626" y="497" width="208" height="39" rx="8" fill="#0e292e" stroke="#39796e"/>
+    <text x="730" y="522" text-anchor="middle" fill="#72e5cb" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="700" letter-spacing=".6">RETAINED, TRACEABLE RECORD</text>
+  </g>
+
+  <g>
+    <rect x="882" y="178" width="270" height="402" rx="14" fill="#111d2c" stroke="#304257"/>
+    <path d="M882 192a14 14 0 0 1 14-14h242a14 14 0 0 1 14 14v48H882Z" fill="#142536"/>
+    <text x="904" y="207" fill="#e7ba77" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" font-weight="700" letter-spacing="1.6">04  /  INVESTIGATE</text>
+    <text x="904" y="229" fill="#91a4ba" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="13">Reuse Evidence to ask better questions.</text>
+    <g font-family="system-ui, -apple-system, Segoe UI, sans-serif">
+      <rect x="904" y="263" width="226" height="53" rx="9" fill="#19283a" stroke="#34495d"/>
+      <text x="924" y="296" fill="#edf2f8" font-size="15" font-weight="600">Trace a feature</text>
+      <rect x="904" y="329" width="226" height="53" rx="9" fill="#19283a" stroke="#34495d"/>
+      <text x="924" y="362" fill="#edf2f8" font-size="15" font-weight="600">Compare versions</text>
+      <rect x="904" y="395" width="226" height="53" rx="9" fill="#19283a" stroke="#34495d"/>
+      <text x="924" y="428" fill="#edf2f8" font-size="15" font-weight="600">Reconcile runtime</text>
+      <rect x="904" y="461" width="226" height="53" rx="9" fill="#19283a" stroke="#34495d"/>
+      <text x="924" y="494" fill="#edf2f8" font-size="15" font-weight="600">Verify reconstruction</text>
+    </g>
+    <text x="904" y="548" fill="#e7ba77" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="12">Claims stay bounded by selected cases.</text>
+  </g>
+
+  <g fill="none" stroke="#7894af" stroke-width="1.8">
+    <path d="M300 375H314"/><path d="M314 370 322 375 314 380Z" fill="#7894af" stroke="none"/>
+    <path d="M578 375H592"/><path d="M592 370 600 375 592 380Z" fill="#7894af" stroke="none"/>
+    <path d="M856 375H870"/><path d="M870 370 878 375 870 380Z" fill="#7894af" stroke="none"/>
+  </g>
+
+  <path d="M48 610H1152" stroke="#314257"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" letter-spacing=".45">
+    <text x="48" y="642" fill="#91a4ba">JAVASCRIPT  ·  NATIVE  ·  ANDROID  ·  APPLE  ·  FIRMWARE  ·  WASM  ·  EVM  ·  DATA  ·  RUNTIME</text>
+    <text x="1152" y="666" text-anchor="end" fill="#657b94">Inherited REA capabilities + REE additions  /  see the engineering map for verified detail</text>
+  </g>
 </svg>
