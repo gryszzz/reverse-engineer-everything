@@ -103,6 +103,14 @@ test("entrypoint displays safe JSON preview", () => {
   );
   assert.equal(JSON.parse(output).execution, "preview-only");
 });
+test("demo preview uses the current REE output path", () => {
+  const bin = fileURLToPath(new URL("../ree.mjs", import.meta.url));
+  const output = execFileSync(process.execPath, [bin, "demo"], {
+    encoding: "utf8",
+  });
+  assert.match(output, /--out \/tmp\/ree-evidence/u);
+  assert.doesNotMatch(output, /\/tmp\/rel-evidence/u);
+});
 test("entrypoint cannot execute arbitrary targets with --run", () => {
   const bin = fileURLToPath(new URL("../ree.mjs", import.meta.url));
   assert.throws(

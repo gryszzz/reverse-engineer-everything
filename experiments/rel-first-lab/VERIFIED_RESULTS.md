@@ -1,5 +1,10 @@
 # REL verified investigation — first full REA run
 
+> **Historical REL record:** this captures a run from before the project adopted
+> the REE identity. It is evidence about that specific revision and sample, not
+> a current REE compatibility or CI claim. The run links use the former GitHub
+> repository identity and may no longer resolve.
+
 **Date:** 2026-10-13  
 **REL fork revision:** `930379a8ba06ef6eb975ae00afea1f1d7c5a6c17`  
 **Run:** [GitHub Actions #38435513091](https://github.com/gryszzz/Reverse-Engineering-Life-REL-/actions/runs/38435513091) — **successful**  
@@ -58,6 +63,6 @@ REA can scan our little program, identify its pieces, draw links between them, a
 
 ## CI qualification note
 
-The **REL real-analysis workflow passed**, independently from the repository-wide CI. The broader CI static check failed at `oxfmt --check` and reported formatting differences in nine new/modified REL files plus two existing upstream files (`src/domain/functionComparison.test.ts`, `src/ida/IdaOperationRunner.ts`). This is a **separate merge blocker**; do not equate the successful experiment with a green full PR. Keep this PR as draft while we address only the changes we own and determine an appropriate upstream baseline strategy.
+The **REL real-analysis workflow passed**, independently from the repository-wide CI. The broader CI static check failed at `oxfmt --check` and reported formatting differences in nine new/modified REL files plus two existing upstream files (`src/domain/functionComparison.test.ts`, `src/ida/IdaOperationRunner.ts`). At the time, the original note treated this as a separate merge blocker and recommended keeping that PR in draft while resolving the fork-owned formatting and upstream baseline. This is historical review context, not the status or merge guidance for the current REE branch.
 
 Evidence identifiers for this run: root artifact SHA-256 `a50cfc471f40dff5531e68d624d69d68478631c56b230cbd89fb6391403987b3`; application graph `jag_99fa8261e6bb9d23dfb7c81b07bdd1d49cccec3f824b46509595ff81834782d6`; Evidence `ev_9d8cf3f5b7d71ea84706174ef37e871287f0218bf3bdb63f5fca12b8d764f294`.

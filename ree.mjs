@@ -158,7 +158,7 @@ try {
           settings.json
             ? JSON.stringify({ ...plan, safe_demo: true }, null, 2)
             : renderPlan(plan, settings.question) +
-                "\n\nTo run: node ree.mjs demo --run --out /tmp/rel-evidence",
+                "\n\nTo run: node ree.mjs demo --run --out /tmp/ree-evidence",
         );
       }
     } else if (

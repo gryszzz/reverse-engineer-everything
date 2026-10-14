@@ -25,11 +25,25 @@ export function supportedNode(version) {
   );
 }
 
+/** Node's bundled SQLite API is supported only on these runtime lines. */
+export function supportsSqliteInspection(version) {
+  const [major, minor, patch] = String(version)
+    .replace(/^v/u, "")
+    .split(".")
+    .map(Number);
+  if (![major, minor, patch].every(Number.isInteger)) return false;
+  return (
+    (major === 24 && (minor > 15 || (minor === 15 && patch >= 0))) ||
+    major >= 26
+  );
+}
+
 export function assessMacHost(input) {
   const isMac = input.platform === "darwin";
   const ram = Number(input.totalMemoryGiB ?? 0);
   const disk = input.diskFreeGiB;
   const nodeSupported = supportedNode(input.nodeVersion);
+  const sqliteSupported = supportsSqliteInspection(input.nodeVersion);
   const tools = input.tools ?? {};
   const steps = [];
   if (!isMac)
@@ -47,6 +61,10 @@ export function assessMacHost(input) {
       "For reproducible builds, use the repository-pinned Node " +
         input.pinnedNode +
         ".",
+    );
+  if (!sqliteSupported)
+    steps.push(
+      "SQLite database inspection requires Node 24.15+ or 26+; the current runtime does not provide the supported native SQLite API.",
     );
   if (isMac && input.rosetta === "yes")
     steps.push(
@@ -88,6 +106,16 @@ export function assessMacHost(input) {
       current: input.nodeVersion,
       pinned: input.pinnedNode,
       supported: nodeSupported,
+    },
+    runtimeCompatibility: {
+      reaEngine: {
+        supported: nodeSupported,
+        requirement: "Node ^22.19.0 || ^24.11.0 || >=26.0.0",
+      },
+      sqliteDatabaseInspection: {
+        supported: sqliteSupported,
+        requirement: "Node 24.15+ or 26+",
+      },
     },
     capabilities: {
       // The dependency-free teaching server is already running on this Node.
@@ -197,6 +225,10 @@ export function formatMacDiagnosis(result) {
       ", compatible: " +
       r.node.supported +
       ")",
+    "Runtime backends: SQLite database inspection=" +
+      (r.runtimeCompatibility.sqliteDatabaseInspection.supported
+        ? "supported"
+        : "unavailable on this Node version"),
     "Dependencies: " +
       (r.capabilities.repoDependencies ? "present" : "not installed"),
     "Compiled REA CLI: " + (r.capabilities.builtReaCli ? "found" : "not built"),

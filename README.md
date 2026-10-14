@@ -24,6 +24,10 @@ node ree.mjs doctor       # read-only machine and toolchain check
 node ree.mjs lab --open   # open the local visual lesson
 ```
 
+The doctor output includes the overall REA Node engine check and stricter
+runtime requirements for backends such as SQLite. A ready Node runtime does not
+mean every provider is installed or available on the current host.
+
 You can also open **`Start-REE.command`** from Finder. Keep its Terminal window open while the lesson runs; press Control+C to stop it. If macOS blocks the unsigned launcher, run `zsh ./Start-REE.command` from the checkout.
 
 ### Build the analyzer and run a real example

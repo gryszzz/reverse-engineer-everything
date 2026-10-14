@@ -7,6 +7,7 @@ import {
   diagnoseMac,
   formatMacDiagnosis,
   supportedNode,
+  supportsSqliteInspection,
 } from "./mac-doctor.mjs";
 
 const fixture = (overrides = {}) => ({
@@ -33,6 +34,27 @@ test("uses real REA Node engine support boundaries", () => {
     assert.equal(supportedNode(v), true, v);
   for (const v of ["22.16.0", "23.1.0", "24.10.0", "25.1.0", "abc"])
     assert.equal(supportedNode(v), false, v);
+});
+
+test("reports SQLite's stricter native Node runtime boundary", () => {
+  for (const version of ["24.15.0", "24.18.0", "26.0.0", "27.1.0"])
+    assert.equal(supportsSqliteInspection(version), true, version);
+  for (const version of ["22.19.0", "24.11.0", "24.14.9", "25.0.0", "bad"])
+    assert.equal(supportsSqliteInspection(version), false, version);
+  const result = assessMacHost(fixture({ nodeVersion: "24.12.0" }));
+  assert.equal(result.runtimeCompatibility.reaEngine.supported, true);
+  assert.equal(
+    result.runtimeCompatibility.sqliteDatabaseInspection.supported,
+    false,
+  );
+  assert.match(
+    result.guidance.join(" "),
+    /SQLite database inspection requires Node 24\.15\+/,
+  );
+  assert.match(
+    formatMacDiagnosis(result),
+    /SQLite database inspection=unavailable/,
+  );
 });
 
 test("Apple Silicon and Intel Macs receive accurate architecture explanations", () => {
