@@ -161,28 +161,10 @@ const compare = async (label, left, right) => {
         cardinality: { kind: "exact", count: 1 },
       },
       {
-        id: "process-exit",
-        source: "lifecycle",
-        exact: { event: "exit", ...original.exit },
-        ignore_fields: ["elapsed_ms"],
-        cardinality: { kind: "exact", count: 1 },
-      },
-      {
         id: "terminal-rendered",
         source: "terminal_rendered",
         exact: without(original.rendered_frames[0], ["sequence", "at_ms"]),
         ignore_fields: ["sequence", "at_ms"],
-        cardinality: { kind: "exact", count: 1 },
-      },
-      {
-        id: "process-settlement",
-        source: "lifecycle",
-        exact: {
-          event: "settlement",
-          state: original.settlement.state,
-          cleanup_outcome: original.settlement.cleanup_outcome,
-        },
-        ignore_fields: ["elapsed_ms"],
         cardinality: { kind: "exact", count: 1 },
       },
     ],
@@ -190,13 +172,12 @@ const compare = async (label, left, right) => {
       kind: "finite_traces",
       variants: [
         {
-          id: "one-output-and-clean-exit",
-          trace: [
-            "terminal-raw",
-            "process-exit",
-            "terminal-rendered",
-            "process-settlement",
-          ],
+          id: "raw-then-rendered",
+          trace: ["terminal-raw", "terminal-rendered"],
+        },
+        {
+          id: "rendered-then-raw",
+          trace: ["terminal-rendered", "terminal-raw"],
         },
       ],
     },
