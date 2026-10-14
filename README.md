@@ -128,6 +128,28 @@ Ghidra, Hopper, IDA, JADX, Binwalk/Unblob, WABT, Wireshark, Graphviz, and other 
 
 For the latest workflow results, see [GitHub Actions](https://github.com/gryszzz/reverse-engineer-everything/actions). Avoid opening large Evidence records on low-memory machines; begin with the report or a bounded view.
 
+### Move from an uncertainty to a counterexample
+
+The owned [C investigation fixture](experiments/ree-investigation-boundary/README.md)
+shows how the existing REA operations can support a small differential experiment:
+
+```sh
+npm run verify:ree-investigation-boundary -- /tmp/ree-c-investigation
+```
+
+The harness declares a numeric domain and a rounding hypothesis, searches that
+bounded domain for a discriminating input, then uses Process Capture, comparison,
+and reconstruction verification to test the original and candidate programs.
+It saves complete Evidence and a summary with the discovered input and claim
+statuses. This runner needs macOS, Clang, and a built REA runtime.
+
+The search rule and domain are supplied by the investigator. A passing terminal
+claim covers the captured case; an unknown overall result means some process
+dimensions were not observed. Finding one counterexample refutes the candidate
+for that case, while finding none inside the selected range does not prove
+equivalence outside it. The fixture is a repeatable example of hypothesis-led
+investigation, not automatic hypothesis discovery.
+
 ## Connect Codex
 
 Open this repository as a trusted local Codex workspace, build it, then check the project-scoped server:
@@ -145,15 +167,18 @@ This repository-scoped connection does not change account-wide Codex settings, t
 
 ## Repository map
 
-| Path                                                                       | What lives there                                                                                  |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| [`ree.mjs`](ree.mjs), [`rel/`](rel/)                                       | REE CLI, preview and authorization boundary, Mac readiness, lesson server, and Evidence Explorer. |
-| [`experiments/rel-visual-lab/`](experiments/rel-visual-lab/)               | Local introductory lesson.                                                                        |
-| [`experiments/rel-first-lab/`](experiments/rel-first-lab/)                 | Source-owned analysis example and recorded verification.                                          |
-| [`scripts/rea.mjs`](scripts/rea.mjs)                                       | REA CLI and MCP dispatcher.                                                                       |
-| [`src/application/`](src/application/), [`src/domain/`](src/domain/)       | Shared investigation workflows, Evidence, graphs, comparisons, and domain rules.                  |
-| [`src/composition/`](src/composition/), [`src/contracts/`](src/contracts/) | Provider wiring and CLI/MCP input and output contracts.                                           |
-| [`docs/`](docs/)                                                           | Architecture, provider guides, engineering map, and development guidance.                         |
+| Path                                                                                 | What lives there                                                                                  |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| [`ree.mjs`](ree.mjs), [`rel/`](rel/)                                                 | REE CLI, preview and authorization boundary, Mac readiness, lesson server, and Evidence Explorer. |
+| [`experiments/rel-visual-lab/`](experiments/rel-visual-lab/)                         | Local introductory lesson.                                                                        |
+| [`experiments/rel-first-lab/`](experiments/rel-first-lab/)                           | Source-owned analysis example and recorded verification.                                          |
+| [`experiments/ree-investigation-boundary/`](experiments/ree-investigation-boundary/) | Bounded cross-technology counterexample search and reconstruction verification.                   |
+| [`scripts/rea.mjs`](scripts/rea.mjs)                                                 | REA CLI and MCP dispatcher.                                                                       |
+| [`src/application/`](src/application/), [`src/domain/`](src/domain/)                 | Shared investigation workflows, Evidence, graphs, comparisons, and domain rules.                  |
+| [`src/composition/`](src/composition/), [`src/contracts/`](src/contracts/)           | Provider wiring and CLI/MCP input and output contracts.                                           |
+| [`docs/`](docs/)                                                                     | Architecture, provider guides, engineering map, and development guidance.                         |
+| [`.agents/skills/ree-investigator/`](.agents/skills/ree-investigator/SKILL.md)       | REE project workflow for authorized investigations.                                               |
+| [`UPSTREAM_REA_README.md`](UPSTREAM_REA_README.md)                                   | Preserved upstream README and technical entry points.                                             |
 
 The `rel/` and `experiments/rel-*` paths remain for compatibility. REE is the current project identity; REA remains the analysis engine and MCP server identity.
 

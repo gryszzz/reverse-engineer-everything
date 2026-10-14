@@ -20,6 +20,7 @@ on:
       - "rel/**"
       - "experiments/rel-first-lab/**"
       - "experiments/rel-visual-lab/**"
+      - "experiments/ree-investigation-boundary/**"
       - ".github/workflows/rel-macos-smoke.yml"
   workflow_dispatch:
 
@@ -57,6 +58,8 @@ jobs:
       - run: npm ci
       - name: Build native-host REA runtime on macOS
         run: npm run build:cached
+      - name: Discover and verify a bounded C counterexample
+        run: node scripts/verify/reconstruction/c-process-probe.mjs "$RUNNER_TEMP/ree-c-investigation"
       - name: Verify real Mac-side REA MCP discovery
         run: node --test rel/codex-mcp.test.mjs
       - name: Verify static analysis and saved relationships on macOS
@@ -75,5 +78,6 @@ jobs:
           path: |
             ${{ runner.temp }}/rel-mac-doctor.json
             ${{ runner.temp }}/rel-mac-evidence/
+            ${{ runner.temp }}/ree-c-investigation/
           if-no-files-found: warn
           retention-days: 7

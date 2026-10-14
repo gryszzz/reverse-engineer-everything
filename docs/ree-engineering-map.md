@@ -372,10 +372,31 @@ behavioral boundary. The experiment does not show that REA's comparison or
 verification logic is defective; it shows which decisions those mechanisms
 intentionally leave to the investigator.
 
+The reusable follow-up is now an owned fixture at
+[`experiments/ree-investigation-boundary/`](../experiments/ree-investigation-boundary/).
+Its verification harness enumerates a declared 100–200 cent unit-price range
+and four quantities, looking specifically for half-unit products under the
+stated rounding hypothesis. It found `1.05 × 10` on the first eligible probe.
+The finite trace specification ignores only frame sequence/time and settlement
+elapsed time; it retains exact terminal text and rendering, exit result,
+settlement state, and cleanup outcome. The integer control's terminal claim
+passes while the overall result stays unknown; the discovered counterexample
+fails. This confirms an existing REA trace facility can express useful,
+bounded normalization. The test author still supplies the hypothesis, domain,
+and probe rule.
+
+The harness is wired into the macOS smoke workflow and retains its generated
+captures, comparisons, trace specifications, and summary as a seven-day CI
+artifact. That makes this cross-technology result repeatable without checking
+machine-specific process Evidence into the source tree. It does not make the
+search domain portable proof or a general-purpose input generator.
+
 The controlled files, captures, comparison Evidence, and reproduction scripts
-for this pass were kept outside the checkout under
-`/tmp/ree-capability-demo.yG6faS`; they are local experiment artifacts, not a
-committed fixture suite or persistent release Evidence.
+for the original JavaScript and first C explorations remain outside the
+checkout under `/tmp/ree-capability-demo.yG6faS` and
+`/tmp/ree-bridge-c-probe-20261014`. The new bounded C fixture is committed as
+reproducible source and harness; generated process Evidence remains a local or
+short-lived CI artifact rather than persistent release Evidence.
 
 ### Verified strengths
 
