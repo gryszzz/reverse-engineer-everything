@@ -1,0 +1,34 @@
+name: Real website runtime attribution
+on:
+  workflow_call:
+    inputs:
+      build_cache_artifact:
+        description: Portable build cache artifact from the calling CI run.
+        required: false
+        type: string
+        default: ""
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  HUSKY: "0"
+jobs:
+  real-web-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+      - name: Cache npm package downloads
+        id: npm-cache
+        uses: ./.github/actions/npm-cache
+      - run: npm ci
+      - uses: ./.github/actions/portable-build-cache
+        with:
+          build_cache_artifact: ${{ inputs.build_cache_artifact }}
+      - run: env -u DBUS_SESSION_BUS_ADDRESS npm run verify:browser:runtime
+        env:
+          REA_BROWSER_EXECUTABLE: /usr/bin/google-chrome
+          REA_BROWSER_NO_SANDBOX: "true"

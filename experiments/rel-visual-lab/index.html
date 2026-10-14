@@ -1,0 +1,1103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>REE · Visual Lab — Learn the Why</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #090e16;
+        --panel: #101a29;
+        --panel2: #152235;
+        --line: #29384a;
+        --text: #eaf2ff;
+        --muted: #91a6bf;
+        --cyan: #71dbec;
+        --orange: #fac38e;
+        --green: #a1e0b2;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(ellipse at 10% -5%, #18304b 0%, transparent 45%),
+          var(--bg);
+      }
+      button,
+      input {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      a {
+        color: var(--cyan);
+      }
+      a:hover {
+        text-decoration: none;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      a:focus-visible {
+        outline: 2px solid var(--cyan);
+        outline-offset: 3px;
+      }
+      .wrap {
+        max-width: 1380px;
+        margin: auto;
+        padding: 30px 24px 72px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding-bottom: 29px;
+        border-bottom: 1px solid var(--line);
+      }
+      .brand {
+        font-size: 14px;
+        font-weight: 850;
+        letter-spacing: 0.23em;
+      }
+      .brand span {
+        color: var(--cyan);
+      }
+      .tag {
+        font:
+          600 11px ui-monospace,
+          monospace;
+        letter-spacing: 0.08em;
+        border: 1px solid #365064;
+        border-radius: 50px;
+        padding: 9px 13px;
+        color: var(--muted);
+      }
+      .dictionary {
+        margin: 17px 0 23px;
+        border: 1px solid #345063;
+        border-radius: 14px;
+        background: #0f1c2c;
+        overflow: hidden;
+      }
+      .dictionary summary {
+        cursor: pointer;
+        padding: 16px 20px;
+        color: #d7eff4;
+        font-weight: 740;
+        font-size: 14px;
+      }
+      .dictionary[open] summary {
+        border-bottom: 1px solid #345063;
+      }
+      .dictionary .definition-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0;
+      }
+      .definition {
+        padding: 16px 20px;
+        border-right: 1px solid #273c51;
+        border-bottom: 1px solid #273c51;
+      }
+      .definition dt {
+        font-size: 13px;
+        font-weight: 770;
+        color: var(--cyan);
+        margin-bottom: 6px;
+      }
+      .definition dd {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.6;
+        color: var(--muted);
+      }
+      .beginner {
+        font-size: 13px;
+        color: #bfdae3;
+        line-height: 1.65;
+        margin: -5px 0 12px;
+      }
+      @media (max-width: 730px) {
+        .dictionary .definition-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+        .definition {
+          padding: 13px;
+        }
+      }
+      @media (max-width: 450px) {
+        .dictionary .definition-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      h1 {
+        font-size: clamp(34px, 5vw, 61px);
+        line-height: 1.08;
+        letter-spacing: -0.055em;
+        max-width: 840px;
+        margin: 37px 0 16px;
+      }
+      h1 em {
+        color: var(--cyan);
+        font-style: normal;
+      }
+      .lede {
+        color: var(--muted);
+        max-width: 780px;
+        line-height: 1.65;
+        margin: 0 0 27px;
+      }
+      .notice {
+        color: #bed0e1;
+        max-width: 1060px;
+        font-size: 13px;
+        line-height: 1.65;
+        border-left: 3px solid #3c6271;
+        padding: 9px 16px;
+        margin-bottom: 27px;
+        background: #111f2a66;
+      }
+      .topbar {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+        align-items: end;
+        margin: 22px 0;
+      }
+      .field {
+        flex: 1;
+        min-width: 210px;
+      }
+      .field label,
+      .eyebrow {
+        display: block;
+        font:
+          700 11px ui-monospace,
+          monospace;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        color: var(--cyan);
+        margin-bottom: 10px;
+      }
+      .field input {
+        width: 100%;
+        background: var(--panel);
+        border: 1px solid #354862;
+        color: white;
+        border-radius: 11px;
+        padding: 16px 18px;
+        outline: 0;
+      }
+      .field input:focus {
+        border-color: var(--cyan);
+      }
+      .action {
+        border: 1px solid #36546a;
+        border-radius: 10px;
+        background: var(--panel2);
+        color: var(--text);
+        padding: 15px 20px;
+        font-weight: 700;
+        min-height: 51px;
+      }
+      .action.primary {
+        background: var(--cyan);
+        color: #09212b;
+        border-color: var(--cyan);
+      }
+      .action:hover {
+        filter: brightness(1.12);
+      }
+      .action:disabled {
+        cursor: default;
+        opacity: 0.4;
+      }
+      .cols {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        gap: 18px;
+      }
+      .panel {
+        background: linear-gradient(145deg, #132034, #0d1726);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        min-width: 0;
+      }
+      .steps {
+        padding: 23px 17px;
+      }
+      .steps h2,
+      .main-panel h2,
+      .results h2 {
+        font-size: 15px;
+        margin: 0 0 13px;
+      }
+      .step {
+        width: 100%;
+        text-align: left;
+        display: flex;
+        gap: 12px;
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid transparent;
+        border-radius: 10px;
+        margin: 4px 0;
+        padding: 15px 10px;
+        line-height: 1.3;
+      }
+      .step b {
+        display: block;
+        color: var(--text);
+        margin-bottom: 4px;
+        font-size: 13px;
+      }
+      .step small {
+        font-size: 11px;
+        line-height: 1.4;
+      }
+      .step .num {
+        font:
+          700 12px ui-monospace,
+          monospace;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 27px;
+        height: 27px;
+        border-radius: 7px;
+        background: #233246;
+        color: #a6baca;
+      }
+      .step.active {
+        background: #183448;
+        border-color: #356476;
+        color: var(--text);
+      }
+      .step.active .num {
+        background: var(--cyan);
+        color: #0a2128;
+      }
+      .hint {
+        padding: 16px 8px 0;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.6;
+        margin-top: 17px;
+      }
+      .main-panel {
+        padding: 22px 24px;
+      }
+      .panel-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 15px;
+      }
+      .pill {
+        font:
+          650 11px ui-monospace,
+          monospace;
+        color: var(--green);
+        border: 1px solid #39604d;
+        border-radius: 100px;
+        padding: 7px 10px;
+      }
+      .flow {
+        display: grid;
+        grid-template-columns:
+          minmax(80px, 0.9fr) 18px minmax(95px, 1fr)
+          18px minmax(118px, 1.2fr) 18px minmax(100px, 1fr);
+        align-items: center;
+        gap: 7px;
+        margin: 30px 0;
+      }
+      .node {
+        border: 1px solid #40516a;
+        background: #142339;
+        color: var(--text);
+        border-radius: 12px;
+        padding: 20px 8px;
+        min-height: 98px;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        transition:
+          border-color 0.2s,
+          background 0.2s,
+          transform 0.2s;
+      }
+      .node:hover {
+        border-color: var(--cyan);
+      }
+      .node.active {
+        background: #183f50;
+        border: 2px solid var(--cyan);
+        box-shadow: 0 0 0 5px #71dbec12;
+        transform: translateY(-3px);
+      }
+      .node strong {
+        font-size: 13px;
+        overflow-wrap: anywhere;
+      }
+      .node small {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 10px;
+      }
+      .connector {
+        height: 2px;
+        background: #52708a;
+        position: relative;
+      }
+      .connector:after {
+        content: "";
+        border: 5px solid transparent;
+        border-left-color: #52708a;
+        position: absolute;
+        right: -9px;
+        top: -4px;
+      }
+      .pair {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .pair .node {
+        min-height: 64px;
+        padding: 13px 7px;
+      }
+      .pair .node small {
+        margin-top: 4px;
+      }
+      .readout {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        gap: 14px;
+      }
+      .readout > div {
+        border: 1px solid #2e4054;
+        background: #0a1422;
+        border-radius: 12px;
+        padding: 19px;
+        min-height: 170px;
+      }
+      .readout h3 {
+        font-size: 19px;
+        letter-spacing: -0.025em;
+        margin: 2px 0 10px;
+      }
+      .readout p {
+        line-height: 1.58;
+        color: #b1c5d8;
+        font-size: 13px;
+        margin: 0;
+      }
+      .readout .source {
+        display: block;
+        font-size: 12px;
+        margin-top: 15px;
+      }
+      .legend {
+        font:
+          11px ui-monospace,
+          monospace;
+        color: var(--muted);
+        margin-top: 16px;
+        line-height: 1.6;
+      }
+      .controls {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 20px;
+      }
+      .results {
+        margin-top: 18px;
+        padding: 22px 24px;
+      }
+      .results-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .small {
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+      .results-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+      .data-panel {
+        border: 1px solid #2f4054;
+        background: #0b1624;
+        border-radius: 12px;
+        padding: 18px;
+        min-width: 0;
+      }
+      .data-panel h3 {
+        font-size: 15px;
+        margin: 0 0 6px;
+      }
+      .data-panel .label {
+        font:
+          650 10px ui-monospace,
+          monospace;
+        color: var(--cyan);
+        letter-spacing: 0.08em;
+      }
+      .data-panel.alt .label {
+        color: var(--orange);
+      }
+      .data-panel ol {
+        margin: 15px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+      .data-panel li {
+        display: flex;
+        gap: 12px;
+        padding: 12px 0;
+        border-top: 1px solid #273749;
+        align-items: flex-start;
+      }
+      .rank-num {
+        color: var(--cyan);
+        font:
+          700 13px ui-monospace,
+          monospace;
+      }
+      .data-panel.alt .rank-num {
+        color: var(--orange);
+      }
+      .data-panel li strong {
+        font-size: 13px;
+      }
+      .data-panel li small {
+        display: block;
+        color: var(--muted);
+        margin-top: 5px;
+        font-size: 11px;
+      }
+      .data-panel li.empty {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .evidence-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 9px;
+        margin-top: 17px;
+      }
+      .evidence-links a {
+        font-size: 11px;
+        padding: 9px 12px;
+        border: 1px solid #38516a;
+        border-radius: 8px;
+        text-decoration: none;
+      }
+      .evidence-links a:hover {
+        border-color: var(--cyan);
+      }
+      footer {
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.7;
+        margin-top: 24px;
+      }
+      @media (max-width: 1000px) {
+        .cols {
+          grid-template-columns: 1fr;
+        }
+        .steps {
+          padding: 18px;
+        }
+        .step-list {
+          display: grid;
+          grid-template-columns: repeat(5, 1fr);
+          gap: 5px;
+        }
+        .step {
+          padding: 10px 6px;
+          display: block;
+          text-align: center;
+        }
+        .step .num {
+          margin: auto auto 8px;
+        }
+        .step small {
+          display: none;
+        }
+        .hint {
+          margin: 5px 0 0;
+        }
+      }
+      @media (max-width: 730px) {
+        .wrap {
+          padding: 18px 13px 48px;
+        }
+        .tag {
+          display: none;
+        }
+        .main-panel,
+        .results {
+          padding: 20px 14px;
+        }
+        .step-list {
+          grid-template-columns: repeat(5, 1fr);
+        }
+        .step b {
+          font-size: 10px;
+        }
+        .flow {
+          grid-template-columns: 1fr;
+          gap: 9px;
+        }
+        .node,
+        .pair .node {
+          min-height: 66px;
+        }
+        .pair {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+        }
+        .connector {
+          width: 2px;
+          height: 18px;
+          margin: auto;
+        }
+        .connector:after {
+          border: 5px solid transparent;
+          border-top-color: #52708a;
+          right: -4px;
+          top: auto;
+          bottom: -9px;
+        }
+        .readout,
+        .results-grid {
+          grid-template-columns: 1fr;
+        }
+        .pill {
+          display: none;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .node {
+          transition: none;
+        }
+        .node.active {
+          transform: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand">REE <span>/</span> REVERSE ENGINEERING LIFE</div>
+        <div class="tag">VISUAL LAB 01 · OFFLINE · SOURCE-OWNED</div>
+      </header>
+      <h1>Understand the <em>why</em><br />behind the software.</h1>
+      <p class="lede">
+        Start with five imaginary notes and one simple search. Press a button,
+        follow where the information goes, and see why the results appear in
+        that order. You do <strong>not</strong> need to know programming to
+        begin.
+      </p>
+      <p class="notice">
+        <strong>What is real here?</strong> The left-hand results run our
+        original search code. REA independently confirmed two links between its
+        files. The animation helps you picture those connections; the right-hand
+        alternative is an experiment. This is <strong>not</strong> a live REA
+        analyzer or proof that every behavior was discovered automatically.
+      </p>
+      <details class="dictionary">
+        <summary>
+          New to computer language? Open the 60-second dictionary (plain
+          English) ↗
+        </summary>
+        <dl class="definition-grid">
+          <div class="definition">
+            <dt>JavaScript</dt>
+            <dd>
+              A language for writing instructions a computer can follow. Our
+              tiny search program is written in it.
+            </dd>
+          </div>
+          <div class="definition">
+            <dt>File</dt>
+            <dd>
+              A named piece of a project. Think of a labeled drawer holding
+              instructions or information.
+            </dd>
+          </div>
+          <div class="definition">
+            <dt>Import</dt>
+            <dd>
+              One file borrowing something from another file. REE can help trace
+              these links.
+            </dd>
+          </div>
+          <div class="definition">
+            <dt>Function</dt>
+            <dd>
+              A reusable set of instructions: give it an input and it does a
+              job.
+            </dd>
+          </div>
+          <div class="definition">
+            <dt>Ranking</dt>
+            <dd>
+              The rule that decides which search result should appear first.
+            </dd>
+          </div>
+          <div class="definition">
+            <dt>Evidence</dt>
+            <dd>
+              A specific observation or source location that supports a
+              claim—not a confident guess.
+            </dd>
+          </div>
+          <div class="definition">
+            <dt>Static analysis</dt>
+            <dd>
+              Reading and mapping code without running the target program.
+            </dd>
+          </div>
+          <div class="definition">
+            <dt>Runtime</dt>
+            <dd>What you can observe when a program actually executes.</dd>
+          </div>
+          <div class="definition">
+            <dt>Codex + MCP</dt>
+            <dd>
+              Codex is the AI coding agent. MCP lets it ask tools like REA to
+              investigate and return findings.
+            </dd>
+          </div>
+        </dl>
+      </details>
+      <div class="topbar">
+        <div class="field">
+          <label for="query">01 / Search our own sample</label
+          ><input
+            id="query"
+            value="bridge"
+            autocomplete="off"
+            spellcheck="false"
+            maxlength="80"
+            aria-describedby="queryhelp"
+          />
+        </div>
+        <button id="run" class="action primary">Show real results</button>
+        <button id="play" class="action">▶ Show me how</button>
+      </div>
+      <p class="small" id="queryhelp">
+        Try "bridge", "signal", or "architecture". The left results use the very
+        same JavaScript search function as the original REE demo.
+      </p>
+      <div class="cols">
+        <aside class="panel steps" aria-label="Investigation stages">
+          <h2>Investigation walkthrough</h2>
+          <div class="step-list" id="step-list"></div>
+          <p class="hint">
+            Select any step or click a node in the diagram. The highlighted
+            section explains what we know and where the supporting evidence
+            lives.
+          </p>
+        </aside>
+        <section class="panel main-panel" aria-labelledby="mapheading">
+          <div class="panel-top">
+            <div>
+              <div class="eyebrow">02 / Interactive architecture map</div>
+              <h2 id="mapheading">Where does your search go?</h2>
+            </div>
+            <span class="pill">READ-ONLY LAB</span>
+          </div>
+          <div
+            class="flow"
+            aria-label="Conceptual data flow through the real sample code"
+          >
+            <button class="node" data-node="input">
+              <strong>Your query</strong><small>UI input</small>
+            </button>
+            <span class="connector" aria-hidden="true"></span>
+            <button class="node" data-node="cli">
+              <strong>cli.mjs</strong><small>entry point</small>
+            </button>
+            <span class="connector" aria-hidden="true"></span>
+            <div class="pair">
+              <button class="node" data-node="notes">
+                <strong>notes.mjs</strong><small>source data</small></button
+              ><button class="node" data-node="search">
+                <strong>search.mjs</strong><small>ranking logic</small>
+              </button>
+            </div>
+            <span class="connector" aria-hidden="true"></span>
+            <button class="node" data-node="output">
+              <strong>Results</strong><small>observed output</small>
+            </button>
+          </div>
+          <div class="readout" aria-live="polite">
+            <div>
+              <div class="eyebrow" id="stage-label">STEP 1 / OBSERVE</div>
+              <h3 id="stage-title"></h3>
+              <p id="stage-body"></p>
+            </div>
+            <div>
+              <div class="eyebrow">Evidence / limitations</div>
+              <h3 id="evidence-title"></h3>
+              <p id="evidence-body"></p>
+              <a
+                id="evidence-link"
+                class="source"
+                href="#"
+                target="_blank"
+                rel="noopener noreferrer"
+                >Open source</a
+              >
+            </div>
+          </div>
+          <p class="legend">
+            HOW TO READ THIS MAP — Blue means the selected step; connecting
+            lines show the teaching story, not a recorded execution trace. Real
+            REA evidence: <code>cli.mjs</code> line 1 imports
+            <code>notes.mjs</code>, and line 2 imports <code>search.mjs</code>.
+            Finding a link is not the same as seeing the code run.
+          </p>
+          <div class="controls">
+            <button id="prev" class="action">← Previous</button
+            ><button id="next" class="action primary">Next step →</button>
+          </div>
+        </section>
+      </div>
+      <section class="panel results" aria-label="Search output comparison">
+        <div class="results-head">
+          <div>
+            <div class="eyebrow">03 / Controlled experiment</div>
+            <h2>One search. Two possible sets of rules.</h2>
+          </div>
+          <span class="small" id="status" role="status"></span>
+        </div>
+        <div class="results-grid">
+          <div class="data-panel">
+            <div class="label">ACTUAL SOURCE BEHAVIOR</div>
+            <h3>Original ranking</h3>
+            <p class="small">
+              This side runs our original search instructions. These are real
+              outputs from the original function.
+            </p>
+            <ol id="actual-results"></ol>
+          </div>
+          <div class="data-panel alt">
+            <div class="label">HYPOTHETICAL CHANGE — NOT ORIGINAL CODE</div>
+            <h3>What if tag matches came first?</h3>
+            <p class="small">
+              Pretend matching a tag is more important than matching a title.
+              What changes?
+            </p>
+            <ol id="experimental-results"></ol>
+          </div>
+        </div>
+        <div class="evidence-links">
+          <a
+            href="../rel-first-lab/cli.mjs"
+            target="_blank"
+            rel="noopener noreferrer"
+            >cli.mjs ↗</a
+          >
+          <a
+            href="../rel-first-lab/notes.mjs"
+            target="_blank"
+            rel="noopener noreferrer"
+            >notes.mjs ↗</a
+          >
+          <a
+            href="../rel-first-lab/search.mjs"
+            target="_blank"
+            rel="noopener noreferrer"
+            >search.mjs ↗</a
+          >
+          <a
+            href="../rel-first-lab/VERIFIED_RESULTS.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Recorded REA evidence ↗</a
+          >
+        </div>
+      </section>
+      <footer>
+        <strong
+          >REE = learn the mechanism, keep the proof, test your idea.</strong
+        ><br />Next level: run
+        <code>node ree.mjs demo --run --out NEW_DIRECTORY</code> in the fork's
+        prepared environment, open its actual evidence report, and compare the
+        two real import edges with this visualization. This lesson does not
+        install anything globally or connect your personal Codex session.
+      </footer>
+    </div>
+    <script type="module">
+      import { NOTES } from "../rel-first-lab/notes.mjs";
+      import { searchNotes } from "../rel-first-lab/search.mjs";
+
+      const $ = (selector) => document.querySelector(selector);
+      const verified = "../rel-first-lab/VERIFIED_RESULTS.md";
+      const sources = {
+        cli: "../rel-first-lab/cli.mjs",
+        notes: "../rel-first-lab/notes.mjs",
+        search: "../rel-first-lab/search.mjs",
+      };
+      const steps = [
+        {
+          key: "input",
+          short: "Observe",
+          name: "Start with a question",
+          label: "STEP 1 / OBSERVE",
+          body: "Start by typing a word. Before you press Show real results, guess which note will come first. Reverse engineering begins by noticing what something does, not by memorizing code.",
+          evidence:
+            "The query is an input to this demonstration. Our browser UI is not part of the original terminal application.",
+          link: sources.cli,
+          linkText: "See the original CLI",
+        },
+        {
+          key: "cli",
+          short: "Entry point",
+          name: "Find the entry point",
+          label: "STEP 2 / TRACE",
+          body: "cli.mjs is the front door of our tiny program. It takes the words someone typed, hands them to the search function, and prints the matching notes. An import is one file borrowing code or data from another.",
+          evidence:
+            "REA identified cli.mjs line 1 importing ./notes.mjs and line 2 importing ./search.mjs. Both edges have resolved source locations and high-confidence static evidence; this alone is not runtime proof.",
+          link: verified,
+          linkText: "Read the verified REA findings",
+        },
+        {
+          key: "notes",
+          short: "Data",
+          name: "Inspect the data",
+          label: "STEP 3 / MAP",
+          body: "notes.mjs is our filing cabinet. It contains five made-up notes. Each note has a name, an ID and some tags (little category labels). The search function reads these records.",
+          evidence:
+            "The note records can be read directly from our source file. A second REA import edge is not being claimed here.",
+          link: sources.notes,
+          linkText: "Read the five source notes",
+        },
+        {
+          key: "search",
+          short: "Logic",
+          name: "Trace the ranking",
+          label: "STEP 4 / EXPLAIN",
+          body: "search.mjs is the decision-maker. First it ignores extra spaces and uppercase letters. Then it scores matches: exact title wins; title beginning with your word is next; a word anywhere in the title follows; tag-only matches come last. Ties go in alphabetical order.",
+          evidence:
+            "The ranking rule is source-backed. Compare it with observed results; understanding code structure alone does not establish behavior on every input.",
+          link: sources.search,
+          linkText: "Read the ranking code",
+        },
+        {
+          key: "output",
+          short: "Verify",
+          name: "Test a hypothesis",
+          label: "STEP 5 / VERIFY",
+          body: "Now compare the two lists. The left is how the original code actually sorts notes. The right is your what-if experiment. If the order changes, you learned which rule mattered. That is how we turn a guess into a test.",
+          evidence:
+            "The left list runs the source's searchNotes function in your browser. The right is an isolated simulation. Verify other hypotheses against test cases and explicit evidence.",
+          link: verified,
+          linkText: "Review original verification",
+        },
+      ];
+      let selected = 0,
+        timer = null;
+      const normal = (text) => String(text).trim().toLowerCase();
+      function score(note, term, tagFirst = false) {
+        if (!term) return -1;
+        const title = normal(note.title),
+          tag = note.tags.some((t) => normal(t).includes(term));
+        if (tagFirst && tag) return 4;
+        if (title === term) return 3;
+        if (title.startsWith(term)) return 2;
+        if (title.includes(term)) return 1;
+        if (tag) return 0;
+        return -1;
+      }
+      function reason(note, term, experimental = false) {
+        const s = score(note, term, experimental);
+        return s === 4
+          ? "Tag match promoted to top"
+          : s === 3
+            ? "Exact title"
+            : s === 2
+              ? "Title begins with query"
+              : s === 1
+                ? "Title contains query"
+                : s === 0
+                  ? "Tag contains query"
+                  : "No match";
+      }
+      function fillList(container, arr, term, experimental = false) {
+        container.replaceChildren();
+        if (!arr.length) {
+          const li = document.createElement("li");
+          li.className = "empty";
+          li.textContent = "No matching notes.";
+          container.append(li);
+          return;
+        }
+        arr.forEach((note, index) => {
+          const li = document.createElement("li"),
+            n = document.createElement("span"),
+            info = document.createElement("div"),
+            title = document.createElement("strong"),
+            why = document.createElement("small");
+          n.className = "rank-num";
+          n.textContent = String(index + 1).padStart(2, "0");
+          title.textContent = note.title + " · " + note.id;
+          why.textContent = reason(note, term, experimental);
+          info.append(title, why);
+          li.append(n, info);
+          container.append(li);
+        });
+      }
+      function run() {
+        const term = normal($("#query").value),
+          actual = searchNotes(NOTES, $("#query").value);
+        const hypothetical = NOTES.map((note) => ({
+          note,
+          rank: score(note, term, true),
+        }))
+          .filter((entry) => entry.rank >= 0)
+          .sort(
+            (a, b) =>
+              b.rank - a.rank || a.note.title.localeCompare(b.note.title),
+          )
+          .map((entry) => entry.note);
+        fillList($("#actual-results"), actual, term);
+        fillList($("#experimental-results"), hypothetical, term, true);
+        $("#status").textContent =
+          actual.length +
+          " observed match" +
+          (actual.length === 1 ? "" : "es") +
+          " · " +
+          NOTES.length +
+          " source records";
+      }
+      function show(index) {
+        selected = Math.max(0, Math.min(steps.length - 1, index));
+        const step = steps[selected];
+        document.querySelectorAll(".node").forEach((el) => {
+          el.classList.toggle("active", el.dataset.node === step.key);
+          el.setAttribute("aria-pressed", String(el.dataset.node === step.key));
+        });
+        document.querySelectorAll(".step").forEach((el, i) => {
+          el.classList.toggle("active", i === selected);
+          el.setAttribute("aria-current", i === selected ? "step" : "false");
+        });
+        $("#stage-label").textContent = step.label;
+        $("#stage-title").textContent = step.name;
+        $("#stage-body").textContent = step.body;
+        $("#evidence-title").textContent =
+          selected === 1 ? "REA-confirmed import edges" : "Evidence boundary";
+        $("#evidence-body").textContent = step.evidence;
+        $("#evidence-link").href = step.link;
+        $("#evidence-link").textContent = step.linkText + " ↗";
+        $("#prev").disabled = selected === 0;
+        $("#next").disabled = selected === steps.length - 1;
+      }
+      function stop() {
+        if (timer !== null) {
+          clearInterval(timer);
+          timer = null;
+        }
+        $("#play").textContent = "▶ Play the flow";
+      }
+      function play() {
+        if (timer !== null) {
+          stop();
+          return;
+        }
+        show(0);
+        $("#play").textContent = "Ⅱ Pause";
+        timer = setInterval(() => {
+          if (selected === steps.length - 1) {
+            stop();
+            return;
+          }
+          show(selected + 1);
+        }, 1700);
+      }
+      const list = $("#step-list");
+      steps.forEach((step, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "step";
+        const num = document.createElement("span");
+        num.className = "num";
+        num.textContent = String(index + 1).padStart(2, "0");
+        const desc = document.createElement("span");
+        const title = document.createElement("b");
+        title.textContent = step.short;
+        const detail = document.createElement("small");
+        detail.textContent = step.name;
+        desc.append(title, detail);
+        button.append(num, desc);
+        button.addEventListener("click", () => {
+          stop();
+          show(index);
+        });
+        list.append(button);
+      });
+      document.querySelectorAll(".node").forEach((node) =>
+        node.addEventListener("click", () => {
+          stop();
+          show(steps.findIndex((step) => step.key === node.dataset.node));
+        }),
+      );
+      $("#prev").addEventListener("click", () => {
+        stop();
+        show(selected - 1);
+      });
+      $("#next").addEventListener("click", () => {
+        stop();
+        show(selected + 1);
+      });
+      $("#play").addEventListener("click", play);
+      $("#run").addEventListener("click", () => {
+        stop();
+        run();
+        show(0);
+      });
+      $("#query").addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          run();
+          show(0);
+        }
+      });
+      run();
+      show(0);
+    </script>
+  </body>
+</html>

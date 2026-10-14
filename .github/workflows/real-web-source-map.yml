@@ -1,0 +1,37 @@
+name: Real website source-map verification
+on:
+  workflow_call:
+    inputs:
+      build_cache_artifact:
+        description: Portable build cache artifact from the calling CI run.
+        required: false
+        type: string
+        default: ""
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  HUSKY: "0"
+jobs:
+  real-web-source-map:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+      - name: Cache npm package downloads
+        id: npm-cache
+        uses: ./.github/actions/npm-cache
+      - run: npm ci
+      - uses: ./.github/actions/portable-build-cache
+        with:
+          build_cache_artifact: ${{ inputs.build_cache_artifact }}
+      - name: Install the pinned compiler into an isolated fixture directory
+        run: npm install --prefix "$RUNNER_TEMP/rea-web-source-map-compiler" --no-audit --no-fund --package-lock=false esbuild@0.25.10
+      - run: npm run verify:browser:source-maps
+        env:
+          REA_BROWSER_EXECUTABLE: /usr/bin/google-chrome
+          REA_BROWSER_NO_SANDBOX: "true"
+          REA_WEB_SOURCE_MAP_COMPILER: ${{ runner.temp }}/rea-web-source-map-compiler/node_modules/esbuild/lib/main.js

@@ -1,0 +1,20 @@
+{
+  "threshold": 3.5,
+  "reporters": ["consoleFull"],
+  "ignore": [
+    "node_modules/**",
+    "dist/**",
+    "docs/**",
+    ".codex/**",
+    ".devin/**",
+    "tests/fixtures/**",
+    "third_party/**",
+    "tests/conformance/**/*.c",
+    "tests/conformance/**/*.m",
+    "tests/conformance/**/*.swift",
+    "tests/conformance/**/*.xib"
+  ],
+  "gitignore": true,
+  "minLines": 5,
+  "minTokens": 50
+}

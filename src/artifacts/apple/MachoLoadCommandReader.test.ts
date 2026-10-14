@@ -1,0 +1,631 @@
+import { createHash } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import {
+  CPU,
+  FILE_TYPE,
+  LC,
+  codeSignatureCommand,
+  buildVersionCommand,
+  dyldEnvironmentCommand,
+  dylibCommand,
+  dylibUseCommand,
+  fatImage,
+  machoImage,
+  readerOf,
+  rpathCommand,
+  versionMinCommand,
+} from "./MachoImage.fixture.js";
+import {
+  MAX_LOAD_COMMAND_BYTES,
+  hasMachoMagic,
+  readMachoImage,
+} from "./MachoLoadCommandReader.js";
+import { traceDylibResolution } from "./DylibResolutionReader.js";
+import { createTestTempDirectory } from "../../../tests/fixtures/temporaryDirectory.js";
+import { javaClassFile } from "../../../tests/fixtures/javaClassFile.js";
+
+const read = (bytes: Uint8Array) =>
+  readMachoImage(readerOf(bytes), bytes.length);
+
+// Legacy `LC_VERSION_MIN_*` commands carry no simulator flag: per dyld
+// rules Intel images are simulator, ARM images are device (tvOS simulator
+// is x86_64 only). A legacy simulator executable must not fail resolution
+// against a modern simulator dylib.
+it.each([
+  { command: LC.VERSION_MIN_IPHONEOS, cpu: CPU.i386, platform: 7 },
+  { command: LC.VERSION_MIN_IPHONEOS, cpu: CPU.x86_64, platform: 7 },
+  { command: LC.VERSION_MIN_IPHONEOS, cpu: CPU.arm64, platform: 2 },
+  { command: LC.VERSION_MIN_TVOS, cpu: CPU.x86_64, platform: 8 },
+  { command: LC.VERSION_MIN_TVOS, cpu: CPU.arm64, platform: 3 },
+  { command: LC.VERSION_MIN_WATCHOS, cpu: CPU.i386, platform: 9 },
+  { command: LC.VERSION_MIN_WATCHOS, cpu: CPU.arm64, platform: 4 },
+  { command: LC.VERSION_MIN_MACOSX, cpu: CPU.x86_64, platform: 1 },
+] as const)(
+  "classifies legacy command $command on $cpu.type as platform $platform",
+  async ({ command, cpu, platform }) => {
+    const facts = await read(
+      machoImage({ cpu, commands: [versionMinCommand(command)] }),
+    );
+    if (facts.status !== "parsed") throw new Error(facts.status);
+    expect(facts.slices[0]).toMatchObject({ platform, platforms: [platform] });
+  },
+);
+
+it("uses legacy simulator and device platform facts when resolving dylibs", async () => {
+  const root = await createTestTempDirectory("rea-macho-legacy-platform-");
+  const dylibPath = "Frameworks/libThing.dylib";
+  const installName = "@rpath/libThing.dylib";
+  const intelExecutable = machoImage({
+    cpu: CPU.x86_64,
+    commands: [
+      versionMinCommand(LC.VERSION_MIN_IPHONEOS),
+      rpathCommand("@executable_path/Frameworks"),
+      dylibCommand(LC.LOAD_DYLIB, installName),
+    ],
+  });
+  const armExecutable = machoImage({
+    cpu: CPU.arm64,
+    commands: [
+      versionMinCommand(LC.VERSION_MIN_IPHONEOS),
+      rpathCommand("@executable_path/Frameworks"),
+      dylibCommand(LC.LOAD_DYLIB, installName),
+    ],
+  });
+  const simulatorDylib = fatImage([
+    {
+      cpu: CPU.x86_64,
+      bytes: machoImage({
+        cpu: CPU.x86_64,
+        fileType: FILE_TYPE.dylib,
+        commands: [
+          buildVersionCommand(7),
+          dylibCommand(LC.ID_DYLIB, installName),
+        ],
+      }),
+    },
+    {
+      cpu: CPU.arm64,
+      bytes: machoImage({
+        cpu: CPU.arm64,
+        fileType: FILE_TYPE.dylib,
+        commands: [
+          buildVersionCommand(7),
+          dylibCommand(LC.ID_DYLIB, installName),
+        ],
+      }),
+    },
+  ]);
+  await mkdir(join(root, "Frameworks"), { recursive: true });
+  await writeFile(join(root, "Intel"), intelExecutable);
+  await writeFile(join(root, "Arm"), armExecutable);
+  await writeFile(join(root, dylibPath), simulatorDylib);
+
+  const trace = async (target: string, architecture: "arm64" | "x86_64") => {
+    const bytes = target === "Intel" ? intelExecutable : armExecutable;
+    return traceDylibResolution({
+      rootPath: root,
+      targetPath: join(root, target),
+      targetSha256: createHash("sha256").update(bytes).digest("hex"),
+      enumerateRoots: false,
+      parameters: { roots: [target], architecture },
+    });
+  };
+  const intelTrace = await trace("Intel", "x86_64");
+  const armTrace = await trace("Arm", "arm64");
+
+  expect(intelTrace.edges).toContainEqual(
+    expect.objectContaining({
+      loader: "Intel",
+      resolution: expect.objectContaining({
+        status: "resolved",
+        image: dylibPath,
+      }),
+    }),
+  );
+  expect(armTrace.edges).toContainEqual(
+    expect.objectContaining({
+      loader: "Arm",
+      candidates: expect.arrayContaining([
+        expect.objectContaining({ outcome: "platform-mismatch" }),
+      ]),
+    }),
+  );
+});
+
+it("selects matching arm64e subtype slices when tracing a mixed FAT image", async () => {
+  const root = await createTestTempDirectory("rea-macho-arm64e-subtypes-");
+  const executablePath = "Contents/MacOS/App";
+  const dylibPath = "Contents/MacOS/libVariant.dylib";
+  const installName = "@executable_path/libVariant.dylib";
+  const arm64eDependency = "@executable_path/libArm64e.dylib";
+  const arm64eX1Dependency = "@executable_path/libArm64eX1.dylib";
+  const executableSlice = (cpu: typeof CPU.arm64e | typeof CPU.arm64eX1) =>
+    machoImage({
+      cpu,
+      commands: [
+        buildVersionCommand(1),
+        dylibCommand(LC.LOAD_DYLIB, installName),
+      ],
+    });
+  const executable = fatImage([
+    {
+      cpu: CPU.arm64eX1,
+      bytes: executableSlice(CPU.arm64eX1),
+    },
+    {
+      cpu: CPU.arm64e,
+      bytes: executableSlice(CPU.arm64e),
+    },
+  ]);
+  const variantSlice = (
+    cpu: typeof CPU.arm64e | typeof CPU.arm64eX1,
+    dependencyName: string,
+  ) =>
+    machoImage({
+      cpu,
+      fileType: FILE_TYPE.dylib,
+      commands: [
+        buildVersionCommand(1),
+        dylibCommand(LC.ID_DYLIB, installName),
+        dylibCommand(LC.LOAD_DYLIB, dependencyName),
+      ],
+    });
+  const completeDylib = fatImage([
+    {
+      cpu: CPU.arm64e,
+      bytes: variantSlice(CPU.arm64e, arm64eDependency),
+    },
+    {
+      cpu: CPU.arm64eX1,
+      bytes: variantSlice(CPU.arm64eX1, arm64eX1Dependency),
+    },
+  ]);
+  await mkdir(join(root, "Contents/MacOS"), { recursive: true });
+  await writeFile(join(root, executablePath), executable);
+  await writeFile(join(root, dylibPath), completeDylib);
+
+  const trace = () =>
+    traceDylibResolution({
+      rootPath: root,
+      targetPath: join(root, executablePath),
+      targetSha256: createHash("sha256").update(executable).digest("hex"),
+      enumerateRoots: false,
+      parameters: { roots: [executablePath] },
+    });
+
+  const complete = await trace();
+  expect(
+    complete.edges
+      .filter(({ loader }) => loader === dylibPath)
+      .map(({ install_name: dependencyName }) => dependencyName),
+  ).toEqual([arm64eX1Dependency, arm64eDependency]);
+
+  const onlyArm64e = fatImage([
+    {
+      cpu: CPU.arm64e,
+      bytes: variantSlice(CPU.arm64e, arm64eDependency),
+    },
+  ]);
+  await writeFile(join(root, dylibPath), onlyArm64e);
+  const missingVariant = await trace();
+  expect(
+    missingVariant.edges
+      .filter(
+        ({ loader, install_name: dependencyName }) =>
+          loader === executablePath && dependencyName === installName,
+      )
+      .map(({ candidates, resolution }) => [
+        candidates[0]?.outcome,
+        resolution.status,
+      ]),
+  ).toEqual([
+    ["architecture-missing", "unresolved"],
+    ["resolved", "resolved"],
+  ]);
+});
+
+describe("Mach-O load command reader: decodes thin-image load commands", () => {
+  it("preserves leading U+FEFF in load-command strings", async () => {
+    const image = machoImage({
+      commands: [
+        dylibCommand(LC.ID_DYLIB, "\uFEFF@rpath/libself.dylib"),
+        dylibCommand(LC.LOAD_DYLIB, "\uFEFF@rpath/libother.dylib"),
+        rpathCommand("\uFEFF@loader_path/Frameworks"),
+        dyldEnvironmentCommand("\uFEFFDYLD_LIBRARY_PATH=/example"),
+      ],
+    });
+    expect(await read(image)).toMatchObject({
+      status: "parsed",
+      slices: [
+        {
+          install_name: "\uFEFF@rpath/libself.dylib",
+          dependencies: [{ install_name: "\uFEFF@rpath/libother.dylib" }],
+          rpaths: ["\uFEFF@loader_path/Frameworks"],
+          dyld_environment: ["\uFEFFDYLD_LIBRARY_PATH=/example"],
+        },
+      ],
+    });
+  });
+  it("decodes dylib loading commands of a thin image", async () => {
+    const image = machoImage({
+      fileType: FILE_TYPE.dylib,
+      commands: [
+        dylibCommand(LC.ID_DYLIB, "@rpath/Core.framework/Core"),
+        dylibCommand(LC.LOAD_DYLIB, "/usr/lib/libSystem.B.dylib", {
+          current: 0x050f0400,
+          compatibility: 0x10000,
+        }),
+        dylibCommand(LC.LOAD_WEAK_DYLIB, "@rpath/libweak.dylib"),
+        dylibCommand(LC.REEXPORT_DYLIB, "@loader_path/libre.dylib"),
+        dylibCommand(LC.LOAD_UPWARD_DYLIB, "@rpath/libup.dylib"),
+        dylibCommand(LC.LAZY_LOAD_DYLIB, "@rpath/liblazy.dylib"),
+        rpathCommand("@loader_path/Frameworks"),
+        rpathCommand("/usr/lib/swift"),
+        dyldEnvironmentCommand("DYLD_FRAMEWORK_PATH=@executable_path"),
+        codeSignatureCommand(),
+      ],
+    });
+    const facts = await read(image);
+    expect(facts.status).toBe("parsed");
+    if (facts.status !== "parsed") return;
+    expect(facts.slices).toHaveLength(1);
+    const [slice] = facts.slices;
+    expect(slice).toMatchObject({
+      architecture: "arm64",
+      file_type: "dylib",
+      install_name: "@rpath/Core.framework/Core",
+      rpaths: ["@loader_path/Frameworks", "/usr/lib/swift"],
+      dyld_environment: ["DYLD_FRAMEWORK_PATH=@executable_path"],
+      code_signature_present: true,
+    });
+    expect(
+      slice?.dependencies.map(
+        ({ command, install_name: name, weak, reexport, upward }) => [
+          command,
+          name,
+          weak,
+          reexport,
+          upward,
+        ],
+      ),
+    ).toEqual([
+      ["LC_LOAD_DYLIB", "/usr/lib/libSystem.B.dylib", false, false, false],
+      ["LC_LOAD_WEAK_DYLIB", "@rpath/libweak.dylib", true, false, false],
+      ["LC_REEXPORT_DYLIB", "@loader_path/libre.dylib", false, true, false],
+      ["LC_LOAD_UPWARD_DYLIB", "@rpath/libup.dylib", false, false, true],
+      ["LC_LAZY_LOAD_DYLIB", "@rpath/liblazy.dylib", false, false, false],
+    ]);
+    expect(slice?.dependencies[0]).toMatchObject({
+      encoding: "dylib_command",
+      current_version: "1295.4.0",
+      compatibility_version: "1.0.0",
+    });
+  });
+
+  it("decodes dylib_use_command flags", async () => {
+    const facts = await read(
+      machoImage({
+        commands: [
+          dylibUseCommand(LC.LOAD_DYLIB, "@rpath/libdelay.dylib", 0x8),
+          dylibUseCommand(LC.LOAD_DYLIB, "@rpath/libweakup.dylib", 0x1 | 0x4),
+          dylibUseCommand(LC.LOAD_DYLIB, "@rpath/libre.dylib", 0x2),
+        ],
+      }),
+    );
+    if (facts.status !== "parsed") throw new Error(facts.status);
+    expect(
+      facts.slices[0]?.dependencies.map(
+        ({ encoding, weak, upward, reexport, delayed_init: delayed }) => ({
+          encoding,
+          weak,
+          upward,
+          reexport,
+          delayed,
+        }),
+      ),
+    ).toEqual([
+      {
+        encoding: "dylib_use_command",
+        weak: false,
+        upward: false,
+        reexport: false,
+        delayed: true,
+      },
+      {
+        encoding: "dylib_use_command",
+        weak: true,
+        upward: true,
+        reexport: false,
+        delayed: false,
+      },
+      {
+        encoding: "dylib_use_command",
+        weak: false,
+        upward: false,
+        reexport: true,
+        delayed: false,
+      },
+    ]);
+  });
+});
+
+describe("Mach-O load command reader: reads and validates universal binary slices", () => {
+  it("reads every slice of FAT and FAT_64 containers in either byte order", async () => {
+    for (const [wide, littleEndian] of [
+      [false, false],
+      [true, false],
+      [false, true],
+      [true, true],
+    ] as const) {
+      const facts = await read(
+        fatImage(
+          [
+            {
+              cpu: CPU.arm64e,
+              bytes: machoImage({
+                cpu: CPU.arm64e,
+                commands: [rpathCommand("@executable_path/a")],
+              }),
+            },
+            {
+              cpu: CPU.x86_64,
+              bytes: machoImage({
+                cpu: CPU.x86_64,
+                commands: [rpathCommand("@executable_path/b")],
+              }),
+            },
+          ],
+          wide,
+          littleEndian,
+        ),
+      );
+      if (facts.status !== "parsed") throw new Error(facts.status);
+      expect(
+        facts.slices.map(({ architecture, rpaths }) => [architecture, rpaths]),
+      ).toEqual([
+        ["arm64e", ["@executable_path/a"]],
+        ["x86_64", ["@executable_path/b"]],
+      ]);
+    }
+  });
+
+  it("retains physical slice identity and declared build platform", async () => {
+    const thin = machoImage({ commands: [buildVersionCommand(7)] });
+    const parsedThin = await read(thin);
+    expect(
+      parsedThin.status === "parsed" && parsedThin.slices[0],
+    ).toMatchObject({
+      slice_offset: 0,
+      slice_size: thin.length,
+      cpu_type: CPU.arm64.type,
+      cpu_subtype: CPU.arm64.subtype,
+      fat_cpu_type: null,
+      fat_cpu_subtype: null,
+      platform: 7,
+    });
+    const fat = fatImage([{ cpu: CPU.arm64, bytes: thin }]);
+    const parsedFat = await read(fat);
+    expect(parsedFat.status === "parsed" && parsedFat.slices[0]).toMatchObject({
+      slice_offset: 4096,
+      slice_size: thin.length,
+      fat_cpu_type: CPU.arm64.type,
+      fat_cpu_subtype: CPU.arm64.subtype,
+    });
+  });
+
+  it("rejects FAT table/header identity mismatches and unaligned ranges", async () => {
+    const original = fatImage([{ cpu: CPU.arm64, bytes: machoImage({}) }]);
+    for (const [fieldOffset, value] of [
+      [8, CPU.x86_64.type],
+      [12, 99],
+    ] as const) {
+      const mismatch = original.slice();
+      new DataView(mismatch.buffer).setUint32(fieldOffset, value, false);
+      expect(await read(mismatch)).toMatchObject({
+        status: "malformed",
+        reason: expect.stringContaining("disagrees"),
+      });
+    }
+    const unaligned = original.slice();
+    new DataView(unaligned.buffer).setUint32(16, 4097, false);
+    expect(await read(unaligned)).toMatchObject({
+      status: "malformed",
+      reason: expect.stringContaining("not aligned"),
+    });
+  });
+
+  it("preserves unknown CPU table facts when the embedded slice is Mach-O", async () => {
+    const cpu = { type: 0x7fffffff, subtype: 11 };
+    const facts = await read(fatImage([{ cpu, bytes: machoImage({ cpu }) }]));
+    expect(facts.status === "parsed" && facts.slices[0]).toMatchObject({
+      architecture: "cpu-7fffffff",
+      cpu_type: cpu.type,
+      cpu_subtype: cpu.subtype,
+      fat_cpu_type: cpu.type,
+      fat_cpu_subtype: cpu.subtype,
+    });
+  });
+});
+
+describe("Mach-O load command reader inputs", () => {
+  it("names 32-bit and non-Mach-O inputs without guessing", async () => {
+    const i386 = await read(
+      machoImage({ cpu: { type: 7, subtype: 3 }, wide: false }),
+    );
+    expect(i386.status === "parsed" && i386.slices[0]?.architecture).toBe(
+      "i386",
+    );
+    // A Java class file shares the FAT magic; version fields are not a slice count.
+    const javaClasses = [javaClassFile(), javaClassFile(4000)];
+    expect(javaClasses.map(({ length }) => length)).toEqual([57, 4060]);
+    for (const javaClass of javaClasses) {
+      expect(hasMachoMagic(javaClass)).toBe(true);
+      expect(await read(javaClass)).toEqual({ status: "not-mach-o" });
+    }
+    expect(await read(new TextEncoder().encode("#!/bin/sh\n"))).toEqual({
+      status: "not-mach-o",
+    });
+    expect(await read(Uint8Array.from([0xcf, 0xfa]))).toEqual({
+      status: "not-mach-o",
+    });
+    // A recognized magic without room for a header is a truncated image.
+    expect(
+      await read(Uint8Array.from([0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0x00])),
+    ).toEqual({ status: "malformed", reason: "Mach-O header is truncated" });
+  });
+});
+
+describe("Mach-O load command reader failures", () => {
+  const withCommandSize = (size: number): Uint8Array => {
+    const image = machoImage({ commands: [rpathCommand("@loader_path")] });
+    new DataView(image.buffer).setUint32(32 + 4, size, true);
+    return image;
+  };
+
+  it("reports malformed command tables with the failing command", async () => {
+    expect(await read(withCommandSize(0))).toMatchObject({
+      status: "malformed",
+      reason: expect.stringContaining("load command 0"),
+    });
+    expect(await read(withCommandSize(4096))).toMatchObject({
+      status: "malformed",
+      reason: expect.stringContaining("invalid cmdsize"),
+    });
+    const extraCommand = machoImage({ commands: [rpathCommand("x")] });
+    new DataView(extraCommand.buffer).setUint32(16, 2, true);
+    expect(await read(extraCommand)).toMatchObject({
+      status: "malformed",
+      reason: "load command 1 starts beyond sizeofcmds",
+    });
+  });
+
+  it("requires 8-byte command alignment in 64-bit images", async () => {
+    // A command the reader does not decode; only its size is checked.
+    const command = new Uint8Array(12);
+    const view = new DataView(command.buffer);
+    view.setUint32(0, 0x7f000001, true);
+    view.setUint32(4, 12, true);
+    expect(await read(machoImage({ commands: [command] }))).toMatchObject({
+      status: "malformed",
+      reason: expect.stringContaining("invalid cmdsize 12"),
+    });
+    expect(
+      await read(
+        machoImage({
+          cpu: { type: 7, subtype: 3 },
+          wide: false,
+          commands: [command],
+        }),
+      ),
+    ).toMatchObject({ status: "parsed" });
+  });
+
+  it("accepts FAT tables up to 128 records that name a Mach-O CPU", async () => {
+    const slices = Array.from({ length: 24 }, () => ({
+      cpu: CPU.arm64,
+      bytes: machoImage({}),
+    }));
+    const facts = await read(fatImage(slices));
+    expect(facts.status === "parsed" && facts.slices).toHaveLength(24);
+    // An empty table is not a Java class file, whose major version is nonzero.
+    for (const magic of [
+      [0xca, 0xfe, 0xba, 0xbe],
+      [0xbf, 0xba, 0xfe, 0xca],
+    ])
+      expect(await read(Uint8Array.from([...magic, 0, 0, 0, 0]))).toEqual({
+        status: "malformed",
+        reason: "FAT header declares no architectures",
+      });
+  });
+
+  it("rejects string commands too short to hold their string offset", async () => {
+    const short = new Uint8Array(8);
+    const view = new DataView(short.buffer);
+    view.setUint32(0, LC.RPATH, true);
+    view.setUint32(4, 8, true);
+    expect(await read(machoImage({ commands: [short] }))).toMatchObject({
+      status: "malformed",
+      reason: "load command 0 is too short to hold a string offset",
+    });
+    view.setUint32(0, LC.CODE_SIGNATURE, true);
+    expect(await read(machoImage({ commands: [short] }))).toMatchObject({
+      status: "malformed",
+      reason: "load command 0 is too short for LC_CODE_SIGNATURE",
+    });
+  });
+
+  it("rejects strings that are unterminated, misplaced or not UTF-8", async () => {
+    const unterminated = rpathCommand("abcd");
+    unterminated.fill(0x41, 12);
+    expect(await read(machoImage({ commands: [unterminated] }))).toMatchObject({
+      status: "malformed",
+      reason: expect.stringContaining("unterminated"),
+    });
+    const misplaced = rpathCommand("abcd");
+    new DataView(misplaced.buffer).setUint32(8, 4, true);
+    expect(await read(machoImage({ commands: [misplaced] }))).toMatchObject({
+      status: "malformed",
+      reason: expect.stringContaining("string offset 4"),
+    });
+    const invalid = rpathCommand("ab");
+    invalid[12] = 0xff;
+    expect(await read(machoImage({ commands: [invalid] }))).toMatchObject({
+      status: "malformed",
+      reason: expect.stringContaining("not UTF-8"),
+    });
+  });
+
+  it("refuses truncated, oversized, big-endian and out-of-range images", async () => {
+    const image = machoImage({ commands: [rpathCommand("@loader_path")] });
+    expect(await read(image.subarray(0, 20))).toMatchObject({
+      status: "malformed",
+      reason: "Mach-O header is truncated",
+    });
+    const oversized = machoImage({});
+    new DataView(oversized.buffer).setUint32(
+      20,
+      MAX_LOAD_COMMAND_BYTES + 8,
+      true,
+    );
+    expect(await read(oversized)).toMatchObject({ status: "unsupported" });
+    const beyond = machoImage({ commands: [rpathCommand("x")] });
+    new DataView(beyond.buffer).setUint32(20, beyond.length, true);
+    expect(await read(beyond)).toMatchObject({
+      status: "malformed",
+      reason: "load commands extend beyond the Mach-O slice",
+    });
+    const bigEndian = Uint8Array.from([0xfe, 0xed, 0xfa, 0xcf, 0, 0, 0, 0]);
+    expect(await read(bigEndian)).toMatchObject({ status: "unsupported" });
+    const fat = fatImage([{ cpu: CPU.arm64, bytes: machoImage({}) }]);
+    expect(await read(fat.subarray(0, 4100))).toMatchObject({
+      status: "malformed",
+      reason: "FAT architecture 0 slice range extends beyond the file",
+    });
+  });
+
+  it("preserves unsupported status for an unsupported FAT alignment exponent", async () => {
+    const fat = fatImage([{ cpu: CPU.arm64, bytes: machoImage({}) }]);
+    new DataView(fat.buffer).setUint32(24, 53, false);
+
+    expect(await read(fat)).toMatchObject({
+      status: "unsupported",
+      reason: expect.stringContaining("alignment exponent 53 is unsupported"),
+    });
+  });
+});
+
+it.each([true, false])(
+  "rejects unconsumed command bytes in wide=%s headers",
+  async (wide) => {
+    const bytes = machoImage({ wide, commands: [rpathCommand("ignored")] });
+    new DataView(bytes.buffer).setUint32(16, 0, true);
+    expect(await read(bytes)).toMatchObject({
+      status: "malformed",
+      reason: expect.stringContaining("sizeofcmds"),
+    });
+  },
+);

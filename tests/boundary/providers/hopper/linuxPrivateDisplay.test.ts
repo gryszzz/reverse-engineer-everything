@@ -1,0 +1,302 @@
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+import { describe, expect, it } from "vitest";
+
+import type {
+  HopperStartupDiagnostic,
+  HopperStartupFailureCode,
+} from "../../../../src/domain/hopperStartupFailure.js";
+import {
+  runLinuxPrivateDisplayProbe,
+  selectLinuxPrivateDisplayStrategy,
+  type LinuxPrivateDisplayProbeProcessResult,
+  type LinuxPrivateDisplayProbeRunner,
+  type LinuxPrivateDisplayRunnableStrategy,
+} from "../../../../src/hopper/LinuxPrivateDisplayProbe.js";
+import {
+  LINUX_PRIVATE_DISPLAY_DIAGNOSTIC_PREFIX,
+  parseLinuxPrivateDisplayDiagnostic,
+} from "../../../../src/hopper/LinuxPrivateDisplayDiagnostic.js";
+
+const helperPath = fileURLToPath(
+  new URL("../../../../scripts/hopper-demo-x11.py", import.meta.url),
+);
+const hangingHelperPath = fileURLToPath(
+  new URL("../../../fixtures/x11ProbeHang.py", import.meta.url),
+);
+const dialogDetectionFixturePath = fileURLToPath(
+  new URL("../../../fixtures/hopperDialogDetection.py", import.meta.url),
+);
+const cleanupTimeoutFixturePath = fileURLToPath(
+  new URL("../../../fixtures/hopperCleanupTimeout.py", import.meta.url),
+);
+const ownerLifetimeFixturePath = fileURLToPath(
+  new URL("../../../fixtures/hopperOwnerLifetime.py", import.meta.url),
+);
+
+type DiagnosticOverrides = Partial<
+  Omit<HopperStartupDiagnostic, "failure_code" | "status">
+> &
+  (
+    | { readonly status?: "ready"; readonly failure_code?: null }
+    | {
+        readonly status: "error";
+        readonly failure_code: HopperStartupFailureCode;
+      }
+  );
+
+const diagnostic = (overrides: DiagnosticOverrides = {}) => {
+  const common = {
+    component: "hopper_private_display",
+    operation: "probe",
+    reason: "ready",
+    socket_directory: "/tmp/.X11-unix",
+    socket_directory_mode: "1777",
+    mount_read_only: false,
+    effective_socket_directory_mode: "1777",
+    effective_mount_read_only: false,
+    wsl: false,
+    strategy: "direct",
+    fallback_reason: null,
+    xvfb_stderr_bytes: 0,
+  } as const;
+  return overrides.status === "error"
+    ? ({ ...common, ...overrides } satisfies HopperStartupDiagnostic)
+    : ({
+        ...common,
+        ...overrides,
+        status: "ready",
+        failure_code: null,
+      } satisfies HopperStartupDiagnostic);
+};
+
+const processResult = (
+  value: HopperStartupDiagnostic,
+  overrides: Partial<LinuxPrivateDisplayProbeProcessResult> = {},
+): LinuxPrivateDisplayProbeProcessResult => ({
+  outcome: "exited",
+  exitCode: value.status === "ready" ? 0 : failureExit(value.failure_code),
+  stderr: `${LINUX_PRIVATE_DISPLAY_DIAGNOSTIC_PREFIX}${JSON.stringify(value)}\n`,
+  stderrBytes: 0,
+  cleanupIncomplete: false,
+  ...overrides,
+});
+
+const failureExit = (code: HopperStartupFailureCode): number =>
+  code === "x11_socket_directory_unusable"
+    ? 80
+    : code === "runtime_dependency_unavailable"
+      ? 79
+      : 70;
+
+describe("Hopper demo dialog detection", () => {
+  it.skipIf(process.platform !== "linux")(
+    "uses the Hopper transient-parent relation instead of exact dialog geometry",
+    () => {
+      const result = spawnSync(
+        "/usr/bin/python3",
+        [dialogDetectionFixturePath, helperPath],
+        { encoding: "utf8" },
+      );
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual({
+        dialog: [10, 20, 100, 1200, 284],
+        click: [136, 362],
+        wrong_parent_rejected: true,
+      });
+    },
+  );
+});
+
+describe("Hopper process cleanup", () => {
+  it.skipIf(process.platform !== "linux").each(["startup", "ready"])(
+    "reaps only its own children when the owner pipe closes during %s",
+    (phase) => {
+      const result = spawnSync(
+        "/usr/bin/python3",
+        [ownerLifetimeFixturePath, helperPath, phase],
+        { encoding: "utf8", timeout: 10_000 },
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout)).toEqual({
+        phase,
+        children_cleaned: true,
+        sentinel_alive: true,
+      });
+    },
+  );
+
+  it.skipIf(process.platform !== "linux")(
+    "kills a child that ignores SIGTERM after the bounded timeout",
+    () => {
+      const result = spawnSync(
+        "/usr/bin/python3",
+        [cleanupTimeoutFixturePath, helperPath],
+        { encoding: "utf8", timeout: 5_000 },
+      );
+      expect(result.status, result.stderr).toBe(0);
+    },
+  );
+});
+
+describe("Linux private display selection", () => {
+  it("prefers a successful direct Xvfb probe", async () => {
+    const calls: LinuxPrivateDisplayRunnableStrategy[] = [];
+    const runProbe: LinuxPrivateDisplayProbeRunner = (strategy) => {
+      calls.push(strategy);
+      return Promise.resolve(processResult(diagnostic({ strategy })));
+    };
+
+    await expect(
+      selectLinuxPrivateDisplayStrategy({ helperPath, runProbe }),
+    ).resolves.toMatchObject({ ok: true, strategy: "direct" });
+    expect(calls).toEqual(["direct"]);
+  });
+
+  it("uses a private mount namespace only for the exact socket conflict", async () => {
+    const calls: LinuxPrivateDisplayRunnableStrategy[] = [];
+    const runProbe: LinuxPrivateDisplayProbeRunner = (strategy) => {
+      calls.push(strategy);
+      return Promise.resolve(
+        strategy === "direct"
+          ? processResult(
+              diagnostic({
+                strategy,
+                status: "error",
+                failure_code: "x11_socket_directory_unusable",
+                reason: "socket_directory_read_only",
+                socket_directory_mode: "0777",
+                mount_read_only: true,
+                effective_socket_directory_mode: "0777",
+                effective_mount_read_only: true,
+                wsl: true,
+              }),
+            )
+          : processResult(diagnostic({ strategy, wsl: true })),
+      );
+    };
+
+    const selected = await selectLinuxPrivateDisplayStrategy({
+      helperPath,
+      runProbe,
+    });
+    expect(selected).toMatchObject({
+      ok: true,
+      strategy: "user-mount-namespace",
+      diagnostic: {
+        socket_directory_mode: "0777",
+        mount_read_only: true,
+        effective_socket_directory_mode: "1777",
+        effective_mount_read_only: false,
+        wsl: true,
+      },
+    });
+    expect(calls).toEqual(["direct", "user-mount-namespace"]);
+  });
+
+  it.each([
+    ["missing_xvfb", "runtime_dependency_unavailable", 79],
+    ["address_collision", "private_display_unavailable", 70],
+  ] as const)(
+    "does not mask deterministic direct failure %s with a namespace probe",
+    async (reason, failureCode, exitCode) => {
+      const calls: LinuxPrivateDisplayRunnableStrategy[] = [];
+      const runProbe: LinuxPrivateDisplayProbeRunner = (strategy) => {
+        calls.push(strategy);
+        return Promise.resolve(
+          processResult(
+            diagnostic({
+              strategy,
+              status: "error",
+              failure_code: failureCode,
+              reason,
+            }),
+            { exitCode },
+          ),
+        );
+      };
+      await expect(
+        selectLinuxPrivateDisplayStrategy({ helperPath, runProbe }),
+      ).resolves.toMatchObject({ ok: false, exitCode });
+      expect(calls).toEqual(["direct"]);
+    },
+  );
+
+  it("rejects malformed helper diagnostics", async () => {
+    const runProbe: LinuxPrivateDisplayProbeRunner = () =>
+      Promise.resolve({
+        ...processResult(diagnostic()),
+        exitCode: 70,
+        stderr: `${LINUX_PRIVATE_DISPLAY_DIAGNOSTIC_PREFIX}not-json`,
+      });
+    await expect(
+      selectLinuxPrivateDisplayStrategy({ helperPath, runProbe }),
+    ).resolves.toMatchObject({
+      ok: false,
+      diagnostic: { reason: "diagnostic_malformed" },
+    });
+  });
+
+  it("reports missing helper dependencies without exposing raw stderr", () => {
+    for (const [option] of [
+      ["--xauth", "missing_xauth"],
+      ["--xvfb", "missing_xvfb"],
+    ] as const) {
+      const result = spawnSync(
+        "/usr/bin/python3",
+        [helperPath, "--probe", option, "/rea/missing-executable"],
+        { encoding: "utf8" },
+      );
+      expect(result.status).toBe(79);
+      const parsed = parseLinuxPrivateDisplayDiagnostic(result.stderr);
+      expect(parsed).toMatchObject({
+        ok: true,
+        value: {
+          status: "error",
+          failure_code: "runtime_dependency_unavailable",
+        },
+      });
+      if (parsed.ok)
+        expect(parsed.value.reason).toMatch(/^missing_(xauth|xvfb)$/u);
+      expect(result.stderr).not.toContain("Traceback");
+    }
+  });
+
+  it("kills the owned probe group when its absolute deadline expires", async () => {
+    const result = await selectLinuxPrivateDisplayStrategy({
+      helperPath: hangingHelperPath,
+      timeoutMs: 75,
+      runProbe: runLinuxPrivateDisplayProbe,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      diagnostic: { reason: "probe_timeout" },
+    });
+    const processes = spawnSync("/bin/ps", ["-eo", "args="], {
+      encoding: "utf8",
+    }).stdout;
+    expect(processes).not.toContain(hangingHelperPath);
+  });
+});
+
+describe("private display probe output settlement", () => {
+  it.skipIf(process.platform === "win32")(
+    "retains inherited diagnostics written after the launcher exits",
+    async () => {
+      const result = await runLinuxPrivateDisplayProbe("direct", {
+        helperPath: fileURLToPath(
+          new URL("../../../fixtures/x11ProbeOutput.py", import.meta.url),
+        ),
+        timeoutMs: 5_000,
+      });
+      expect(result).toEqual({
+        outcome: "exited",
+        exitCode: 0,
+        stderr: "firstlast",
+        stderrBytes: Buffer.byteLength("firstlast"),
+        cleanupIncomplete: false,
+      });
+    },
+  );
+});

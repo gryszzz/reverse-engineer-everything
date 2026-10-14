@@ -1,0 +1,255 @@
+import { ChildProcess } from "node:child_process";
+import { Socket } from "node:net";
+import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
+import {
+  Client,
+  StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
+import {
+  DEFAULT_INHERITED_ENV_VARS,
+  StdioClientTransport,
+} from "@modelcontextprotocol/client/stdio";
+import { z } from "zod";
+import type { IdaConfiguration } from "./IdaConfiguration.js";
+import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
+import { AnalysisProtocolError } from "../domain/analysisErrorCore.js";
+import { ProviderAdapterError } from "../domain/providerAdapterError.js";
+
+/** Injectable MCP boundary used by the provider and transport conformance tests. */
+export interface IdaMcpConnection {
+  connect(): Promise<readonly string[]>;
+  call(
+    name: string,
+    args: Readonly<Record<string, JsonValue>>,
+  ): Promise<JsonValue>;
+  readResource?(uri: string): Promise<JsonValue>;
+  serverInfo(): JsonValue;
+  close(): Promise<void>;
+  /**
+   * Keep a connection retained after failed cleanup from holding the host
+   * process open. A long-lived MCP server can still retry through it; a
+   * one-shot CLI exits, and the upstream proxy observes end of input.
+   */
+  detach(): void;
+}
+
+const toolResultSchema = z.object({
+  isError: z.boolean().optional(),
+  structuredContent: z.record(z.string(), z.unknown()).optional(),
+  content: z.array(
+    z.object({ type: z.string(), text: z.string().optional() }).passthrough(),
+  ),
+  _meta: z
+    .object({
+      ida_mcp: z
+        .object({
+          output_truncated: z.boolean().optional(),
+          download_hint: z.string().optional(),
+        })
+        .passthrough()
+        .optional(),
+    })
+    .passthrough()
+    .optional(),
+});
+
+const parseIdaJsonText = (text: string): JsonValue => {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (cause: unknown) {
+    throw new AnalysisProtocolError("IDA MCP returned malformed JSON text.", {
+      cause,
+    });
+  }
+  return jsonValueSchema.parse(value);
+};
+
+/** Decode Python FastMCP's scalar wrapper without dropping structured dictionaries. */
+export const decodeIdaToolResult = (
+  input: unknown,
+  protocol?: "native",
+): JsonValue => {
+  const result = toolResultSchema.parse(input);
+  const blocks = result.content.flatMap((block) =>
+    block.type === "text" && block.text !== undefined ? [block.text] : [],
+  );
+  if (result.isError === true)
+    throw new AnalysisProtocolError(
+      `IDA MCP tool failed: ${blocks.join("\n")}`,
+    );
+  if (result._meta?.ida_mcp?.output_truncated === true)
+    throw new AnalysisProtocolError(
+      `IDA MCP truncated its output; the preview cannot establish a complete observation. ${result._meta.ida_mcp.download_hint ?? "Use the upstream output download workflow to retrieve the full result."}`,
+    );
+  // Native MCP retains the complete JSON text while structuredContent may
+  // contain a shortened preview. Parse that producer-owned representation once.
+  if (protocol === "native") {
+    if (blocks.length !== 1)
+      throw new AnalysisProtocolError(
+        "Native IDA MCP omitted its complete JSON text result.",
+      );
+    return parseIdaJsonText(blocks[0] ?? "");
+  }
+  if (result.structuredContent !== undefined) {
+    const value = result.structuredContent;
+    return jsonValueSchema.parse(
+      Object.keys(value).length === 1 && "result" in value
+        ? value.result
+        : value,
+    );
+  }
+  if (blocks.length !== 1)
+    throw new AnalysisProtocolError(
+      "IDA MCP omitted a single structured or text result; unsupported content cannot establish an empty observation.",
+    );
+  const values = blocks.map((text): JsonValue => {
+    try {
+      return jsonValueSchema.parse(JSON.parse(text));
+    } catch {
+      return text;
+    }
+  });
+  return values[0] ?? null;
+};
+
+/** Redact configured transport authentication values from SDK diagnostics only. */
+export const redactIdaTransportFailure = (
+  cause: unknown,
+  config: IdaConfiguration,
+): Error => {
+  let message =
+    cause instanceof Error
+      ? cause.message
+      : "Unknown IDA MCP transport failure";
+  if ("headers" in config) {
+    for (const [name, value] of Object.entries(config.headers)) {
+      if (!/^(?:authorization|proxy-authorization|cookie)$/iu.test(name))
+        continue;
+      const credential = value.match(/^(?:Bearer|Basic)\s+([\s\S]+)$/iu)?.[1];
+      for (const secret of [value, credential])
+        if (secret !== undefined && secret.length > 0)
+          message = message
+            .split(secret)
+            .join("[redacted transport credential]");
+    }
+  }
+  return new Error(message, { cause });
+};
+
+/** Create a standard SDK connection to an existing upstream registration. */
+export const createIdaMcpConnection = (
+  config: IdaConfiguration,
+  environment: Readonly<NodeJS.ProcessEnv>,
+): IdaMcpConnection => {
+  const client = new Client({ name: "rea-ida-provider", version: "1" });
+  let stderr = Buffer.alloc(0);
+  let stderrBytes = 0;
+  const transportFailure = (cause: unknown): never => {
+    const failure = redactIdaTransportFailure(cause, config);
+    if (stderrBytes === 0) throw failure;
+    let start = 0;
+    // The byte tail may start inside a UTF-8 code point. Retain whole units.
+    if (stderrBytes > stderr.length)
+      while (start < stderr.length && (stderr[start]! & 0xc0) === 0x80) start++;
+    const diagnostic = redactIdaTransportFailure(
+      new Error(stderr.subarray(start).toString("utf8")),
+      config,
+    ).message;
+    throw new ProviderAdapterError("ida", "transport", {
+      cause: failure,
+      diagnostics: { reason: failure.message },
+      capturedOutput: {
+        stdout: "",
+        stderr: diagnostic,
+        truncated: stderrBytes > stderr.length - start,
+        stdout_bytes: 0,
+        stderr_bytes: stderrBytes,
+      },
+    });
+  };
+  const transport =
+    "command" in config
+      ? new StdioClientTransport({
+          command: config.command,
+          args: config.args,
+          env: {
+            // The SDK always merges ambient defaults. Its string-only environment
+            // API requires empty values to suppress omitted caller-selected keys.
+            ...Object.fromEntries(
+              DEFAULT_INHERITED_ENV_VARS.map((key) => [key, ""]),
+            ),
+            ...Object.fromEntries(
+              Object.entries(snapshotEnvironment(environment)).filter(
+                (entry): entry is [string, string] => entry[1] !== undefined,
+              ),
+            ),
+            IDA_MCP_MAX_WORKERS: "1",
+            ...snapshotEnvironment(config.env),
+          },
+          stderr: "pipe",
+        })
+      : new StreamableHTTPClientTransport(new URL(config.url), {
+          requestInit: { headers: config.headers, redirect: "error" },
+        });
+  // Keep a bounded diagnostic tail for genuine failures; never persist ambient variables.
+  if (transport instanceof StdioClientTransport)
+    transport.stderr?.on("data", (chunk: Buffer) => {
+      stderrBytes += chunk.length;
+      const combined = Buffer.concat([stderr, chunk]);
+      stderr = Buffer.from(
+        combined.subarray(Math.max(0, combined.length - 16_384)),
+      );
+    });
+  return {
+    async connect() {
+      await client
+        .connect(transport, { timeout: config.timeoutMs })
+        .catch(transportFailure);
+      const catalog = await client
+        .listTools(undefined, {
+          timeout: config.timeoutMs,
+        })
+        .catch(transportFailure);
+      return catalog.tools.map(({ name }) => name);
+    },
+    async call(name, args) {
+      return decodeIdaToolResult(
+        await client
+          .callTool({ name, arguments: args }, { timeout: config.timeoutMs })
+          .catch(transportFailure),
+        config.protocol,
+      );
+    },
+    async readResource(uri) {
+      const response = await client
+        .readResource({ uri }, { timeout: config.timeoutMs })
+        .catch(transportFailure);
+      const resource = z
+        .object({
+          contents: z
+            .array(
+              z.object({
+                uri: z.literal(uri),
+                mimeType: z.literal("application/json"),
+                text: z.string(),
+              }),
+            )
+            .length(1),
+        })
+        .parse(response);
+      return parseIdaJsonText(resource.contents[0]?.text ?? "");
+    },
+    serverInfo: () => jsonValueSchema.parse(client.getServerVersion() ?? null),
+    close: () => client.close().catch(transportFailure),
+    detach() {
+      if (!(transport instanceof StdioClientTransport)) return;
+      // The SDK exposes only the child's pid, not the handles it holds.
+      const child: unknown = Reflect.get(transport, "_process");
+      if (!(child instanceof ChildProcess)) return;
+      child.unref();
+      for (const stream of [child.stdin, child.stdout, child.stderr])
+        if (stream instanceof Socket) stream.unref();
+    },
+  };
+};

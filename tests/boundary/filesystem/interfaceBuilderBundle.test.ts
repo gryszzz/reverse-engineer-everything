@@ -1,0 +1,1325 @@
+import { execFile } from "node:child_process";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
+import { buildBinary } from "plist";
+import { describe, expect, it } from "vitest";
+
+import { analyzeInterfaceBuilderBundle } from "../../../src/artifacts/apple/InterfaceBuilderAnalysis.js";
+import { encodeNibArchiveFixture } from "../../../src/artifacts/apple/NibArchive.fixture.js";
+import { thinMach } from "../../../src/domain/binaryTarget.fixture.js";
+import { xcodeIbtoolAvailable } from "../../fixtures/ibtool.js";
+import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+
+import { interfaceBuilderAnalysisSchema } from "../../../src/domain/apple/interfaceBuilderGraph.js";
+import { parseEvidence } from "../../../src/domain/evidence.js";
+import {
+  createInterfaceBuilderEncodingFixture,
+  expectInterfaceBuilderEncoding,
+  expectInvalidInterfaceBuilderEncoding,
+  interfaceBuilderEncodings,
+  invalidInterfaceBuilderEncodings,
+} from "../../fixtures/interfaceBuilderEncoding.js";
+import { cliTest } from "../../support/cli/cliFixture.js";
+
+const compile = promisify(execFile);
+
+type PlistValue =
+  | string
+  | number
+  | boolean
+  | Date
+  | Uint8Array
+  | PlistValue[]
+  | { [key: string]: PlistValue }
+  | null;
+
+const keyedArchiveHierarchy = (
+  nodes: readonly {
+    readonly id: string;
+    readonly children: readonly number[];
+  }[],
+) => {
+  const nodeClass = 1 + nodes.length * 2;
+  const arrayClass = nodeClass + 1;
+  const objects: PlistValue[] = Array.from(
+    { length: arrayClass + 1 },
+    () => null,
+  );
+  objects[0] = "$null";
+  for (const [index, node] of nodes.entries()) {
+    const nodeUid = 1 + index * 2;
+    objects[nodeUid] = {
+      $class: { UID: nodeClass },
+      objectID: node.id,
+      children: { UID: nodeUid + 1 },
+    };
+    objects[nodeUid + 1] = {
+      $class: { UID: arrayClass },
+      "NS.objects": node.children.map((child) => ({ UID: 1 + child * 2 })),
+    };
+  }
+  objects[nodeClass] = {
+    $classname: "FixtureHierarchyNode",
+    $classes: ["FixtureHierarchyNode", "NSObject"],
+  };
+  objects[arrayClass] = {
+    $classname: "__NSArrayI",
+    $classes: ["__NSArrayI", "NSArray", "NSObject"],
+  };
+  return buildBinary({
+    $archiver: "NSKeyedArchiver",
+    $version: 100000,
+    $objects: objects,
+    $top: { root: { UID: 1 } },
+  });
+};
+
+const binaryPlistWithRepeatedReferences = (depth: number): Buffer => {
+  const encodedObjects = [Buffer.from([0x51, 0x78])];
+  for (let index = 1; index <= depth; index += 1)
+    encodedObjects.push(Buffer.from([0xa2, index - 1, index - 1]));
+  const header = Buffer.from("bplist00", "ascii");
+  const offsets: number[] = [];
+  let offset = header.length;
+  for (const object of encodedObjects) {
+    offsets.push(offset);
+    offset += object.length;
+  }
+  const offsetTable = Buffer.from(offsets);
+  const trailer = Buffer.alloc(32);
+  trailer[6] = 1;
+  trailer[7] = 1;
+  trailer.writeBigUInt64BE(BigInt(encodedObjects.length), 8);
+  trailer.writeBigUInt64BE(BigInt(depth), 16);
+  trailer.writeBigUInt64BE(BigInt(offset), 24);
+  return Buffer.concat([header, ...encodedObjects, offsetTable, trailer]);
+};
+
+const binaryPlistWithRepeatedData = (
+  referenceCount: number,
+  dataLength: number,
+): Buffer => {
+  const header = Buffer.from("bplist00", "ascii");
+  const array = Buffer.concat([
+    Buffer.from([0xaf, 0x10, referenceCount]),
+    Buffer.alloc(referenceCount, 1),
+  ]);
+  const data = Buffer.concat([
+    Buffer.from([0x4f, 0x12]),
+    Buffer.from(
+      new Uint8Array([
+        (dataLength >>> 24) & 0xff,
+        (dataLength >>> 16) & 0xff,
+        (dataLength >>> 8) & 0xff,
+        dataLength & 0xff,
+      ]),
+    ),
+    Buffer.alloc(dataLength, 7),
+  ]);
+  const offsets = Buffer.alloc(8);
+  offsets.writeUInt32BE(header.length, 0);
+  offsets.writeUInt32BE(header.length + array.length, 4);
+  const offsetTable = header.length + array.length + data.length;
+  const trailer = Buffer.alloc(32);
+  trailer[6] = 4;
+  trailer[7] = 1;
+  trailer.writeBigUInt64BE(2n, 8);
+  trailer.writeBigUInt64BE(0n, 16);
+  trailer.writeBigUInt64BE(BigInt(offsetTable), 24);
+  return Buffer.concat([header, array, data, offsets, trailer]);
+};
+
+const encodeNibArchiveWithSharedDataValue = (input: {
+  readonly className: string;
+  readonly fieldName: string;
+  readonly payload: string;
+  readonly objectCount: number;
+}): Buffer => {
+  const varint = (value: number): Buffer => {
+    const bytes: number[] = [];
+    let remaining = value;
+    do {
+      let byte = remaining & 0x7f;
+      remaining >>>= 7;
+      if (remaining === 0) byte |= 0x80;
+      bytes.push(byte);
+    } while (remaining > 0);
+    return Buffer.from(bytes);
+  };
+  const objects = Buffer.concat(
+    Array.from({ length: input.objectCount }, () =>
+      Buffer.concat([varint(0), varint(0), varint(1)]),
+    ),
+  );
+  const fieldBytes = Buffer.from(input.fieldName);
+  const keys = Buffer.concat([varint(fieldBytes.length), fieldBytes]);
+  const payloadBytes = Buffer.from(input.payload);
+  const values = Buffer.concat([
+    varint(0),
+    Buffer.from([8]),
+    varint(payloadBytes.length),
+    payloadBytes,
+  ]);
+  const classBytes = Buffer.from(input.className);
+  const classes = Buffer.concat([
+    varint(classBytes.length),
+    varint(0),
+    classBytes,
+  ]);
+  const objectsOffset = 50;
+  const keysOffset = objectsOffset + objects.length;
+  const valuesOffset = keysOffset + keys.length;
+  const classesOffset = valuesOffset + values.length;
+  const header = Buffer.alloc(50);
+  header.write("NIBArchive", 0, "ascii");
+  header.writeUInt32LE(1, 10);
+  header.writeUInt32LE(10, 14);
+  header.writeUInt32LE(input.objectCount, 18);
+  header.writeUInt32LE(objectsOffset, 22);
+  header.writeUInt32LE(1, 26);
+  header.writeUInt32LE(keysOffset, 30);
+  header.writeUInt32LE(1, 34);
+  header.writeUInt32LE(valuesOffset, 38);
+  header.writeUInt32LE(1, 42);
+  header.writeUInt32LE(classesOffset, 46);
+  return Buffer.concat([header, objects, keys, values, classes]);
+};
+
+describe("compiled Interface Builder bundle reader", () => {
+  it("reads nib plist archives and reports provenance", async () => {
+    const root = await createTestTempDirectory("rea-ib-test-");
+    const bundle = join(root, "Example.app");
+    const nib = join(
+      bundle,
+      "Contents",
+      "Resources",
+      "Main.storyboardc",
+      "Main.nib",
+    );
+    await mkdir(nib, { recursive: true });
+    await writeFile(
+      join(nib, "objects.nib"),
+      buildBinary({
+        $archiver: "NSKeyedArchiver",
+        $version: 100000,
+        $objects: [
+          "$null",
+          { $class: { UID: 2 }, title: "Build" },
+          {
+            $classname: "UIButton",
+            $classes: ["UIButton", "UIControl", "UIView", "NSObject"],
+          },
+        ],
+        $top: { root: { UID: 1 } },
+      }),
+    );
+    await writeFile(
+      join(bundle, "Contents", "Resources", "Main.storyboardc", "Info.plist"),
+      '<?xml version="1.0"?><plist><dict><key>notAnArchive</key><string>scene-index</string></dict></plist>',
+    );
+    await mkdir(join(bundle, "Contents", "Resources", "outside.nib"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(bundle, "Contents", "Resources", "outside.nib", "not-nib.txt"),
+      "ignored",
+    );
+
+    const analysis = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "b".repeat(64),
+    });
+    expect(analysis.documents).toMatchObject([
+      {
+        relative_path:
+          "Contents/Resources/Main.storyboardc/Main.nib/objects.nib",
+        document_kind: "storyboard_scene",
+        object_count: 1,
+      },
+    ]);
+    expect(analysis.documents).toHaveLength(1);
+    expect(analysis.graph.target_sha256).toBe("b".repeat(64));
+    expect(analysis.graph.nodes.some(({ name }) => name === "Build")).toBe(
+      true,
+    );
+  });
+
+  it("projects compiled AppKit actions from the control to their target", async () => {
+    const root = await createTestTempDirectory("rea-ib-test-");
+    const bundle = join(root, "Example.app");
+    const resources = join(bundle, "Contents", "Resources");
+    await mkdir(resources, { recursive: true });
+    // NSNibControlConnector archives the sending control as NSSource and its
+    // target as NSDestination; a nil target is the first responder.
+    await writeFile(
+      join(resources, "Panel.nib"),
+      encodeNibArchiveFixture({
+        classes: [
+          "NSNibExternalObjectPlaceholder",
+          "NSButton",
+          "NSNibControlConnector",
+          "NSString",
+          "NSMenuItem",
+        ],
+        objects: [
+          { classIndex: 0, values: {} },
+          { classIndex: 1, values: {} },
+          {
+            classIndex: 2,
+            values: {
+              NSSource: { ref: 1 },
+              NSDestination: { ref: 0 },
+              NSLabel: { ref: 3 },
+            },
+          },
+          { classIndex: 3, values: { "NS.bytes": "doOK:" } },
+          { classIndex: 4, values: {} },
+          {
+            classIndex: 2,
+            values: {
+              NSSource: { ref: 4 },
+              NSDestination: null,
+              NSLabel: { ref: 6 },
+            },
+          },
+          { classIndex: 3, values: { "NS.bytes": "arrangeInFront:" } },
+        ],
+      }),
+    );
+
+    const analysis = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "e".repeat(64),
+    });
+    const byId = new Map(analysis.graph.nodes.map((node) => [node.id, node]));
+    const routes = analysis.graph.nodes
+      .filter(({ kind }) => kind === "action")
+      .map((action) => ({
+        action: action.name,
+        from: analysis.graph.edges
+          .filter(
+            ({ relation, to }) =>
+              relation === "target_action" && to === action.id,
+          )
+          .map(({ from }) => byId.get(from)?.name),
+        to: analysis.graph.edges
+          .filter(
+            ({ relation, from, to }) =>
+              relation === "target_action" &&
+              from === action.id &&
+              (to === null || byId.get(to)?.kind !== "objc_selector"),
+          )
+          .map(({ to }) => (to === null ? null : byId.get(to)?.name)),
+      }))
+      .sort((left, right) => left.action.localeCompare(right.action));
+    expect(routes).toEqual([
+      { action: "arrangeInFront:", from: ["NSMenuItem"], to: [null] },
+      {
+        action: "doOK:",
+        from: ["NSButton"],
+        to: ["NSNibExternalObjectPlaceholder"],
+      },
+    ]);
+  });
+});
+
+describe("keyed archive hierarchy coverage", () => {
+  it("projects a deep keyed-archive hierarchy through NSArray wrappers", async () => {
+    const root = await createTestTempDirectory("rea-ib-test-");
+    const bundle = join(root, "Example.app");
+    const resources = join(bundle, "Contents", "Resources");
+    await mkdir(resources, { recursive: true });
+    const nodes = Array.from({ length: 40 }, (_, index) => ({
+      id: `view-${index}`,
+      children: index === 39 ? [] : [index + 1],
+    }));
+    await writeFile(join(resources, "Deep.nib"), keyedArchiveHierarchy(nodes));
+
+    const analysis = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "f".repeat(64),
+    });
+
+    expect(analysis.documents[0]?.hierarchy_complete).toBe(true);
+    expect(analysis.graph.truncated).toBe(false);
+    expect(analysis.graph.coverage).toContainEqual(
+      expect.objectContaining({
+        facet: "hierarchy:Contents/Resources/Deep.nib",
+        status: "complete",
+        omitted: 0,
+      }),
+    );
+    expect(
+      analysis.graph.edges.filter(
+        ({ relation, id }) =>
+          relation === "contains" && id.includes(":hierarchy:"),
+      ),
+    ).toHaveLength(40);
+  });
+
+  it("preserves source order for children in an archived collection", async () => {
+    const root = await createTestTempDirectory("rea-ib-test-");
+    const bundle = join(root, "Example.app");
+    const resources = join(bundle, "Contents", "Resources");
+    await mkdir(resources, { recursive: true });
+    await writeFile(
+      join(resources, "Branching.nib"),
+      keyedArchiveHierarchy([
+        { id: "root", children: [1, 2] },
+        { id: "first", children: [] },
+        { id: "second", children: [] },
+      ]),
+    );
+
+    const analysis = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "e".repeat(64),
+    });
+    const archiveIdsByNodeId = new Map(
+      analysis.graph.nodes.map(({ id, attributes }) => [
+        id,
+        attributes.interface_builder_object_id,
+      ]),
+    );
+    const rootId = analysis.graph.nodes.find(
+      ({ attributes }) => attributes.interface_builder_object_id === "root",
+    )?.id;
+    const childNames = analysis.graph.edges
+      .filter(
+        ({ from, relation, id }) =>
+          from === rootId &&
+          relation === "contains" &&
+          id.includes(":hierarchy:"),
+      )
+      .map(({ to }) => (to === null ? null : archiveIdsByNodeId.get(to)));
+    expect(childNames).toEqual(["first", "second"]);
+  });
+
+  it.skipIf(process.platform !== "darwin")(
+    "projects a deep NSView archive produced by Foundation NSKeyedArchiver",
+    async () => {
+      const root = await createTestTempDirectory("rea-ib-test-");
+      const bundle = join(root, "Example.app");
+      const resources = join(bundle, "Contents", "Resources");
+      await mkdir(resources, { recursive: true });
+      const archive = join(resources, "Foundation.nib");
+      await compile(
+        "/usr/bin/xcrun",
+        [
+          "swift",
+          "tests/conformance/native/keyed-archive-hierarchy.swift",
+          archive,
+          "40",
+        ],
+        { timeout: 90_000 },
+      );
+
+      const analysis = await analyzeInterfaceBuilderBundle({
+        bundlePath: bundle,
+        targetSha256: "d".repeat(64),
+      });
+      expect(analysis.documents[0]?.hierarchy_complete).toBe(true);
+      expect(analysis.graph.truncated).toBe(false);
+      expect(
+        analysis.graph.coverage.find(
+          ({ facet }) =>
+            facet === "hierarchy:Contents/Resources/Foundation.nib",
+        ),
+      ).toMatchObject({ status: "complete", examined: 41, omitted: 0 });
+      expect(
+        analysis.graph.edges.filter(
+          ({ relation, id }) =>
+            relation === "contains" && id.includes(":hierarchy:"),
+        ),
+      ).toHaveLength(41);
+    },
+    120_000,
+  );
+});
+
+describe("compiled Interface Builder bundle reader cancellation", () => {
+  it("honors cancellation during directory traversal", async () => {
+    const root = await createTestTempDirectory("rea-ib-test-");
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      analyzeInterfaceBuilderBundle({
+        bundlePath: root,
+        targetSha256: "c".repeat(64),
+        signal: controller.signal,
+      }),
+    ).rejects.toMatchObject({ reason: "cancelled" });
+  });
+});
+
+describe("flat Interface Builder plist values", () => {
+  it("decodes flat nib archives that hold data and date values", async () => {
+    const root = await createTestTempDirectory("rea-ib-test-");
+    const bundle = join(root, "Example.app");
+    const resources = join(bundle, "Contents", "Resources", "English.lproj");
+    await mkdir(resources, { recursive: true });
+    await writeFile(
+      join(resources, "Binary.nib"),
+      buildBinary({
+        $archiver: "NSKeyedArchiver",
+        $version: 100000,
+        $objects: [
+          "$null",
+          { $class: { UID: 2 }, title: "Build", NSColor: { UID: 3 } },
+          { $classname: "NSButton", $classes: ["NSButton", "NSObject"] },
+          { $class: { UID: 4 }, NSWhite: Buffer.from("0.5\0", "ascii") },
+          { $classname: "NSColor", $classes: ["NSColor", "NSObject"] },
+        ],
+        $top: { root: { UID: 1 } },
+      }),
+    );
+    await writeFile(
+      join(resources, "Xml.nib"),
+      '<?xml version="1.0"?><plist version="1.0"><dict><key>$archiver</key><string>NSKeyedArchiver</string><key>$objects</key><array><string>$null</string><dict><key>NSWhite</key><data>MC41AA==</data><key>NSDate</key><date>2026-10-07T00:00:00Z</date></dict></array><key>$top</key><dict/></dict></plist>',
+    );
+
+    const analysis = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "d".repeat(64),
+    });
+
+    expect(
+      analysis.documents.map(({ relative_path }) => relative_path).sort(),
+    ).toEqual([
+      "Contents/Resources/English.lproj/Binary.nib",
+      "Contents/Resources/English.lproj/Xml.nib",
+    ]);
+    expect(analysis.graph.coverage).toContainEqual(
+      expect.objectContaining({ facet: "archive_decode", status: "complete" }),
+    );
+    expect(analysis.graph.nodes.map(({ name }) => name)).toContain("Build");
+  });
+});
+
+describe("bounded Interface Builder archive decoding", () => {
+  it("marks repeated NIB hierarchy references partial at the caller object limit", async () => {
+    const root = await createTestTempDirectory("rea-ib-repeated-hierarchy-");
+    const bundle = join(root, "Example.app");
+    await mkdir(bundle, { recursive: true });
+    const depth = 8;
+    const objects = [
+      { classIndex: 0, values: { NSRoot: { ref: 1 } } },
+      ...Array.from({ length: depth + 1 }, (_, index) => {
+        const viewId = 1 + index * 2;
+        return [
+          {
+            classIndex: 1,
+            values: index === depth ? {} : { subviews: { ref: viewId + 1 } },
+          },
+          ...(index === depth
+            ? []
+            : [
+                {
+                  classIndex: 2,
+                  values: {
+                    first: { ref: viewId + 2 },
+                    second: { ref: viewId + 2 },
+                  },
+                },
+              ]),
+        ];
+      }).flat(),
+    ];
+    await writeFile(
+      join(bundle, "RepeatedHierarchy.nib"),
+      encodeNibArchiveFixture({
+        classes: ["NSIBObjectData", "UIView", "NSArray"],
+        objects,
+      }),
+    );
+
+    const result = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "f".repeat(64),
+      limits: { max_objects: 16 },
+    });
+
+    expect(result.documents[0]?.hierarchy_complete).toBe(false);
+    expect(result.graph.coverage).toContainEqual(
+      expect.objectContaining({
+        facet: "hierarchy:RepeatedHierarchy.nib",
+        status: "partial",
+        reason: "serialized_view_hierarchy_incomplete",
+      }),
+    );
+  });
+
+  it("rejects a binary plist expansion before recursively materializing repeated references", async () => {
+    const root = await createTestTempDirectory("rea-ib-expansion-test-");
+    const bundle = join(root, "Example.app");
+    await mkdir(bundle, { recursive: true });
+    await writeFile(
+      join(bundle, "RepeatedReferences.nib"),
+      binaryPlistWithRepeatedReferences(32),
+    );
+
+    const result = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "f".repeat(64),
+    });
+
+    expect(result.documents).toEqual([]);
+    expect(result.graph.coverage).toContainEqual(
+      expect.objectContaining({
+        facet: "archive_decode",
+        status: "partial",
+        reason: "aggregate_decode_budget_exhausted",
+        examined: 1,
+        omitted: 1,
+      }),
+    );
+    expect(result.limitations).toContain(
+      "RepeatedReferences.nib: omitted because aggregate decode budget exhausted.",
+    );
+  });
+});
+
+describe("binary plist data expansion budget", () => {
+  it("reserves copied binary plist data for every expanded reference", async () => {
+    const root = await createTestTempDirectory("rea-ib-binary-data-budget-");
+    const bundle = join(root, "Example.app");
+    await mkdir(bundle, { recursive: true });
+    await writeFile(
+      join(bundle, "RepeatedData.nib"),
+      binaryPlistWithRepeatedData(200, 700 * 1024),
+    );
+
+    const result = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "f".repeat(64),
+    });
+
+    expect(result.documents).toEqual([]);
+    expect(result.graph.coverage).toContainEqual(
+      expect.objectContaining({
+        facet: "archive_decode",
+        status: "partial",
+        reason: "aggregate_decode_budget_exhausted",
+        examined: 1,
+        omitted: 1,
+      }),
+    );
+    expect(result.limitations).toContain(
+      "RepeatedData.nib: omitted because aggregate decode budget exhausted.",
+    );
+  });
+});
+
+describe("NIB projection byte amplification", () => {
+  it("omits NIB projections whose shared strings or class names amplify beyond budget", async () => {
+    const repeatedString = "x".repeat(1024 * 1024);
+    const stringReferences = Object.fromEntries(
+      Array.from({ length: 50 }, (_, index) => [`title${index}`, { ref: 1 }]),
+    );
+    const longName = "n".repeat(512 * 1024);
+    const longNameObjects = Array.from({ length: 700 }, () => ({
+      classIndex: 0,
+      values: { field: true },
+    }));
+    const cases = [
+      {
+        name: "RepeatedString",
+        archive: encodeNibArchiveFixture({
+          classes: ["UIView", "NSString"],
+          objects: [
+            { classIndex: 0, values: stringReferences },
+            { classIndex: 1, values: { "NS.bytes": repeatedString } },
+          ],
+        }),
+      },
+      {
+        name: "RepeatedClass",
+        archive: encodeNibArchiveFixture({
+          classes: [longName],
+          objects: longNameObjects,
+        }),
+      },
+    ];
+
+    for (const { name, archive } of cases) {
+      const root = await createTestTempDirectory(`rea-ib-${name}-budget-`);
+      const bundle = join(root, "Example.app");
+      await mkdir(bundle, { recursive: true });
+      await writeFile(join(bundle, `${name}.nib`), archive);
+      const result = await analyzeInterfaceBuilderBundle({
+        bundlePath: bundle,
+        targetSha256: "f".repeat(64),
+      });
+
+      expect(result.documents, name).toEqual([]);
+      expect(result.graph.coverage, name).toContainEqual(
+        expect.objectContaining({
+          facet: "archive_decode",
+          status: "partial",
+          reason: "aggregate_decode_budget_exhausted",
+          examined: 1,
+          omitted: 1,
+        }),
+      );
+      expect(result.limitations, name).toContain(
+        `${name}.nib: omitted because aggregate decode budget exhausted.`,
+      );
+    }
+  });
+
+  it("retains a single large base64 data field within the representation budget", async () => {
+    const root = await createTestTempDirectory("rea-ib-large-data-positive-");
+    const bundle = join(root, "Example.app");
+    await mkdir(bundle, { recursive: true });
+    const archive = encodeNibArchiveFixture({
+      classes: ["UIView"],
+      objects: [
+        {
+          classIndex: 0,
+          values: { payload: "x".repeat(29 * 1024 * 1024) },
+        },
+      ],
+    });
+    await writeFile(join(bundle, "LargePayload.nib"), archive);
+
+    const result = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "f".repeat(64),
+    });
+
+    expect(result.documents.map(({ relative_path }) => relative_path)).toEqual([
+      "LargePayload.nib",
+    ]);
+    expect(result.graph.coverage).toContainEqual(
+      expect.objectContaining({ facet: "archive_decode", status: "complete" }),
+    );
+    const serialized = JSON.stringify(result);
+    expect(serialized).toContain("$nib_data_base64");
+    expect(Buffer.byteLength(serialized)).toBeLessThan(256 * 1024 * 1024);
+  });
+});
+
+cliTest(
+  "compiled CLI preserves distinct NIB keys and class identity",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-nib-name-identity-");
+    const bundle = join(root, "Example.app");
+    const resources = join(bundle, "Contents", "Resources");
+    await mkdir(resources, { recursive: true });
+    await mkdir(join(bundle, "Contents", "MacOS"), { recursive: true });
+    await writeFile(
+      join(bundle, "Contents", "MacOS", "App"),
+      thinMach(0xfeedfacf, 0x0100000c),
+    );
+    await writeFile(
+      join(bundle, "Contents", "Info.plist"),
+      "<plist><dict><key>CFBundleExecutable</key><string>App</string></dict></plist>",
+    );
+    await writeFile(
+      join(resources, "Identity.nib"),
+      encodeNibArchiveFixture({
+        classes: ["\uFEFFWidget"],
+        objects: [{ classIndex: 0, values: { count: 1, "\uFEFFcount": 2 } }],
+      }),
+    );
+    const output = await cli.run({
+      arguments: ["decode-interface-builder", bundle, "--json"],
+      environment: { REA_LOG_LEVEL: "silent", REA_ANALYSIS_PROVIDER: "auto" },
+    });
+    expect(output.exitCode, output.stderr).toBe(0);
+    const result = interfaceBuilderAnalysisSchema.parse(
+      parseEvidence(output.json).normalized_result,
+    );
+    expect(result.graph.nodes).toContainEqual(
+      expect.objectContaining({
+        attributes: expect.objectContaining({
+          class_name: "\uFEFFWidget",
+          nibValues: { count: 1, "\uFEFFcount": 2 },
+        }),
+      }),
+    );
+    expect(JSON.stringify(result)).toContain("\uFEFFWidget");
+  },
+);
+
+cliTest(
+  "compiled CLI preserves a good archive and reports repeated key and data omissions",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-ib-cli-amplification-");
+    const bundle = join(root, "Example.app");
+    const contents = join(bundle, "Contents");
+    const resources = join(bundle, "Contents", "Resources");
+    await mkdir(resources, { recursive: true });
+    await mkdir(join(contents, "MacOS"), { recursive: true });
+    await writeFile(
+      join(contents, "MacOS", "App"),
+      thinMach(0xfeedfacf, 0x0100000c),
+    );
+    await writeFile(
+      join(contents, "Info.plist"),
+      "<plist><dict><key>CFBundleExecutable</key><string>App</string></dict></plist>",
+    );
+    await writeFile(
+      join(resources, "A-Good.nib"),
+      encodeNibArchiveFixture({
+        classes: ["UIView"],
+        objects: [{ classIndex: 0, values: { title: "Good" } }],
+      }),
+    );
+    const longKey = "k".repeat(512 * 1024);
+    await writeFile(
+      join(resources, "B-RepeatedKey.nib"),
+      encodeNibArchiveFixture({
+        classes: ["UIView"],
+        objects: Array.from({ length: 700 }, () => ({
+          classIndex: 0,
+          values: { [longKey]: true },
+        })),
+      }),
+    );
+    await writeFile(
+      join(resources, "C-RepeatedData.nib"),
+      encodeNibArchiveWithSharedDataValue({
+        className: "UIView",
+        fieldName: "payload",
+        payload: "d".repeat(384 * 1024),
+        objectCount: 700,
+      }),
+    );
+
+    const output = await cli.run({
+      arguments: ["decode-interface-builder", bundle, "--json"],
+      environment: {
+        REA_LOG_LEVEL: "silent",
+        REA_ANALYSIS_PROVIDER: "auto",
+      },
+    });
+
+    expect(output.exitCode, `${output.stderr}\n${output.stdout}`).toBe(0);
+    const result = interfaceBuilderAnalysisSchema.parse(
+      parseEvidence(output.json).normalized_result,
+    );
+    expect(result.documents.map(({ relative_path }) => relative_path)).toEqual([
+      "Contents/Resources/A-Good.nib",
+    ]);
+    expect(result.graph.coverage).toContainEqual(
+      expect.objectContaining({
+        facet: "archive_decode",
+        status: "partial",
+        reason: "aggregate_decode_budget_exhausted",
+        examined: 3,
+        omitted: 2,
+      }),
+    );
+    expect(result.limitations).toContain(
+      "Contents/Resources/B-RepeatedKey.nib: omitted because aggregate decode budget exhausted.",
+    );
+    expect(result.limitations).toContain(
+      "Contents/Resources/C-RepeatedData.nib: omitted because aggregate decode budget exhausted.",
+    );
+  },
+);
+
+describe("binary Interface Builder archive omissions", () => {
+  it("reports omitted __proto__ entries as partial decoding", async () => {
+    const placeholder = "proto_key";
+    const encoded = Buffer.from(
+      buildBinary({
+        $archiver: "NSKeyedArchiver",
+        $version: 100000,
+        $objects: ["$null"],
+        $top: {},
+        [placeholder]: "hidden",
+      }),
+    );
+    const start = encoded.indexOf(placeholder);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(encoded.indexOf(placeholder, start + placeholder.length)).toBe(-1);
+    Buffer.from("__proto__").copy(encoded, start);
+
+    const root = await createTestTempDirectory("rea-ib-test-");
+    const bundle = join(root, "Example.app");
+    const resources = join(bundle, "Contents", "Resources");
+    await mkdir(resources, { recursive: true });
+    await writeFile(join(resources, "Prototype.nib"), encoded);
+    const result = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "f".repeat(64),
+    });
+
+    expect(result.graph.coverage).toContainEqual(
+      expect.objectContaining({
+        facet: "archive_decode",
+        status: "partial",
+        reason: "dictionary_entries_omitted",
+      }),
+    );
+    expect(result.limitations).toContain(
+      "Contents/Resources/Prototype.nib: Dictionary entries keyed __proto__ were omitted because REA results cannot represent that key.",
+    );
+  });
+});
+
+describe("aggregate Interface Builder archive retention budget", () => {
+  it("keeps earlier documents when the aggregate decode reservation is exhausted", async () => {
+    const root = await createTestTempDirectory("rea-ib-budget-test-");
+    const bundle = join(root, "Example.app");
+    const resources = join(bundle, "Contents", "Resources");
+    await mkdir(resources, { recursive: true });
+    const padding = `<!--${"x".repeat(1024)}-->`.repeat(11 * 1024);
+    const valid = (name: string, body = "") =>
+      `<?xml version="1.0"?><plist version="1.0"><dict><key>document</key><string>${name}</string>${body}</dict></plist>`;
+    // XML data expands to a Uint8Array and then to a base64 JSON projection;
+    // this first valid document exercises expansion beyond the source bytes.
+    const expandedData = Buffer.alloc(1024 * 1024, 7).toString("base64");
+    await writeFile(
+      join(resources, "A.nib"),
+      valid("A", `<key>payload</key><data>${expandedData}</data>`),
+    );
+    await writeFile(join(resources, "B.nib"), valid("B", padding));
+    await writeFile(join(resources, "C.nib"), valid("C", padding));
+    await writeFile(join(resources, "D.nib"), valid("D", padding));
+
+    const result = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "e".repeat(64),
+    });
+
+    expect(result.documents.map(({ relative_path }) => relative_path)).toEqual([
+      "Contents/Resources/A.nib",
+      "Contents/Resources/B.nib",
+      "Contents/Resources/C.nib",
+    ]);
+    expect(result.graph.coverage).toContainEqual(
+      expect.objectContaining({
+        facet: "archive_decode",
+        status: "partial",
+        reason: "aggregate_decode_budget_exhausted",
+        examined: 3,
+        omitted: 1,
+      }),
+    );
+    expect(result.limitations).toContain(
+      "Contents/Resources/D.nib: omitted because aggregate decode budget exhausted.",
+    );
+  });
+});
+
+describe("bounded Interface Builder archive decoding", () => {
+  it("counts malformed archives against the document limit", async () => {
+    const root = await createTestTempDirectory("rea-ib-test-");
+    const bundle = join(root, "Example.app");
+    const resources = join(bundle, "Contents", "Resources");
+    await mkdir(resources, { recursive: true });
+    await writeFile(join(resources, "BadOne.nib"), Buffer.from("bplist00bad"));
+    await writeFile(join(resources, "BadTwo.nib"), Buffer.from("bplist00bad"));
+
+    const result = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "e".repeat(64),
+      limits: { max_documents: 1 },
+    });
+
+    expect(result.graph.coverage).toContainEqual(
+      expect.objectContaining({
+        facet: "archive_decode",
+        status: "partial",
+        examined: 1,
+        omitted: 1,
+      }),
+    );
+    expect(result.graph.truncated).toBe(true);
+  });
+
+  it("marks archive decoding partial when __proto__ entries are omitted", async () => {
+    const root = await createTestTempDirectory("rea-ib-test-");
+    const bundle = join(root, "Example.app");
+    const resources = join(bundle, "Contents", "Resources");
+    await mkdir(resources, { recursive: true });
+    await writeFile(
+      join(resources, "Prototype.nib"),
+      '<?xml version="1.0"?><plist version="1.0"><dict><key>$archiver</key><string>NSKeyedArchiver</string><key>__proto__</key><string>hidden</string><key>$objects</key><array><string>$null</string></array><key>$top</key><dict/></dict></plist>',
+    );
+
+    const result = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "f".repeat(64),
+    });
+
+    expect(result.graph.coverage).toContainEqual(
+      expect.objectContaining({
+        facet: "archive_decode",
+        status: "partial",
+        reason: "dictionary_entries_omitted",
+      }),
+    );
+    expect(result.graph.truncated).toBe(true);
+    expect(result.limitations).toContain(
+      "Contents/Resources/Prototype.nib: 1 dictionary entry keyed __proto__ was omitted because REA results cannot represent that key.",
+    );
+  });
+
+  it.skipIf(!xcodeIbtoolAvailable)(
+    "decodes an Xcode-compiled storyboard NIB and recovers its UI routes",
+    async () => {
+      const root = await createTestTempDirectory("rea-ib-compiled-test-");
+      const bundle = join(root, "Example.app");
+      const resources = join(bundle, "Contents", "Resources");
+      const source = join(
+        process.cwd(),
+        "tests",
+        "fixtures",
+        "interface-builder",
+        "MacFixture.storyboard",
+      );
+      await mkdir(resources, { recursive: true });
+      await compile("/usr/bin/ibtool", [
+        "--compile",
+        join(resources, "MacFixture.storyboardc"),
+        source,
+      ]);
+
+      const analysis = await analyzeInterfaceBuilderBundle({
+        bundlePath: bundle,
+        targetSha256: "d".repeat(64),
+      });
+      const names = analysis.graph.nodes.map(({ name }) => name);
+      expect(names).toContain("BuildViewController");
+      expect(names).toContain("Button");
+      expect(names).toContain("buildTapped:");
+      expect(
+        analysis.graph.edges.some(
+          ({ relation }) => relation === "target_action",
+        ),
+      ).toBe(true);
+      const action = analysis.graph.nodes.find(
+        ({ kind, name }) => kind === "action" && name === "buildTapped:",
+      );
+      expect(action).toBeDefined();
+      const actionSource = analysis.graph.edges.find(
+        ({ from, relation, to }) =>
+          relation === "target_action" &&
+          to === action?.id &&
+          analysis.graph.nodes.find(({ id }) => id === from)?.kind ===
+            "control",
+      );
+      const describeNode = (id: string | null) => {
+        const node = analysis.graph.nodes.find((item) => item.id === id);
+        return node === undefined ? String(id) : `${node.kind}:${node.name}`;
+      };
+      const actionRoutes = analysis.graph.edges
+        .filter(
+          ({ relation, from, to }) =>
+            relation === "target_action" &&
+            (from === action?.id || to === action?.id),
+        )
+        .map(({ from, to }) => `${describeNode(from)} -> ${describeNode(to)}`);
+      expect(actionSource, actionRoutes.join("; ")).toBeDefined();
+      expect(
+        analysis.graph.edges.some(
+          ({ from, relation, to }) =>
+            from === action?.id &&
+            relation === "target_action" &&
+            to !== null &&
+            analysis.graph.nodes.find(({ id }) => id === to)?.kind ===
+              "placeholder",
+        ),
+      ).toBe(true);
+      expect(
+        analysis.graph.edges.some(({ relation }) => relation === "contains"),
+      ).toBe(true);
+      expect(analysis.graph.coverage).toContainEqual(
+        expect.objectContaining({
+          facet: "archive_decode",
+          status: "complete",
+        }),
+      );
+    },
+  );
+});
+
+describe("NIBArchive UIKit event connections", () => {
+  it("projects a runtime event connection and its event mask", async () => {
+    const root = await createTestTempDirectory("rea-ib-test-");
+    const bundle = join(root, "Example.app");
+    await mkdir(bundle, { recursive: true });
+    await writeFile(
+      join(bundle, "Cell.nib"),
+      encodeNibArchiveFixture({
+        classes: [
+          "UIProxyObject",
+          "UIClassSwapper",
+          "UIButton",
+          "UIRuntimeEventConnection",
+          "NSString",
+        ],
+        objects: [
+          { classIndex: 0, values: { UIProxiedObjectIdentifier: { ref: 5 } } },
+          { classIndex: 1, values: { UIClassName: { ref: 6 } } },
+          { classIndex: 2, values: {} },
+          {
+            classIndex: 3,
+            values: {
+              UISource: { ref: 2 },
+              UIDestination: { ref: 1 },
+              UILabel: { ref: 7 },
+              UIEventMask: 64,
+            },
+          },
+          { classIndex: 2, values: {} },
+          { classIndex: 4, values: { "NS.bytes": "IBFilesOwner" } },
+          { classIndex: 4, values: { "NS.bytes": "BuildCell" } },
+          { classIndex: 4, values: { "NS.bytes": "buildTapped:" } },
+        ],
+      }),
+    );
+
+    const analysis = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "e".repeat(64),
+    });
+    const byId = new Map(analysis.graph.nodes.map((node) => [node.id, node]));
+    const named = (id: string | null) =>
+      id === null ? null : (byId.get(id)?.name ?? null);
+    const action = analysis.graph.nodes.find(({ kind }) => kind === "action");
+    expect(action).toMatchObject({
+      name: "buildTapped:",
+      attributes: { ui_event_mask: 64 },
+    });
+    const actionEdges = analysis.graph.edges.filter(
+      ({ relation }) => relation === "target_action",
+    );
+    expect(
+      actionEdges
+        .filter(({ to }) => to === action?.id)
+        .map(({ from }) => named(from)),
+    ).toEqual(["UIButton"]);
+    expect(
+      actionEdges
+        .filter(({ from }) => from === action?.id)
+        .map(({ to }) => named(to)),
+    ).toEqual(expect.arrayContaining(["BuildCell"]));
+    expect(
+      analysis.graph.nodes.find(({ name }) => name === "IBFilesOwner")?.kind,
+    ).toBe("placeholder");
+    expect(analysis.graph.nodes.map(({ name }) => name)).not.toContain(
+      "UIRuntimeEventConnection",
+    );
+  });
+
+  it("reports a runtime connection with no resolvable owner as an omission", async () => {
+    const root = await createTestTempDirectory("rea-ib-ownerless-");
+    const bundle = join(root, "Example.app");
+    await mkdir(bundle, { recursive: true });
+    // The connector is recognized by class, but carries no UISource reference,
+    // so no connection can be projected from it.
+    await writeFile(
+      join(bundle, "Cell.nib"),
+      encodeNibArchiveFixture({
+        classes: [
+          "UIProxyObject",
+          "UIClassSwapper",
+          "UIButton",
+          "UIRuntimeEventConnection",
+          "NSString",
+        ],
+        objects: [
+          { classIndex: 0, values: { UIProxiedObjectIdentifier: { ref: 5 } } },
+          { classIndex: 1, values: { UIClassName: { ref: 6 } } },
+          { classIndex: 2, values: {} },
+          {
+            classIndex: 3,
+            values: { UIDestination: { ref: 1 }, UIEventMask: 64 },
+          },
+          { classIndex: 2, values: {} },
+          { classIndex: 4, values: { "NS.bytes": "IBFilesOwner" } },
+          { classIndex: 4, values: { "NS.bytes": "BuildCell" } },
+        ],
+      }),
+    );
+
+    const analysis = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "e".repeat(64),
+    });
+
+    expect(analysis.graph.coverage).toContainEqual(
+      expect.objectContaining({
+        facet: "connections:Cell.nib",
+        status: "partial",
+        reason: "connection_unresolved",
+        examined: 0,
+        omitted: 1,
+      }),
+    );
+    // The keyed-archive producer counts a recognized connector it cannot emit,
+    // so this producer has to report the same document total for the same
+    // connector rather than zero.
+    expect(analysis.documents).toContainEqual(
+      expect.objectContaining({
+        relative_path: "Cell.nib",
+        connection_count: 1,
+      }),
+    );
+    expect(analysis.graph.truncated).toBe(true);
+    expect(analysis.limitations).toContain(
+      "Some recognized NIBArchive connectors declare no resolvable owner; they carry no connection evidence and are reported as omissions.",
+    );
+  });
+});
+
+describe("NIBArchive ownerless connector accounting", () => {
+  it("keeps a connection dropped by the limit reported as a limit", async () => {
+    const root = await createTestTempDirectory("rea-ib-ownerless-limit-");
+    const bundle = join(root, "Example.app");
+    await mkdir(bundle, { recursive: true });
+    // Two resolvable connectors and one ownerless connector with the limit
+    // below the resolvable count, so this facet has both causes at once. Only a
+    // higher limit recovers the dropped connection, so that is the reason the
+    // caller needs, exactly as the keyed-archive producer reports it.
+    await writeFile(
+      join(bundle, "Cell.nib"),
+      encodeNibArchiveFixture({
+        classes: [
+          "UIProxyObject",
+          "UIClassSwapper",
+          "UIButton",
+          "UIRuntimeEventConnection",
+          "NSString",
+        ],
+        objects: [
+          { classIndex: 0, values: { UIProxiedObjectIdentifier: { ref: 5 } } },
+          { classIndex: 1, values: { UIClassName: { ref: 6 } } },
+          { classIndex: 2, values: {} },
+          {
+            classIndex: 3,
+            values: {
+              UISource: { ref: 2 },
+              UIDestination: { ref: 1 },
+              UILabel: { ref: 7 },
+              UIEventMask: 64,
+            },
+          },
+          { classIndex: 2, values: {} },
+          { classIndex: 4, values: { "NS.bytes": "IBFilesOwner" } },
+          { classIndex: 4, values: { "NS.bytes": "BuildCell" } },
+          { classIndex: 4, values: { "NS.bytes": "buildTapped:" } },
+          {
+            classIndex: 3,
+            values: {
+              UISource: { ref: 4 },
+              UIDestination: { ref: 1 },
+              UILabel: { ref: 7 },
+            },
+          },
+          {
+            classIndex: 3,
+            values: { UIDestination: { ref: 1 }, UIEventMask: 64 },
+          },
+        ],
+      }),
+    );
+
+    const analysis = await analyzeInterfaceBuilderBundle({
+      bundlePath: bundle,
+      targetSha256: "e".repeat(64),
+      limits: { max_connections: 1 },
+    });
+
+    expect(analysis.graph.coverage).toContainEqual(
+      expect.objectContaining({
+        facet: "connections:Cell.nib",
+        status: "partial",
+        reason: "connection_limit_reached",
+        examined: 1,
+        omitted: 2,
+      }),
+    );
+    expect(analysis.documents).toContainEqual(
+      expect.objectContaining({
+        relative_path: "Cell.nib",
+        connection_count: 3,
+      }),
+    );
+  });
+});
+
+// This exact file is already selected by the unchanged native Apple CI lane.
+describe.skipIf(process.platform !== "darwin")(
+  "Foundation Interface Builder XML encodings",
+  () => {
+    it.each(interfaceBuilderEncodings)(
+      "filesystem preserves native %s graph and original bytes",
+      async (encoding) => {
+        const fixture = await createInterfaceBuilderEncodingFixture(encoding);
+        const result = await analyzeInterfaceBuilderBundle({
+          bundlePath: fixture.app,
+          targetSha256: "e".repeat(64),
+        });
+        expectInterfaceBuilderEncoding(
+          result,
+          fixture.expected,
+          fixture.bytes,
+          fixture.oracle,
+        );
+      },
+    );
+
+    cliTest.for(interfaceBuilderEncodings)(
+      "built CLI preserves native $0 graph and original bytes",
+      async (encoding, { cli }) => {
+        const fixture = await createInterfaceBuilderEncodingFixture(encoding);
+        const output = await cli.run({
+          arguments: ["decode-interface-builder", fixture.app, "--json"],
+          environment: {
+            REA_LOG_LEVEL: "silent",
+            REA_ANALYSIS_PROVIDER: "auto",
+          },
+        });
+        expect(output.exitCode).toBe(0);
+        const result = interfaceBuilderAnalysisSchema.parse(
+          parseEvidence(output.json).normalized_result,
+        );
+        expectInterfaceBuilderEncoding(
+          result,
+          fixture.expected,
+          fixture.bytes,
+          fixture.oracle,
+        );
+      },
+    );
+
+    it.each(invalidInterfaceBuilderEncodings)(
+      "filesystem rejects %s without graph substitution",
+      async (encoding) => {
+        const fixture = await createInterfaceBuilderEncodingFixture(encoding);
+        const result = await analyzeInterfaceBuilderBundle({
+          bundlePath: fixture.app,
+          targetSha256: "e".repeat(64),
+        });
+        expectInvalidInterfaceBuilderEncoding(result);
+      },
+    );
+
+    cliTest.for(invalidInterfaceBuilderEncodings)(
+      "built CLI reports $0 as invalid archive bytes",
+      async (encoding, { cli }) => {
+        const fixture = await createInterfaceBuilderEncodingFixture(encoding);
+        const output = await cli.run({
+          arguments: ["decode-interface-builder", fixture.app, "--json"],
+          environment: {
+            REA_LOG_LEVEL: "silent",
+            REA_ANALYSIS_PROVIDER: "auto",
+          },
+        });
+        expect(output.exitCode).toBe(0);
+        const result = interfaceBuilderAnalysisSchema.parse(
+          parseEvidence(output.json).normalized_result,
+        );
+        expectInvalidInterfaceBuilderEncoding(result);
+      },
+    );
+  },
+);

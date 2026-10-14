@@ -1,0 +1,79 @@
+name: REE first real analysis
+
+on:
+  push:
+    branches: [main, "rel/first-lab-foundations"]
+  pull_request:
+    branches: [main, "rel/first-lab-foundations"]
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".nvmrc"
+      - ".github/actions/npm-cache/**"
+      - "REE_START_HERE.md"
+      - "experiments/rel-first-lab/**"
+      - "experiments/rel-visual-lab/**"
+      - "ree.mjs"
+      - "rel.mjs"
+      - "rel/**"
+      - ".codex/**"
+      - ".agents/skills/ree-investigator/**"
+      - "README.md"
+      - "AGENTS.md"
+      - ".github/workflows/rel-first-lab.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  first-lab:
+    name: Static analysis of REE-owned fixture
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HUSKY: "0"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+      - name: Cache npm package downloads
+        id: npm-cache
+        uses: ./.github/actions/npm-cache
+      - run: npm ci
+      - name: Build local REE/REA code (not npm-published upstream)
+        run: npm run build:cached
+      - name: Test beginner visual lab and loopback-only server
+        run: node --test rel/lab-server.test.mjs
+      - name: Validate saved Evidence Explorer and its source-linked graph outputs
+        run: node --test rel/evidence-explorer.test.mjs
+      - name: Verify actual Codex-facing MCP server discovery
+        run: node --test rel/codex-mcp.test.mjs
+      - name: Verify REE intake classification and execution boundaries
+        run: node --test rel/intake.test.mjs
+      - name: Verify authorized static target admission and Codex entry
+        run: node --test rel/analyze-static.test.mjs
+      - name: Verify report fail-closed behavior
+        run: node --test experiments/rel-first-lab/report.test.mjs
+      - name: Run real REE/REA JavaScript analyzer
+        run: node ree.mjs demo --run --out "$RUNNER_TEMP/rel-first-lab"
+      - name: Analyze an explicitly authorized extracted JavaScript target
+        run: node ree.mjs analyze "$PWD/experiments/rel-first-lab" --authorized --out "$RUNNER_TEMP/rel-static-proof" --question "Which modules import which?"
+      - name: Add verified report to GitHub job summary
+        if: success()
+        run: |
+          cat "$RUNNER_TEMP/rel-first-lab/REE_EVIDENCE_REPORT.md" >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/rel-static-proof/REE_EVIDENCE_REPORT.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain evidence, logs and readable summary
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rel-first-lab-evidence
+          path: |
+            ${{ runner.temp }}/rel-first-lab/
+            ${{ runner.temp }}/rel-static-proof/
+          if-no-files-found: warn
+          retention-days: 7

@@ -1,0 +1,9 @@
+# Codex loads project configuration only after the user trusts this checkout.
+# Launch Codex from the REE repository root. This points to the built fork
+# and does not install a global MCP server or modify user Codex configuration.
+# The engine has a broad tool set: follow AGENTS.md and REE skill boundaries.
+[mcp_servers.rea]
+command = "node"
+args = ["scripts/rea.mjs", "mcp"]
+cwd = "."
+startup_timeout_sec = 30
