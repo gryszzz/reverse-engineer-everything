@@ -194,6 +194,21 @@ specification derivation and verification again:
 npm run verify:ree-investigation-boundary -- --approve-recommended-probes
 ```
 
+The C investigation fixture also has an opt-in candidate refinement experiment:
+
+```sh
+npm run verify:ree-investigation-boundary -- --approve-recommended-probes --refine-candidate
+```
+
+This compiles scratch copies of the owned candidate, tests a counterexample-only
+negative control against the approved neighboring probes, and verifies a
+narrow analyst-authored formula change against the retained and additional
+terminal observations. Source patches, build details, captures, comparison
+Evidence, derived specifications, verification Evidence, and a summary are
+saved under `candidate-refinement/` in the chosen output directory. The checked-in
+fixture is preserved. Passing means these finite terminal claims matched; it
+does not establish general behavioral equivalence or autonomous patch synthesis.
+
 This experiment is limited to one argument variation, two process captures,
 and one comparison. Its approval record and new Evidence are saved alongside
 the original run. It does not provide a general-purpose approved probe

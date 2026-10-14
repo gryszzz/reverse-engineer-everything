@@ -25,17 +25,26 @@ const scriptArguments = process.argv.slice(2);
 const approveRecommendedProbes = scriptArguments.includes(
   "--approve-recommended-probes",
 );
+const refineCandidate = scriptArguments.includes("--refine-candidate");
 const requestedOutputRoot = scriptArguments.find(
-  (argument) => argument !== "--approve-recommended-probes",
+  (argument) =>
+    argument !== "--approve-recommended-probes" &&
+    argument !== "--refine-candidate",
 );
 if (
   scriptArguments.some(
     (argument) =>
-      argument.startsWith("--") && argument !== "--approve-recommended-probes",
+      argument.startsWith("--") &&
+      argument !== "--approve-recommended-probes" &&
+      argument !== "--refine-candidate",
   )
 )
   throw new Error(
-    "Usage: c-process-probe.mjs [new-output-directory] [--approve-recommended-probes]",
+    "Usage: c-process-probe.mjs [new-output-directory] [--approve-recommended-probes] [--refine-candidate]",
+  );
+if (refineCandidate && !approveRecommendedProbes)
+  throw new Error(
+    "Candidate refinement requires --approve-recommended-probes so its bounded source probes are explicitly approved first.",
   );
 const outputRoot = requestedOutputRoot
   ? resolve(requestedOutputRoot)
@@ -361,6 +370,340 @@ assert.deepEqual(
   ],
 );
 
+const runCandidateRefinement = async (batchEvidence) => {
+  const refinementRoot = join(outputRoot, "candidate-refinement");
+  await mkdir(refinementRoot);
+
+  const candidateText = candidateSource.toString("utf8");
+  const formula = "floor(unit_price * quantity + 0.5)";
+  const replaceFormulaOnce = (replacement) => {
+    assert.equal(
+      candidateText.split(formula).length - 1,
+      1,
+      "The owned candidate must contain exactly one expected rounding expression",
+    );
+    return candidateText.replace(formula, replacement);
+  };
+
+  // This deliberately narrow patch is a negative control: it fixes the one
+  // observed input, then the approved neighbors test whether that is enough.
+  const overfitSource = replaceFormulaOnce(
+    "(unit_price == 1.05 && quantity == 10 ? unit_price * quantity : floor(unit_price * quantity + 0.5))",
+  );
+  const refinedSource = replaceFormulaOnce("unit_price * quantity");
+  const overfitSourcePath = join(refinementRoot, "candidate-overfit.c");
+  const refinedSourcePath = join(refinementRoot, "candidate-refined.c");
+  const overfitBinary = join(refinementRoot, "candidate-overfit");
+  const refinedBinary = join(refinementRoot, "candidate-refined");
+  await Promise.all([
+    writeFile(overfitSourcePath, overfitSource),
+    writeFile(refinedSourcePath, refinedSource),
+    writeFile(
+      join(refinementRoot, "candidate-overfit.patch"),
+      [
+        "--- a/candidate.c",
+        "+++ b/candidate-overfit.c",
+        "@@ -10,1 +10,1 @@",
+        `- printf("%.2f\\n", ${formula});`,
+        `+ printf("%.2f\\n", (unit_price == 1.05 && quantity == 10 ? unit_price * quantity : ${formula}));`,
+        "",
+      ].join("\n"),
+    ),
+    writeFile(
+      join(refinementRoot, "candidate-refined.patch"),
+      [
+        "--- a/candidate.c",
+        "+++ b/candidate-refined.c",
+        "@@ -10,1 +10,1 @@",
+        `- printf("%.2f\\n", ${formula});`,
+        '+ printf("%.2f\\n", unit_price * quantity);',
+        "",
+      ].join("\n"),
+    ),
+  ]);
+
+  const compileScratch = async (label, sourcePath, binaryPath) => {
+    const args = [
+      "-std=c11",
+      "-O0",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      sourcePath,
+      "-lm",
+      "-o",
+      binaryPath,
+    ];
+    const result = spawnSync(compiler, args, {
+      encoding: "utf8",
+      timeout: 30_000,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    const build = {
+      compiler,
+      compiler_version: compilerVersion,
+      arguments: args,
+      source_path: sourcePath,
+      source_sha256: digest(await readFile(sourcePath)),
+      binary_path: binaryPath,
+      binary_sha256:
+        result.status === 0 ? digest(await readFile(binaryPath)) : null,
+      exit_code: result.status,
+      signal: result.signal,
+      error: result.error?.message ?? null,
+      stdout: result.stdout ?? "",
+      stderr: result.stderr ?? "",
+    };
+    await writeFile(
+      join(refinementRoot, `${label}.build.json`),
+      `${JSON.stringify(build, null, 2)}\n`,
+    );
+    if (result.error !== undefined) throw result.error;
+    assert.equal(result.status, 0, `${label} candidate must compile`);
+    return build;
+  };
+
+  const builds = await Promise.all([
+    compileScratch("candidate-overfit", overfitSourcePath, overfitBinary),
+    compileScratch("candidate-refined", refinedSourcePath, refinedBinary),
+  ]);
+  const scenarios = [
+    { id: "control", input: control },
+    { id: "counterexample", input: selectedProbe },
+    {
+      id: "neighbor-below",
+      input: { unit_price: "1.04", quantity: selectedProbe.quantity },
+    },
+    {
+      id: "neighbor-above",
+      input: { unit_price: "1.06", quantity: selectedProbe.quantity },
+    },
+    {
+      id: "additional-quantity",
+      input: { unit_price: selectedProbe.unit_price, quantity: 2 },
+    },
+  ];
+  const evidenceRecords = [
+    ...batchEvidence.normalized_result.evidence_bundle.records,
+  ];
+  const authorityCaptures = new Map();
+  for (const scenario of scenarios) {
+    const evidence = await capture(
+      `refinement-${scenario.id}-authority`,
+      authorityBinary,
+      scenario.input,
+    );
+    const captureRecord = {
+      path: join(
+        outputRoot,
+        `refinement-${scenario.id}-authority.capture.json`,
+      ),
+      evidence,
+    };
+    authorityCaptures.set(scenario.id, captureRecord);
+    evidenceRecords.push(evidence);
+  }
+
+  const compareCandidate = async (revision, binaryPath) => {
+    const comparisons = [];
+    for (const scenario of scenarios) {
+      const authority = authorityCaptures.get(scenario.id);
+      assert.ok(authority, `Missing authority capture for ${scenario.id}`);
+      const candidateEvidence = await capture(
+        `refinement-${revision}-${scenario.id}-candidate`,
+        binaryPath,
+        scenario.input,
+      );
+      const candidateCapture = {
+        path: join(
+          outputRoot,
+          `refinement-${revision}-${scenario.id}-candidate.capture.json`,
+        ),
+        evidence: candidateEvidence,
+      };
+      evidenceRecords.push(candidateEvidence);
+      const comparison = await compare(
+        `refinement-${revision}-${scenario.id}`,
+        authority,
+        candidateCapture,
+      );
+      evidenceRecords.push(comparison);
+      comparisons.push({ id: scenario.id, evidence: comparison });
+    }
+    return comparisons;
+  };
+
+  const overfitComparisons = await compareCandidate("overfit", overfitBinary);
+  const refinedComparisons = await compareCandidate("refined", refinedBinary);
+  const evidenceBundle = createEvidenceBundle(evidenceRecords);
+  const verifyComparisons = async (label, comparisons) => {
+    const specificationInputPath = join(
+      refinementRoot,
+      `${label}.specification.input.json`,
+    );
+    await writeFile(
+      specificationInputPath,
+      `${JSON.stringify(
+        {
+          name: `C candidate ${label} compatibility`,
+          evidence_bundle: evidenceBundle,
+          comparisons: comparisons.map(({ evidence }) => ({
+            comparison_evidence_id: evidence.evidence_id,
+            dimensions: ["terminal"],
+          })),
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const specificationEvidence = JSON.parse(
+      run(process.execPath, [
+        cliPath,
+        "derive-reconstruction-specification",
+        specificationInputPath,
+        "--format",
+        "json",
+      ]).stdout,
+    );
+    await writeFile(
+      join(refinementRoot, `${label}.specification.evidence.json`),
+      `${JSON.stringify(specificationEvidence, null, 2)}\n`,
+    );
+    const verificationInputPath = join(
+      refinementRoot,
+      `${label}.verification.input.json`,
+    );
+    await writeFile(
+      verificationInputPath,
+      `${JSON.stringify(
+        {
+          specification: specificationEvidence.normalized_result.specification,
+          evidence_bundle: evidenceBundle,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const verificationEvidence = JSON.parse(
+      run(process.execPath, [
+        cliPath,
+        "verify-reconstruction",
+        verificationInputPath,
+        "--format",
+        "json",
+      ]).stdout,
+    );
+    await writeFile(
+      join(refinementRoot, `${label}.verification.evidence.json`),
+      `${JSON.stringify(verificationEvidence, null, 2)}\n`,
+    );
+    const labels = new Map(
+      comparisons.map(({ id, evidence }) => [evidence.evidence_id, id]),
+    );
+    const statuses = Object.fromEntries(
+      verificationEvidence.normalized_result.claims.items.map(
+        ({ comparison_evidence_id, status }) => [
+          labels.get(comparison_evidence_id),
+          status,
+        ],
+      ),
+    );
+    return { specificationEvidence, verificationEvidence, statuses };
+  };
+
+  const overfitVerification = await verifyComparisons(
+    "overfit",
+    overfitComparisons,
+  );
+  const refinedVerification = await verifyComparisons(
+    "refined",
+    refinedComparisons,
+  );
+  assert.deepEqual(overfitVerification.statuses, {
+    control: "pass",
+    counterexample: "pass",
+    "neighbor-below": "fail",
+    "neighbor-above": "fail",
+    "additional-quantity": "fail",
+  });
+  assert.deepEqual(refinedVerification.statuses, {
+    control: "pass",
+    counterexample: "pass",
+    "neighbor-below": "pass",
+    "neighbor-above": "pass",
+    "additional-quantity": "pass",
+  });
+  assert.equal(
+    digest(await readFile(join(fixtureRoot, "candidate.c"))),
+    digest(candidateSource),
+    "The repository-owned candidate must remain unchanged",
+  );
+
+  const report = {
+    state: "observed-refinement-complete",
+    authority_source_sha256: digest(authoritySource),
+    original_candidate_source_sha256: digest(candidateSource),
+    original_candidate_preserved: true,
+    proposed_change: {
+      basis_comparison_evidence_id: probeComparison.evidence_id,
+      observation:
+        "At the captured half-unit counterexample, the candidate rounds the product to a whole unit while the authority preserves two decimal places.",
+      rejected_overfit_source_path: overfitSourcePath,
+      rejected_overfit_source_sha256: digest(overfitSource),
+      refined_source_path: refinedSourcePath,
+      refined_source_sha256: digest(refinedSource),
+      patch_path: join(refinementRoot, "candidate-refined.patch"),
+      change:
+        "Replace whole-unit rounding with the original product expression.",
+    },
+    builds,
+    overfit_verification: {
+      status: overfitVerification.verificationEvidence.normalized_result.status,
+      claim_statuses: overfitVerification.statuses,
+      decision:
+        "rejected because the targeted example fix regresses neighboring and additional inputs",
+    },
+    refined_verification: {
+      status: refinedVerification.verificationEvidence.normalized_result.status,
+      claim_statuses: refinedVerification.statuses,
+      decision: "accepted for these five observed terminal claims only",
+    },
+    evidence_bundle_path: join(
+      refinementRoot,
+      "candidate-refinement.evidence-bundle.json",
+    ),
+    overfit_specification_evidence_path: join(
+      refinementRoot,
+      "overfit.specification.evidence.json",
+    ),
+    overfit_verification_evidence_path: join(
+      refinementRoot,
+      "overfit.verification.evidence.json",
+    ),
+    refined_specification_evidence_path: join(
+      refinementRoot,
+      "refined.specification.evidence.json",
+    ),
+    refined_verification_evidence_path: join(
+      refinementRoot,
+      "refined.verification.evidence.json",
+    ),
+    limitation:
+      "This analyst-authored patch and finite owned C fixture do not demonstrate autonomous patch synthesis or general behavioral equivalence.",
+  };
+  await Promise.all([
+    writeFile(
+      join(refinementRoot, "candidate-refinement.evidence-bundle.json"),
+      `${JSON.stringify(evidenceBundle, null, 2)}\n`,
+    ),
+    writeFile(
+      join(refinementRoot, "candidate-refinement.report.json"),
+      `${JSON.stringify(report, null, 2)}\n`,
+    ),
+  ]);
+  return report;
+};
+
 const feedback = approveRecommendedProbes
   ? await (async () => {
       const recommendation = counterexampleProbe;
@@ -561,6 +904,9 @@ const feedback = approveRecommendedProbes
         join(outputRoot, "feedback-probe-batch.evidence.json"),
         `${JSON.stringify(batch.value, null, 2)}\n`,
       );
+      const candidateRefinement = refineCandidate
+        ? await runCandidateRefinement(batch.value)
+        : { state: "not-requested" };
       const result = batch.value.normalized_result;
       assert.equal(result.state, "complete");
       assert.equal(result.probes.length, 2);
@@ -600,6 +946,7 @@ const feedback = approveRecommendedProbes
           ({ verification_status }) => verification_status,
         ),
         evidence_record_count: result.evidence_bundle.records.length,
+        candidate_refinement: candidateRefinement,
         invalid_plan_rejected_before_execution: invalidPlanCaptures === 0,
         over_budget_plan_rejected: !overBudget.ok,
         capture_failure_stopped_without_retry:
@@ -636,6 +983,11 @@ const summary = {
   verification_expected_failure_observed: verificationResult.status === "fail",
   counterexample_probe_recommendation: counterexampleProbe,
   feedback_loop: feedback,
+  candidate_refinement:
+    feedback.candidate_refinement ??
+    (refineCandidate
+      ? { state: "approval-required" }
+      : { state: "not-requested" }),
   limitation:
     "The domain, half-unit probe rule, comparison Evidence, and dimensions included in the draft are human-selected. A terminal pass covers the selected captured scenario only; overall process behavior remains unknown when dimensions are unobserved.",
 };
