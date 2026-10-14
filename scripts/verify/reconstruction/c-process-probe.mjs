@@ -267,11 +267,11 @@ await writeFile(
       comparisons: [
         {
           comparison_evidence_id: controlComparison.evidence_id,
-          dimensions: ["overall", "terminal"],
+          dimensions: ["terminal"],
         },
         {
           comparison_evidence_id: probeComparison.evidence_id,
-          dimensions: ["overall", "terminal"],
+          dimensions: ["terminal"],
         },
       ],
     },
@@ -327,14 +327,11 @@ const claimStatuses = Object.fromEntries(
 );
 
 assert.equal(controlComparison.normalized_result.terminal, "unchanged");
-assert.equal(controlComparison.normalized_result.status, "unknown");
 assert.equal(controlComparison.normalized_result.trace?.verdict, "equivalent");
 assert.equal(probeComparison.normalized_result.terminal, "changed");
 assert.equal(probeComparison.normalized_result.trace?.verdict, "different");
 assert.deepEqual(claimStatuses, {
-  "control.overall": "unknown",
   "control.terminal": "pass",
-  "counterexample.overall": "fail",
   "counterexample.terminal": "fail",
 });
 const counterexampleProbe = verificationResult.recommended_probes.find(
@@ -508,11 +505,11 @@ const feedback = approveRecommendedProbes
             comparisons: [
               {
                 comparison_evidence_id: controlComparison.evidence_id,
-                dimensions: ["overall", "terminal"],
+                dimensions: ["terminal"],
               },
               {
                 comparison_evidence_id: probeComparison.evidence_id,
-                dimensions: ["overall", "terminal"],
+                dimensions: ["terminal"],
               },
               {
                 comparison_evidence_id: followupComparison.evidence_id,
