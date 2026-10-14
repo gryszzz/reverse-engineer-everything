@@ -362,7 +362,11 @@ sum; polling, snapshotting and cleanup lie outside it. Scenario `events` keep
 being dispatched during finalization and are recorded as usual. `finalization_ms`
 of `0`, the default, keeps today's behaviour and the committed identity of every
 existing scenario. `elapsed_ms` and `sent_at_ms` are timing data and take part in
-exit comparison like `settlement.elapsed_ms`.
+exit comparison. `settlement.elapsed_ms` remains in the capture Evidence but is
+excluded from the default exit comparison because its duration varies with
+scheduling. To make an explicit timing claim, declare a lifecycle trace event
+whose exact settlement payload includes `elapsed_ms` (and do not ignore that
+field); the trace can then distinguish different measurements.
 
 Every capture requires `truncation_details`, with separate accounting for:
 

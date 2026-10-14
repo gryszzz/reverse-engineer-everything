@@ -10,6 +10,22 @@ import type { ProcessTraceSpecification } from "./processTraceSpecification.js";
 const { capture, traceSpecification } = processTraceCaptureFixture();
 
 describe("declared trace comparison nonconformance", () => {
+  it("can compare settlement duration when an explicit trace declares it", () => {
+    const left = parseProcessCapture(capture);
+    const right = parseProcessCapture({
+      ...capture,
+      settlement: { ...capture.settlement, elapsed_ms: 75 },
+    });
+
+    expect(
+      compareProcessCaptures(left, right, { traceSpecification }),
+    ).toMatchObject({
+      status: "changed",
+      exit: "changed",
+      trace: { verdict: "different" },
+    });
+  });
+
   it("does not call identical captures changed when both violate the language", () => {
     const parsedCapture = parseProcessCapture(capture);
     const specification: ProcessTraceSpecification = {
