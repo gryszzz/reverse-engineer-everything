@@ -159,3 +159,10 @@ export const RECONSTRUCTION_PROVIDER = {
   name: "REA reconstruction verifier",
   version: "1",
 } as const;
+
+/** Provider identity for evidence-derived reconstruction specification drafts. */
+export const RECONSTRUCTION_SPECIFICATION_PROVIDER = {
+  id: "rea-reconstruction-specification",
+  name: "REA reconstruction specification drafter",
+  version: "1",
+} as const;

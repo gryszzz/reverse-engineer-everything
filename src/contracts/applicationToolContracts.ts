@@ -17,6 +17,10 @@ import {
   reconstructionObligationLedgerSchema,
 } from "../domain/reconstructionObligationLedgerSchemas.js";
 import {
+  reconstructionSpecificationDerivationInputSchema,
+  reconstructionSpecificationDraftSchema,
+} from "../domain/reconstructionSpecificationDerivationSchemas.js";
+import {
   androidApplicationProjectionInputSchema,
   androidApplicationProjectionResultSchema,
 } from "../domain/android/androidApplication.js";
@@ -59,6 +63,9 @@ const exportShapeComparisonOutputSchema = evidenceResultOf(
 );
 const reconstructionObligationLedgerOutputSchema = evidenceResultOf(
   reconstructionObligationLedgerSchema,
+);
+const reconstructionSpecificationDraftOutputSchema = evidenceResultOf(
+  reconstructionSpecificationDraftSchema,
 );
 const HASH = "0".repeat(64);
 const retained = (evidence_id: string) => ({
@@ -317,6 +324,16 @@ export const APPLICATION_TOOL_CONTRACTS = [
       },
     ],
   },
+  {
+    name: "derive_reconstruction_specification",
+    ...toolContractMetadata("derive_reconstruction_specification"),
+    description:
+      "Draft finite behavioral, function, or artifact claims from exact caller-selected comparison Evidence IDs and dimensions in a portable bundle. Reuses the production reconstruction verifier to validate comparison identity and complete linked source closure. The draft retains its Evidence provenance and selected scope; it is not a complete specification or a claim of global equivalence.",
+    kind: "application",
+    inputSchema: reconstructionSpecificationDerivationInputSchema,
+    outputSchema: reconstructionSpecificationDraftOutputSchema,
+    examples: [],
+  },
 ] as const satisfies readonly ToolContract[];
 
 /** Resolve one named application contract without relying on array position. */
@@ -350,6 +367,9 @@ export function applicationToolContract(
 export function applicationToolContract(
   name: "project_harmony_application_graph",
 ): (typeof APPLICATION_TOOL_CONTRACTS)[9];
+export function applicationToolContract(
+  name: "derive_reconstruction_specification",
+): (typeof APPLICATION_TOOL_CONTRACTS)[10];
 export function applicationToolContract(
   name: (typeof APPLICATION_TOOL_CONTRACTS)[number]["name"],
 ): (typeof APPLICATION_TOOL_CONTRACTS)[number] {

@@ -18,7 +18,6 @@ import { runDerivedOperation } from "./runDerivedOperation.js";
 import {
   CALL_PATH_PROVIDER,
   CHANGED_BEHAVIOR_PROVIDER,
-  RECONSTRUCTION_PROVIDER,
   STATIC_RUNTIME_PROVIDER,
 } from "../application/InvestigationProviders.js";
 import {
@@ -26,7 +25,10 @@ import {
   toolRegistrationOptions,
 } from "./toolRegistrationOptions.js";
 
-import { verifyReconstruction } from "../domain/reconstructionVerification.js";
+import {
+  createReconstructionVerificationEvidence,
+  evaluateReconstructionVerificationValidated,
+} from "../application/ReconstructionVerificationService.js";
 /** Register Evidence-composed differential investigation workflows. */
 export const registerInvestigationTools = (
   server: EvidenceMcpServer,
@@ -242,42 +244,45 @@ const registerReconstruction = (
     toolRegistrationOptions(contract),
     async (input, context) => {
       const owned = session.exportEvidenceBundle();
-      const computed = await runDerivedOperation(context, contract.name, () =>
-        verifyReconstruction(input.specification, owned),
-      );
+      const computed = await runDerivedOperation(context, contract.name, () => {
+        const verified = evaluateReconstructionVerificationValidated({
+          specification: input.specification,
+          evidence_bundle: owned,
+        });
+        if (!verified.ok) throw verified.error;
+        return verified.value;
+      });
       if (!computed.ok)
         return server.delivery.toCallToolResult(computed, contract);
       const result = computed.value;
       const closure = evidenceClosure(session, result.evidence_links);
       if (!closure.ok)
         return server.delivery.toCallToolResult(closure, contract);
-      const links = closure.value;
-      const evidence = createEvidence(undefined, RECONSTRUCTION_PROVIDER, {
-        predicateType: "rea.reconstruction-verification",
-        operation: contract.name,
-        parameters: {
-          specification_sha256: result.specification_sha256,
-          claim_ids: input.specification.claims.map(({ claim_id: id }) => id),
-        },
-        result: jsonValueSchema.parse(result),
-        confidence: "derived",
-        authority: "analyst-inference",
-        limitations: result.limitations,
-        evidenceLinks: links,
-      });
+      const completeEvidence = createReconstructionVerificationEvidence(
+        input.specification,
+        result,
+        closure.value,
+      );
       return server.delivery.toEvidenceToolResult(
-        evidence,
+        completeEvidence,
         contract,
-        recordWorkflowEvidence(session, evidence, result.status === "unknown", {
-          question: "Does the reconstruction satisfy every declared claim?",
-          domain: "reconstruction-verification",
-          requiredAuthority: null,
-          requiredConfidence: "derived",
-          probes: result.recommended_probes.map(({ operation, rationale }) => ({
-            operation,
-            rationale,
-          })),
-        }),
+        recordWorkflowEvidence(
+          session,
+          completeEvidence,
+          result.status === "unknown",
+          {
+            question: "Does the reconstruction satisfy every declared claim?",
+            domain: "reconstruction-verification",
+            requiredAuthority: null,
+            requiredConfidence: "derived",
+            probes: result.recommended_probes.map(
+              ({ operation, rationale }) => ({
+                operation,
+                rationale,
+              }),
+            ),
+          },
+        ),
       );
     },
   );

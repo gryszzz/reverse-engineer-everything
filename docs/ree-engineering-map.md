@@ -262,17 +262,89 @@ Safe local commands on this Mac returned:
   an MCP tool-discovery handshake, Evidence Explorer tests, intake tests and
   doctor boundary tests.
 - The GitHub run for commit `8dbe93d` had successful REE macOS smoke and
-  first-real-analysis workflows. The broader CI run was still in progress at
-  the last check; the full qualification is not claimed green here.
+  first-real-analysis workflows. That earlier report was written while a
+  broader run was still in progress; the later same-SHA CI results are recorded
+  in the upstream comparison below.
 
-The current local doctor reported macOS arm64, 8 GiB RAM, Node `22.18.0`,
-npm `10.9.3`, and the already-present build/dependencies. Node `22.18.0` is
-below the declared minimum `22.19.0` and differs from the pinned Node/npm
-versions. The doctor therefore marked both the engine and SQLite runtime
-unsupported and reported only 0.1 GiB currently free. This is a meaningful
-local readiness constraint: the focused Node tests passed, but they do not
-make this runtime supported or prove a fresh build/provider works. I did not
-start a fresh build under this unsupported, low-memory runtime.
+The user's default shell PATH has Node `22.18.0` and npm `10.9.3`; Node is
+below REA's minimum `22.19.0` and SQLite's supported runtime, and neither
+tool matches the repository pins. The read-only doctor correctly reports
+that shell as unsupported. Codex also provides Node `24.19.0` locally; with
+that executable first on PATH, the doctor reports engine and SQLite runtime
+compatibility. It is supported but not the exact pinned `24.18.0`, and npm
+remains `10.9.3`. The host has 8 GiB RAM and the doctor initially reported
+0.1 GiB free, so heavyweight checks and external analyzers should run one at a
+time. The supported bundled runtime was used for the follow-up build and
+end-to-end checks below; no software was installed or upgraded.
+
+## Upstream comparison and end-to-end verification (2026-10-14)
+
+The checkout's package version is `6.4.0`. I compared its source tree directly
+with upstream's `rea-agents-6.4.0` tag (`a56f7bb`) and current upstream `main`
+(`1438422`, package version `6.5.0`); this fork is a parentless snapshot, so
+these are tree comparisons rather than ancestry-based commit ranges.
+
+- Against the exact 6.4.0 baseline, the only deleted production source path is
+  the former HAR worker adapter. Its bounded worker role is now in
+  `NodeCaptureProcess` and `HistoricalCaptureDecoder`, which also support SAZ
+  and qlog. No 6.4 production capability was found to have disappeared by
+  source-path comparison. Thirteen old test paths were removed; their major
+  cases are represented in the current `tests/boundary/` suites (including
+  JavaScript literals, TypeScript/path handling, process input, stable files,
+  host diagnostics and managed type ownership). This is a path-level audit,
+  not proof that every assertion is identical.
+- Upstream 6.5 contains later work that this 6.4-based snapshot does not, such
+  as read-only Electron fuse inspection. That is an unported upstream addition,
+  not a regression from the fork's 6.4 baseline. The 6.5 additions have not
+  been exhaustively ported or individually qualified here.
+- `LICENSE` is byte-for-byte unchanged from upstream 6.4.0, and the original
+  README is retained as `UPSTREAM_REA_README.md`. `package.json` still uses the
+  inherited `rea-agents` package and `rea` CLI identities; REE currently adds
+  a repository-local front door rather than a separately published REE
+  package.
+- `codex mcp list` reports the project-local `rea` server enabled, and
+  `node ree.mjs codex` finds both the project MCP configuration and compiled
+  runtime. A real stdio MCP handshake listed **206 tools**. Through that
+  connection, `analyze_javascript_application` analyzed the self-owned
+  `experiments/rel-first-lab` directory (7 files, 47 graph nodes, 65 edges,
+  zero parse failures); a retained Evidence page returned 3 of 46 modules.
+  Semantic coverage remained `unknown` with **336 semantic unknowns**. This
+  verifies the local server and tool path, not that the Codex desktop app has
+  loaded this project configuration in every workspace.
+- The public CLI analyzed the same 7-file fixture and returned content-addressed
+  Evidence. The source-owned C investigation was compiled with Apple clang
+  and run through real process capture and comparison under Node `24.19.0`:
+  for `$1.05 × 10`, the authority returned `$10.50` and the deliberately
+  rounded candidate returned `$11.00`. The integer control's terminal claim
+  passed while its overall claim remained unknown; the counterexample's
+  terminal and overall claims failed as expected. This is a bounded,
+  human-directed experiment, not autonomous discovery.
+- The same self-built arm64 Mach-O was inspected through `inspect-macho` using
+  macOS `otool`, `nm` and `dwarfdump`, without Hopper. It returned architecture
+  and binary metadata plus Evidence provenance. Its own limitations say
+  stripped/toolchain-hidden symbols may be absent and only normalized `otool`
+  build metadata is reported.
+- `npm run test:focused` passed the MCP lifecycle/workflow, process terminal
+  capture and Mach-O CLI boundary suites: **4 files, 16 tests**. These checks
+  do not qualify every provider or the full cross-platform CI matrix.
+- The most recent earlier GitHub CI failure on this same `main` SHA was one
+  timeout: the target-free MCP session test hit its 10-second limit under the
+  combined Apple artifact lane while the other 214 tests passed. The next two
+  CI runs on that SHA succeeded. I raised only that test's budget to 30 seconds
+  and reran its file locally: **6 tests passed** (the workflow took 2.5
+  seconds). This addresses the observed load-sensitive timeout without
+  changing MCP behavior.
+
+The local readiness check finds Codex, Java, .NET and Apple command-line tools,
+but no Ghidra command, Hopper app/launcher, IDA, JADX, Apktool, adb, Binwalk,
+Unblob, TShark/capinfos, sigrok-cli, WABT or QEMU. Therefore this Mac has
+verified the built-in JavaScript, process-capture and Mach-O workflows, but it
+has not verified deep Hopper/Ghidra/IDA decompilation, Android decompilation or
+device access, firmware extraction, packet/signal-provider execution, WASM
+validation, or emulation. Those remain available only where their documented
+providers, host requirements and licenses are supplied. Provider catalog
+entries and simulated-provider tests do not prove those integrations execute
+on this machine.
 
 ## Established strengths and unresolved scope
 
@@ -397,6 +469,63 @@ captures, comparisons, trace specifications, and summary as a seven-day CI
 artifact. That makes this cross-technology result repeatable without checking
 machine-specific process Evidence into the source tree. It does not make the
 search domain portable proof or a general-purpose input generator.
+
+The harness sends its portable comparison bundle through the public
+`derive-reconstruction-specification` CLI command. The drafter converts only
+caller-selected comparison Evidence IDs and dimensions into typed claims,
+checks the evidence closure and dimension semantics with the production
+verifier, and returns inferred specification Evidence linked to the exact
+source comparisons. The resulting specification and same bundle then go to
+`verify-reconstruction`. MCP exposes the same derivation service; its test
+records the supplied source closure in the session and successfully passes
+the drafted specification to the session verifier. The guided reconstruction
+prompt now describes this sequence.
+
+A local macOS arm64 run under supported Node 24.19.0 compiled both C programs
+with Apple clang 21, captured and compared them through the CLI, selected
+`overall` and `terminal` for two comparisons, and derived four finite claims.
+Verification returned terminal control `pass`, overall control `unknown`,
+and both counterexample claims `fail`. The draft and verifier each return
+their own Evidence IDs. This demonstrates evidence-to-specification-to-
+verification through public CLI and MCP surfaces. It does not automate
+hypothesis formation, select a search domain, generate candidates, or establish
+global equivalence. Function and artifact comparison schemas are supported by
+the derivation service, but were not exercised end to end with real providers
+in this investigation.
+
+The shared verifier now uses a failed terminal comparison to suggest adjacent
+decimal values for argv positions that have identical plain-decimal strings in
+both source captures. Each variation cites the source captures and comparison,
+and leaves all other arguments unchanged. The real C run returns `1.04` and
+`1.06` around the observed `1.05`, plus `9` and `11` around `10`; the harness
+asserts those exact recommendations. This is a bounded counterexample-driven
+probe heuristic, not semantic input inference: argument roles, valid ranges,
+and whether a candidate is useful remain unknown. The verifier does not execute
+probes or select them as a complete test strategy. Nondecimal arguments and
+other comparison dimensions receive no such candidate generation.
+
+The source-owned C harness now demonstrates one approval-gated feedback pass
+using the existing `capture-process`, `compare-process-captures`, specification
+derivation, and verifier CLI workflows. The default smoke command stops at the
+recommendation. With `--approve-recommended-probes`, it validates the selected
+recommendation against the Evidence links, exact source executables and their
+digests, identical original argv, fixture working directory, empty environment,
+and argument bounds. It then runs exactly one recommended variation with two
+captures and one comparison. It retains all original records, appends the new
+capture and comparison Evidence, derives a follow-up specification from both
+rounds, and verifies it. In the demonstrated run, the approved `1.04 × 10`
+probe returned `10.40` from the authority and `10.00` from the candidate; the
+new terminal claim failed. The approval manifest, exact scenarios, captures,
+comparison, follow-up specification and verification are saved in the run
+directory. No general-purpose executor or automatic probe loop was added.
+
+This closes one bounded investigation cycle, not the broader learning loop.
+The harness chooses the first eligible recommendation only after the explicit
+flag, does not check whether the input is valid for an unknown application,
+and does not automatically refine candidate code or hypothesize expected
+outcomes. The later failure confirms another mismatch at that chosen input;
+it does not prove the recommendation is representative or that all relevant
+behavior has been found.
 
 The controlled files, captures, comparison Evidence, and reproduction scripts
 for the original JavaScript and first C explorations remain outside the

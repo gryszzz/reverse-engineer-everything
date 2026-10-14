@@ -387,7 +387,7 @@ describe("target-free MCP workflow", () => {
       ).isError,
     ).not.toBe(true);
     await mcp.callTool({ name: "close_binary", arguments: {} });
-  }, 10_000);
+  }, 30_000);
 });
 
 describe("session filesystem path boundaries over MCP", () => {

@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createEvidenceBundle } from "../../../dist/domain/evidenceBundle.js";
-import { verifyReconstruction } from "../../../dist/domain/reconstructionVerification.js";
 
 const repositoryRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -18,7 +23,22 @@ const fixtureRoot = join(
   "experiments/ree-investigation-boundary",
 );
 const cliPath = join(repositoryRoot, "scripts/rea.mjs");
-const requestedOutputRoot = process.argv[2];
+const scriptArguments = process.argv.slice(2);
+const approveRecommendedProbes = scriptArguments.includes(
+  "--approve-recommended-probes",
+);
+const requestedOutputRoot = scriptArguments.find(
+  (argument) => argument !== "--approve-recommended-probes",
+);
+if (
+  scriptArguments.some(
+    (argument) =>
+      argument.startsWith("--") && argument !== "--approve-recommended-probes",
+  )
+)
+  throw new Error(
+    "Usage: c-process-probe.mjs [new-output-directory] [--approve-recommended-probes]",
+  );
 const outputRoot = requestedOutputRoot
   ? resolve(requestedOutputRoot)
   : await mkdtemp(join(tmpdir(), "ree-c-investigation-"));
@@ -118,17 +138,10 @@ for (
 }
 assert.ok(selectedProbe, "The declared domain should contain a counterexample");
 
-const capture = async (label, binary, input) => {
+const captureScenario = async (label, scenario) => {
   const scenarioPath = join(outputRoot, `${label}.scenario.json`);
   const evidencePath = join(outputRoot, `${label}.capture.json`);
   const logPath = join(outputRoot, `${label}.stderr.log`);
-  const scenario = {
-    executable: binary,
-    arguments: [input.unit_price, String(input.quantity)],
-    working_directory: outputRoot,
-    environment: {},
-    timeout_ms: 5_000,
-  };
   await writeFile(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`);
   const result = run(process.execPath, [
     cliPath,
@@ -141,6 +154,15 @@ const capture = async (label, binary, input) => {
   await writeFile(logPath, result.stderr);
   return JSON.parse(result.stdout);
 };
+
+const capture = async (label, binary, input) =>
+  captureScenario(label, {
+    executable: binary,
+    arguments: [input.unit_price, String(input.quantity)],
+    working_directory: outputRoot,
+    environment: {},
+    timeout_ms: 5_000,
+  });
 
 const without = (value, fields) =>
   Object.fromEntries(
@@ -223,37 +245,6 @@ const probeComparison = await compare(
   probePair.right,
 );
 
-const claims = [
-  {
-    claim_id: "control.terminal",
-    title: "Terminal output matches for the selected integer-product control",
-    kind: "behavioral",
-    dimension: "terminal",
-    comparison_evidence_id: controlComparison.evidence_id,
-  },
-  {
-    claim_id: "control.overall",
-    title:
-      "All observed behavior matches for the selected integer-product control",
-    kind: "behavioral",
-    dimension: "overall",
-    comparison_evidence_id: controlComparison.evidence_id,
-  },
-  {
-    claim_id: "counterexample.terminal",
-    title: "Terminal output matches at the discovered half-unit boundary",
-    kind: "behavioral",
-    dimension: "terminal",
-    comparison_evidence_id: probeComparison.evidence_id,
-  },
-  {
-    claim_id: "counterexample.overall",
-    title: "All observed behavior matches at the discovered half-unit boundary",
-    kind: "behavioral",
-    dimension: "overall",
-    comparison_evidence_id: probeComparison.evidence_id,
-  },
-];
 const records = [
   controlPair.left.evidence,
   controlPair.right.evidence,
@@ -262,12 +253,77 @@ const records = [
   probePair.right.evidence,
   probeComparison,
 ];
-const verification = verifyReconstruction(
-  { name: "Bounded C rounding investigation", claims },
-  createEvidenceBundle(records),
+const comparisonLabels = new Map([
+  [controlComparison.evidence_id, "control"],
+  [probeComparison.evidence_id, "counterexample"],
+]);
+const specificationInputPath = join(outputRoot, "specification.input.json");
+await writeFile(
+  specificationInputPath,
+  `${JSON.stringify(
+    {
+      name: "Bounded C rounding investigation",
+      evidence_bundle: createEvidenceBundle(records),
+      comparisons: [
+        {
+          comparison_evidence_id: controlComparison.evidence_id,
+          dimensions: ["overall", "terminal"],
+        },
+        {
+          comparison_evidence_id: probeComparison.evidence_id,
+          dimensions: ["overall", "terminal"],
+        },
+      ],
+    },
+    null,
+    2,
+  )}\n`,
 );
+const specificationRun = run(process.execPath, [
+  cliPath,
+  "derive-reconstruction-specification",
+  specificationInputPath,
+  "--format",
+  "json",
+]);
+const specificationEvidence = JSON.parse(specificationRun.stdout);
+await writeFile(
+  join(outputRoot, "specification.evidence.json"),
+  `${JSON.stringify(specificationEvidence, null, 2)}\n`,
+);
+const specificationDraft = specificationEvidence.normalized_result;
+const verificationInputPath = join(outputRoot, "verification.input.json");
+await writeFile(
+  verificationInputPath,
+  `${JSON.stringify(
+    {
+      specification: specificationDraft.specification,
+      evidence_bundle: createEvidenceBundle(records),
+    },
+    null,
+    2,
+  )}\n`,
+);
+const verificationRun = run(process.execPath, [
+  cliPath,
+  "verify-reconstruction",
+  verificationInputPath,
+  "--format",
+  "json",
+]);
+const verification = JSON.parse(verificationRun.stdout);
+await writeFile(
+  join(outputRoot, "verification.evidence.json"),
+  `${JSON.stringify(verification, null, 2)}\n`,
+);
+const verificationResult = verification.normalized_result;
 const claimStatuses = Object.fromEntries(
-  verification.claims.items.map(({ claim_id, status }) => [claim_id, status]),
+  verificationResult.claims.items.map(
+    ({ comparison_evidence_id, dimension, status }) => [
+      `${comparisonLabels.get(comparison_evidence_id)}.${dimension}`,
+      status,
+    ],
+  ),
 );
 
 assert.equal(controlComparison.normalized_result.terminal, "unchanged");
@@ -281,6 +337,267 @@ assert.deepEqual(claimStatuses, {
   "counterexample.overall": "fail",
   "counterexample.terminal": "fail",
 });
+const counterexampleProbe = verificationResult.recommended_probes.find(
+  ({ argument_variations }) => argument_variations !== undefined,
+);
+assert.ok(
+  counterexampleProbe,
+  "The terminal counterexample should guide probes",
+);
+assert.deepEqual(
+  counterexampleProbe.argument_variations.map(
+    ({ argument_index, observed_value, candidate_values }) => ({
+      argument_index,
+      observed_value,
+      candidate_values,
+    }),
+  ),
+  [
+    {
+      argument_index: 0,
+      observed_value: selectedProbe.unit_price,
+      candidate_values: ["1.04", "1.06"],
+    },
+    {
+      argument_index: 1,
+      observed_value: String(selectedProbe.quantity),
+      candidate_values: ["9", "11"],
+    },
+  ],
+);
+
+const feedback = approveRecommendedProbes
+  ? await (async () => {
+      const recommendation = counterexampleProbe;
+      assert.ok(
+        recommendation.evidence_links.includes(probeComparison.evidence_id),
+        "The recommendation must cite the counterexample comparison",
+      );
+      const variation = recommendation.argument_variations[0];
+      assert.ok(
+        variation,
+        "The approved probe must select a recorded variation",
+      );
+      const selectedValue = variation.candidate_values[0];
+      assert.ok(selectedValue, "The selected probe value must be present");
+      assert.match(selectedValue, /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/u);
+      assert.notEqual(selectedValue, variation.observed_value);
+
+      const sourceById = new Map(
+        records.map((record) => [record.evidence_id, record]),
+      );
+      const scenarioForApprovedFixture = async (sourceId, expectedBinary) => {
+        assert.ok(
+          recommendation.evidence_links.includes(sourceId),
+          "Each executable source must be cited by the recommendation",
+        );
+        const sourceEvidence = sourceById.get(sourceId);
+        assert.equal(sourceEvidence?.operation, "capture_process_scenario");
+        assert.equal(sourceEvidence?.predicate_type, "rea.process-capture");
+        const captured = sourceEvidence.normalized_result;
+        const committedScenario = captured.manifest.scenario;
+        assert.equal(
+          await realpath(committedScenario.executable),
+          await realpath(expectedBinary),
+        );
+        assert.equal(
+          await realpath(committedScenario.working_directory),
+          await realpath(outputRoot),
+        );
+        assert.deepEqual(committedScenario.environment, {});
+        assert.deepEqual(committedScenario.events, []);
+        assert.deepEqual(committedScenario.filesystem_observation_paths, []);
+        assert.equal(
+          captured.manifest.executable_identity.state,
+          "path_metadata_unchanged",
+        );
+        const expectedDigest = digest(await readFile(expectedBinary));
+        assert.equal(
+          captured.manifest.selected_executable_sha256,
+          expectedDigest,
+        );
+        assert.equal(captured.manifest.executable_sha256, expectedDigest);
+        assert.equal(captured.manifest.executable_identity.reason, null);
+        const originalArguments = committedScenario.arguments;
+        assert.ok(Array.isArray(originalArguments));
+        assert.ok(
+          originalArguments.every((argument) => typeof argument === "string"),
+        );
+        assert.deepEqual(originalArguments, [
+          selectedProbe.unit_price,
+          String(selectedProbe.quantity),
+        ]);
+        assert.equal(
+          originalArguments[variation.argument_index],
+          variation.observed_value,
+        );
+        const approvedArguments = [...originalArguments];
+        approvedArguments[variation.argument_index] = selectedValue;
+        const scenario = { ...committedScenario, arguments: approvedArguments };
+        delete scenario.executable_sha256;
+        return scenario;
+      };
+
+      const leftScenario = await scenarioForApprovedFixture(
+        variation.left_source_evidence_id,
+        authorityBinary,
+      );
+      const rightScenario = await scenarioForApprovedFixture(
+        variation.right_source_evidence_id,
+        candidateBinary,
+      );
+      assert.deepEqual(leftScenario.arguments, rightScenario.arguments);
+      const approval = {
+        state: "approved-for-this-run",
+        approval: "explicit --approve-recommended-probes command-line flag",
+        probe_budget: { variations: 1, process_captures: 2, comparisons: 1 },
+        parent_verification_evidence_id: verification.evidence_id,
+        recommendation,
+        selected_argument_variation: variation,
+        scenarios: [leftScenario, rightScenario],
+      };
+      await writeFile(
+        join(outputRoot, "feedback-probe.approval.json"),
+        `${JSON.stringify(approval, null, 2)}\n`,
+      );
+
+      const leftCapture = await captureScenario(
+        "feedback-authority",
+        leftScenario,
+      );
+      const rightCapture = await captureScenario(
+        "feedback-candidate",
+        rightScenario,
+      );
+      const followupPair = {
+        left: {
+          path: join(outputRoot, "feedback-authority.capture.json"),
+          evidence: leftCapture,
+        },
+        right: {
+          path: join(outputRoot, "feedback-candidate.capture.json"),
+          evidence: rightCapture,
+        },
+      };
+      const followupComparison = await compare(
+        "feedback",
+        followupPair.left,
+        followupPair.right,
+      );
+      assert.equal(followupComparison.normalized_result.terminal, "changed");
+
+      const historyRecords = [
+        ...records,
+        specificationEvidence,
+        verification,
+        leftCapture,
+        rightCapture,
+        followupComparison,
+      ];
+      const feedbackBundle = createEvidenceBundle(historyRecords);
+      const feedbackSpecificationInputPath = join(
+        outputRoot,
+        "feedback-specification.input.json",
+      );
+      await writeFile(
+        feedbackSpecificationInputPath,
+        `${JSON.stringify(
+          {
+            name: "Bounded C rounding investigation with approved follow-up",
+            evidence_bundle: feedbackBundle,
+            comparisons: [
+              {
+                comparison_evidence_id: controlComparison.evidence_id,
+                dimensions: ["overall", "terminal"],
+              },
+              {
+                comparison_evidence_id: probeComparison.evidence_id,
+                dimensions: ["overall", "terminal"],
+              },
+              {
+                comparison_evidence_id: followupComparison.evidence_id,
+                dimensions: ["terminal"],
+              },
+            ],
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      const feedbackSpecificationRun = run(process.execPath, [
+        cliPath,
+        "derive-reconstruction-specification",
+        feedbackSpecificationInputPath,
+        "--format",
+        "json",
+      ]);
+      const feedbackSpecificationEvidence = JSON.parse(
+        feedbackSpecificationRun.stdout,
+      );
+      await writeFile(
+        join(outputRoot, "feedback-specification.evidence.json"),
+        `${JSON.stringify(feedbackSpecificationEvidence, null, 2)}\n`,
+      );
+      const feedbackVerificationInputPath = join(
+        outputRoot,
+        "feedback-verification.input.json",
+      );
+      await writeFile(
+        feedbackVerificationInputPath,
+        `${JSON.stringify(
+          {
+            specification:
+              feedbackSpecificationEvidence.normalized_result.specification,
+            evidence_bundle: feedbackBundle,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      const feedbackVerificationRun = run(process.execPath, [
+        cliPath,
+        "verify-reconstruction",
+        feedbackVerificationInputPath,
+        "--format",
+        "json",
+      ]);
+      const feedbackVerification = JSON.parse(feedbackVerificationRun.stdout);
+      await writeFile(
+        join(outputRoot, "feedback-verification.evidence.json"),
+        `${JSON.stringify(feedbackVerification, null, 2)}\n`,
+      );
+      const followupClaim =
+        feedbackVerification.normalized_result.claims.items.find(
+          ({ comparison_evidence_id, dimension }) =>
+            comparison_evidence_id === followupComparison.evidence_id &&
+            dimension === "terminal",
+        );
+      assert.equal(followupClaim?.status, "fail");
+      return {
+        state: "executed-and-reverified",
+        approval_evidence_path: join(
+          outputRoot,
+          "feedback-probe.approval.json",
+        ),
+        approved_argument_variation: variation,
+        new_capture_evidence_ids: [
+          leftCapture.evidence_id,
+          rightCapture.evidence_id,
+        ],
+        followup_comparison_evidence_id: followupComparison.evidence_id,
+        followup_specification_evidence_id:
+          feedbackSpecificationEvidence.evidence_id,
+        followup_verification_evidence_id: feedbackVerification.evidence_id,
+        followup_terminal_claim_status: followupClaim.status,
+        evidence_record_count: feedbackBundle.records.length,
+        probe_budget: approval.probe_budget,
+      };
+    })()
+  : {
+      state: "approval-required",
+      execution_flag: "--approve-recommended-probes",
+      executed: false,
+    };
 
 const summary = {
   hypothesis,
@@ -299,10 +616,15 @@ const summary = {
     control: controlComparison.evidence_id,
     counterexample: probeComparison.evidence_id,
   },
+  specification_evidence_id: specificationEvidence.evidence_id,
+  derived_claim_count: specificationDraft.specification.claims.length,
   claim_statuses: claimStatuses,
-  verification_expected_failure_observed: verification.status === "fail",
+  verification_evidence_id: verification.evidence_id,
+  verification_expected_failure_observed: verificationResult.status === "fail",
+  counterexample_probe_recommendation: counterexampleProbe,
+  feedback_loop: feedback,
   limitation:
-    "The domain and half-unit probe rule are human-declared. A terminal pass covers the selected captured scenario only; overall process behavior remains unknown when dimensions are unobserved.",
+    "The domain, half-unit probe rule, comparison Evidence, and dimensions included in the draft are human-selected. A terminal pass covers the selected captured scenario only; overall process behavior remains unknown when dimensions are unobserved.",
 };
 await writeFile(
   join(outputRoot, "summary.json"),

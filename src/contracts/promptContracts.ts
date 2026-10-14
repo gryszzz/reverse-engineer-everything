@@ -248,9 +248,14 @@ export const PROMPT_CONTRACTS = [
           "Produce missing comparison Evidence when needed; incomplete comparison dimensions remain unknown.",
       },
       {
+        tools: ["derive_reconstruction_specification"],
+        instruction:
+          "When the analyst has chosen exact comparison Evidence and dimensions, derive a typed finite specification from their complete portable Evidence bundle. Treat the result as an inferred draft, not an automatically discovered behavioral model.",
+      },
+      {
         tools: ["verify_reconstruction"],
         instruction:
-          "Construct a finite typed specification using the comparison Evidence already returned in this session. Interpret pass only for the declared claim and dimension.",
+          "Verify the specification from the draft against its linked comparison Evidence. Interpret pass only for the declared claim and dimension. When the result includes evidence-linked candidate probes, check their arguments against the investigation domain before execution; recommendations do not establish input validity or authorize a run.",
       },
       {
         tools: ["list_unknowns"],

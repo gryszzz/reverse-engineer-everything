@@ -5,6 +5,7 @@ import { createEvidenceBundle } from "./evidenceBundle.js";
 import { reconstructionVerificationResultSchema } from "./reconstructionVerificationSchemas.js";
 import type { JsonValue } from "./jsonValue.js";
 import { EMPTY_PROCESS_CAPTURE_EXAMPLE } from "./process/processCaptureExample.js";
+import { digestProcessCommitment } from "./process/processScenario.js";
 import { reconstructionSpecificationSchema } from "./reconstructionVerificationSchemas.js";
 import { ARTIFACT_COMPARISON_EXAMPLE } from "../contracts/artifactComparisonExample.js";
 import { createResidualUnknown } from "./residualUnknown.js";
@@ -85,6 +86,25 @@ const processResult = (
         : { status: "none" },
   limitations: [],
 });
+
+const captureWithArguments = (
+  executable: string,
+  arguments_: string[],
+): JsonValue => {
+  const scenario = {
+    executable,
+    arguments: arguments_,
+    executable_sha256: "0".repeat(64),
+  };
+  return {
+    ...EMPTY_PROCESS_CAPTURE_EXAMPLE,
+    manifest: {
+      ...EMPTY_PROCESS_CAPTURE_EXAMPLE.manifest,
+      scenario,
+      full_scenario_sha256: digestProcessCommitment(scenario),
+    },
+  };
+};
 
 const processComparison = (
   left: Evidence,
@@ -319,6 +339,77 @@ describe("reconstruction verification outcomes", () => {
       summary: { failed: 1 },
       claims: { items: [{ status: "fail", observed_status: "changed" }] },
     });
+  });
+
+  it("uses a terminal counterexample to propose adjacent decimal argv probes", () => {
+    const left = source(
+      "1",
+      "controlled-replay",
+      "observed",
+      captureWithArguments("/tmp/authority", ["1.05", "10"]),
+    );
+    const right = source(
+      "2",
+      "controlled-replay",
+      "observed",
+      captureWithArguments("/tmp/candidate", ["1.05", "10"]),
+    );
+    const comparison = processComparison(left, right, processResult("changed"));
+    const result = verifyReconstruction(
+      behavioralSpec(comparison),
+      createEvidenceBundle([comparison, left, right]),
+    );
+
+    expect(result.recommended_probes).toHaveLength(1);
+    expect(result.recommended_probes[0]).toMatchObject({
+      operation: "capture_process_scenario",
+      claim_ids: ["terminal-output"],
+      unknown_ids: [],
+      evidence_links: [
+        left.evidence_id,
+        right.evidence_id,
+        comparison.evidence_id,
+      ].sort(),
+      argument_variations: [
+        {
+          left_source_evidence_id: left.evidence_id,
+          right_source_evidence_id: right.evidence_id,
+          argument_index: 0,
+          observed_value: "1.05",
+          candidate_values: ["1.04", "1.06"],
+        },
+        {
+          left_source_evidence_id: left.evidence_id,
+          right_source_evidence_id: right.evidence_id,
+          argument_index: 1,
+          observed_value: "10",
+          candidate_values: ["9", "11"],
+        },
+      ],
+    });
+  });
+
+  it("does not vary process arguments when compared captures used different inputs", () => {
+    const left = source(
+      "1",
+      "controlled-replay",
+      "observed",
+      captureWithArguments("/tmp/authority", ["1.05"]),
+    );
+    const right = source(
+      "2",
+      "controlled-replay",
+      "observed",
+      captureWithArguments("/tmp/candidate", ["1.06"]),
+    );
+    const comparison = processComparison(left, right, processResult("changed"));
+
+    expect(
+      verifyReconstruction(
+        behavioralSpec(comparison),
+        createEvidenceBundle([comparison, left, right]),
+      ).recommended_probes,
+    ).toEqual([]);
   });
 
   it("keeps insufficient authority and partial structural evidence unknown", () => {

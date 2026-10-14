@@ -7,10 +7,11 @@ import { registerCompareSourceToBundleTool } from "./registerApplicationTools/co
 import { registerCompareJavaScriptExportShapesTool } from "./registerApplicationTools/compareExportShapes.js";
 import { registerCoverageTools } from "./registerApplicationTools/coverage.js";
 import { registerReconstructionObligationLedgerTool } from "./registerApplicationTools/obligationLedger.js";
+import { registerReconstructionSpecificationTool } from "./registerApplicationTools/deriveReconstructionSpecification.js";
 import { registerProjectMobileApplicationGraphTools } from "./registerApplicationTools/projectMobileApplicationGraph.js";
 import type { ApplicationToolRegistration } from "./registerApplicationTools/types.js";
 
-/** Register provider-neutral JavaScript application graph workflows. */
+/** Register provider-neutral application and reconstruction Evidence workflows. */
 export const registerApplicationTools = (
   server: EvidenceMcpServer,
   options: ApplicationToolRegistration,
@@ -21,6 +22,7 @@ export const registerApplicationTools = (
   registerCompareSourceToBundleTool(server, options);
   registerCompareJavaScriptExportShapesTool(server, options);
   registerReconstructionObligationLedgerTool(server, options);
+  registerReconstructionSpecificationTool(server, options);
   registerCoverageTools(server, options);
   registerProjectMobileApplicationGraphTools(server, options);
 };

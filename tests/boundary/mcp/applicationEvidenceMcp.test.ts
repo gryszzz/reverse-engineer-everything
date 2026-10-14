@@ -11,6 +11,12 @@ import {
   SOURCE_TO_BUNDLE_COMPARISON_EXAMPLE,
 } from "../../../src/contracts/javascript/javascriptApplicationWorkflowExamples.js";
 import { createEvidence } from "../../../src/domain/evidence.js";
+import { createEvidenceBundle } from "../../../src/domain/evidenceBundle.js";
+import { jsonValueSchema } from "../../../src/domain/jsonValue.js";
+import { EMPTY_PROCESS_CAPTURE_EXAMPLE } from "../../../src/domain/process/processCaptureExample.js";
+import { PROCESS_PROVIDER } from "../../../src/domain/process/processEvidenceProvider.js";
+import { processCaptureComparisonSchema } from "../../../src/domain/process/processComparison.js";
+import { digestProcessCommitment } from "../../../src/domain/process/processScenario.js";
 import { javascriptApplicationAnalysisResultSchema } from "../../../src/domain/javascript/javascriptApplicationAnalysis.js";
 import {
   createJavaScriptApplicationGraph,
@@ -281,6 +287,90 @@ async function runInlineWorkflowScenarios(
   );
 }
 
+const processComparisonBundle = (counterexample = false) => {
+  const environment = {
+    id: "mcp-specification-derivation-test",
+    platform: "linux",
+    architecture: "x86_64",
+    isolation: "container" as const,
+  };
+  const capture = (digit: string) => {
+    const scenario = {
+      executable: `/tmp/mcp-specification-${digit}`,
+      arguments: ["1.05", "10"],
+      executable_sha256: "0".repeat(64),
+    };
+    const result = {
+      ...EMPTY_PROCESS_CAPTURE_EXAMPLE,
+      manifest: {
+        ...EMPTY_PROCESS_CAPTURE_EXAMPLE.manifest,
+        scenario,
+        full_scenario_sha256: digestProcessCommitment(scenario),
+      },
+    };
+    return createEvidence(
+      {
+        path: `/tmp/mcp-specification-${digit}`,
+        sha256: digit.repeat(64),
+        format: "file",
+      },
+      { id: "fixture", name: "Fixture capture", version: "1" },
+      {
+        predicateType: "rea.process-capture",
+        operation: "capture_process_scenario",
+        parameters: {},
+        result: jsonValueSchema.parse(JSON.parse(JSON.stringify(result))),
+        confidence: "observed",
+        authority: "controlled-replay",
+        environment,
+      },
+    );
+  };
+  const left = capture("c");
+  const right = capture("d");
+  const comparison = createEvidence(undefined, PROCESS_PROVIDER, {
+    predicateType: "rea.process-comparison",
+    operation: "compare_process_captures",
+    parameters: {
+      left_evidence_id: left.evidence_id,
+      right_evidence_id: right.evidence_id,
+    },
+    result: jsonValueSchema.parse(
+      JSON.parse(
+        JSON.stringify(
+          processCaptureComparisonSchema.parse({
+            status: counterexample ? "changed" : "unchanged",
+            terminal: counterexample ? "changed" : "unchanged",
+            interaction: "unchanged",
+            exit: "unchanged",
+            filesystem: "unchanged",
+            process: "unchanged",
+            first_divergence: counterexample
+              ? {
+                  status: "found",
+                  dimension: "terminal",
+                  index: 0,
+                  left_at_ms: 0,
+                  right_at_ms: 0,
+                  left: "10.50",
+                  right: "11.00",
+                }
+              : { status: "none" },
+            limitations: [],
+          }),
+        ),
+      ),
+    ),
+    confidence: "derived",
+    authority: "analyst-inference",
+    evidenceLinks: [left.evidence_id, right.evidence_id],
+  });
+  return {
+    comparison,
+    evidence_bundle: createEvidenceBundle([left, right, comparison]),
+  };
+};
+
 async function assertRejectedEvidenceReferences(
   client: Client,
   session: BinarySession,
@@ -355,6 +445,111 @@ describe("application workflow MCP parity", () => {
       await runInlineWorkflowScenarios(harness);
       await assertRejectedEvidenceReferences(harness.client, harness.session);
       await assertRejectedInlineEvidence(harness.client);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("drafts a specification from supplied comparison Evidence and verifies it in-session", async () => {
+    const harness = await createApplicationMcpHarness();
+    try {
+      const { comparison, evidence_bundle } = processComparisonBundle();
+      const drafted = await harness.client.callTool({
+        name: "derive_reconstruction_specification",
+        arguments: {
+          name: "MCP finite process comparison",
+          evidence_bundle,
+          comparisons: [
+            {
+              comparison_evidence_id: comparison.evidence_id,
+              dimensions: ["terminal", "overall"],
+            },
+          ],
+        },
+      });
+      expect(drafted.isError).not.toBe(true);
+      const draftedEvidence = drafted.structuredContent as {
+        readonly normalized_result: {
+          readonly specification: unknown;
+          readonly source_evidence_ids: readonly string[];
+        };
+      };
+      expect(draftedEvidence.normalized_result.specification).toMatchObject({
+        name: "MCP finite process comparison",
+        claims: [
+          { kind: "behavioral", dimension: "overall" },
+          { kind: "behavioral", dimension: "terminal" },
+        ],
+      });
+
+      const verified = await harness.client.callTool({
+        name: "verify_reconstruction",
+        arguments: {
+          specification: draftedEvidence.normalized_result.specification,
+        },
+      });
+      expect(verified.isError).not.toBe(true);
+      expect(verified.structuredContent).toMatchObject({
+        normalized_result: {
+          status: "pass",
+          summary: { total: 2, passed: 2 },
+        },
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  it("returns counterexample-guided argument variations through the session verifier", async () => {
+    const harness = await createApplicationMcpHarness();
+    try {
+      const { comparison, evidence_bundle } = processComparisonBundle(true);
+      const drafted = await harness.client.callTool({
+        name: "derive_reconstruction_specification",
+        arguments: {
+          name: "MCP terminal counterexample",
+          evidence_bundle,
+          comparisons: [
+            {
+              comparison_evidence_id: comparison.evidence_id,
+              dimensions: ["terminal"],
+            },
+          ],
+        },
+      });
+      expect(drafted.isError).not.toBe(true);
+      const draft = drafted.structuredContent as {
+        readonly normalized_result: { readonly specification: unknown };
+      };
+      const verified = await harness.client.callTool({
+        name: "verify_reconstruction",
+        arguments: { specification: draft.normalized_result.specification },
+      });
+
+      expect(verified.isError).not.toBe(true);
+      expect(verified.structuredContent).toMatchObject({
+        normalized_result: {
+          status: "fail",
+          recommended_probes: [
+            {
+              operation: "capture_process_scenario",
+              argument_variations: [
+                {
+                  argument_index: 0,
+                  observed_value: "1.05",
+                  candidate_values: ["1.04", "1.06"],
+                },
+                {
+                  argument_index: 1,
+                  observed_value: "10",
+                  candidate_values: ["9", "11"],
+                },
+              ],
+              evidence_links: expect.arrayContaining([comparison.evidence_id]),
+            },
+          ],
+        },
+      });
     } finally {
       await harness.close();
     }

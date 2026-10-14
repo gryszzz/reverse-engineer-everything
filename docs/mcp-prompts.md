@@ -6,14 +6,15 @@ invoke tools by themselves.
 
 ## Prompt inventory
 
-| Prompt                            | Purpose                                                                              |
-| --------------------------------- | ------------------------------------------------------------------------------------ |
-| `investigate_feature`             | Trace a feature from discovery into relevant function evidence.                      |
-| `compare_application_versions`    | Compare two shipped artifacts, with optional static and runtime follow-up.           |
-| `verify_reconstruction`           | Evaluate a finite reconstruction specification against retained comparison Evidence. |
-| `trace_crash`                     | Correlate a crash symptom with static paths and optional process capture evidence.   |
-| `audit_residual_unknowns`         | Audit current residual-unknown heads and evidence-qualified resolution.              |
-| `prepare_bounded_process_capture` | Design a bounded controlled process experiment before execution.                     |
+| Prompt                                | Purpose                                                                                     |
+| ------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `investigate_feature`                 | Trace a feature from discovery into relevant function evidence.                             |
+| `compare_application_versions`        | Compare two shipped artifacts, with optional static and runtime follow-up.                  |
+| `verify_reconstruction`               | Evaluate a finite reconstruction specification against retained comparison Evidence.        |
+| `derive_reconstruction_specification` | Draft selected behavioral or structural claims from comparison Evidence IDs and dimensions. |
+| `trace_crash`                         | Correlate a crash symptom with static paths and optional process capture evidence.          |
+| `audit_residual_unknowns`             | Audit current residual-unknown heads and evidence-qualified resolution.                     |
+| `prepare_bounded_process_capture`     | Design a bounded controlled process experiment before execution.                            |
 
 Every rendered prompt provides optional starting points using current REA tool
 names. Agents can call tools directly, skip irrelevant suggestions, and inspect

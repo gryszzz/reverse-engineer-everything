@@ -119,6 +119,86 @@ tools. Provider-specific target support is described in the
 [raw binary guide](raw-binary.md), and
 [Windows Ghidra guide](windows-ghidra-p0.md).
 
+## Draft and verify a reconstruction specification
+
+Draft typed claims from exact comparison Evidence IDs and dimensions. The
+comparison's operation determines whether claims are behavioral,
+function-structural, or artifact-structural; unsupported dimensions and
+incomplete Evidence closure are rejected:
+
+```bash
+rea derive-reconstruction-specification draft-input.json --json
+```
+
+The input contains a portable Evidence bundle and explicit selections:
+
+```json
+{
+  "name": "Bounded process investigation",
+  "evidence_bundle": { "...": "complete Evidence bundle" },
+  "comparisons": [
+    {
+      "comparison_evidence_id": "ev_<comparison Evidence ID>",
+      "dimensions": ["terminal", "overall"]
+    }
+  ]
+}
+```
+
+This is a schematic example: replace the placeholder with a complete Evidence
+bundle and use the exact comparison Evidence ID from that bundle.
+
+The returned `rea.reconstruction-specification-draft` Evidence contains the
+verifier-ready `normalized_result.specification`, its complete source Evidence
+IDs, and limitations. Only selected dimensions become claims. The draft does
+not claim that those dimensions cover the target's full behavior.
+
+`verify-reconstruction` runs the same finite-claim verifier exposed by MCP.
+Give it a JSON file containing a typed `specification` and the portable
+`evidence_bundle` that contains each cited comparison record:
+
+```bash
+rea verify-reconstruction verification-input.json --json
+```
+
+The command returns a `rea.reconstruction-verification` Evidence record. A
+`pass` applies only to every declared claim and its available authority; it
+does not establish global implementation equivalence. Missing, incomplete, or
+limited comparisons remain `unknown`. The owned C rounding investigation
+demonstrates specification drafting and verification after compiling and
+capturing both programs:
+
+```bash
+npm run verify:ree-investigation-boundary
+```
+
+The script is a bounded source-owned lab. It records source and executable
+digests, selected probes, capture and comparison Evidence, final verifier
+Evidence, and unresolved coverage in its output directory.
+
+For a failed terminal claim backed by one process capture on each side, the
+verifier can also return adjacent decimal values for identical plain-decimal
+argv entries as candidate probes. Each suggestion cites the comparison and
+both capture Evidence records and identifies the argument index and candidate
+strings. These are lexical neighbors only: REE does not infer argument
+meaning, confirm domain validity, or claim that they distinguish every
+possible explanation. The verifier itself never executes recommendations.
+
+The owned C fixture has a separate opt-in for one explicitly approved
+follow-up. It validates that the recommendation points to the freshly compiled
+fixture binaries and matching recorded arguments, then captures both sides,
+compares them, appends their Evidence to the original bundle, and runs
+specification derivation and verification again:
+
+```bash
+npm run verify:ree-investigation-boundary -- --approve-recommended-probes
+```
+
+This experiment is limited to one argument variation, two process captures,
+and one comparison. Its approval record and new Evidence are saved alongside
+the original run. It does not provide a general-purpose approved probe
+executor for arbitrary targets.
+
 ## Choose a provider
 
 List the available providers and their supported operations:

@@ -149,6 +149,8 @@ export const CLI_COMMANDS = Object.freeze({
   compareSourceToBundle: "compare-source-to-bundle",
   compareJavaScriptExportShapes: "compare-javascript-export-shapes",
   buildReconstructionObligationLedger: "build-reconstruction-obligation-ledger",
+  verifyReconstruction: "verify-reconstruction",
+  deriveReconstructionSpecification: "derive-reconstruction-specification",
   evaluateReconstructionCoverage: "evaluate-reconstruction-coverage",
   projectAndroidApplicationGraph: "project-android-application-graph",
   projectAppleApplicationGraph: "project-apple-application-graph",
@@ -182,6 +184,10 @@ export const CLI_COMMAND_TOOL_ALIASES = Object.freeze({
   "list-frida-devices": ["list_frida_devices"],
   "list-frida-processes": ["list_frida_processes"],
   "instrument-with-frida": ["instrument_with_frida"],
+  "verify-reconstruction": ["verify_reconstruction"],
+  "derive-reconstruction-specification": [
+    "derive_reconstruction_specification",
+  ],
 });
 
 /** MCP operations without a dedicated CLI command or direct command alias. */
@@ -231,7 +237,6 @@ export const MCP_TOOLS_WITHOUT_DEDICATED_CLI = Object.freeze([
   "find_changed_behavior",
   "build_call_path",
   "correlate_static_and_runtime",
-  "verify_reconstruction",
   "list_unknowns",
   "record_unknown",
   "update_unknown",

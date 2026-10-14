@@ -88,7 +88,7 @@ export const verifyReconstruction = (
     );
   const failed = count(results, "fail");
   const unresolved = count(results, "unknown");
-  const probes = reconstructionProbes(results, heads);
+  const probes = reconstructionProbes(results, heads, records);
   const evidenceLinks = uniqueSorted(
     results.flatMap(({ evidence_links: links }) => links),
   );

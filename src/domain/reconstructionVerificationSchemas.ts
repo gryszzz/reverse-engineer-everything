@@ -4,6 +4,7 @@ import { IDENTIFIER_PATTERN } from "./stringPatterns.js";
 import { digestSchema } from "./../domain/digests.js";
 import { prefixedDigestSchema } from "./../domain/digests.js";
 import { PROCESS_COMPARISON_DIMENSIONS } from "./process/processComparison.js";
+import { evidenceBundleSchema } from "./evidenceBundle.js";
 
 const evidenceIdSchema = prefixedDigestSchema("ev");
 const unknownIdSchema = prefixedDigestSchema("unk");
@@ -74,6 +75,12 @@ export const reconstructionVerificationInputSchema = z.strictObject({
   specification: reconstructionSpecificationSchema,
 });
 
+/** Portable one-shot input shared by the CLI and session-backed MCP adapter. */
+export const reconstructionVerificationRequestSchema = z.strictObject({
+  specification: reconstructionSpecificationSchema,
+  evidence_bundle: evidenceBundleSchema,
+});
+
 export const reconstructionClaimResultSchema = z.object({
   claim_id: claimIdSchema,
   kind: z.enum(["behavioral", "structural-function", "structural-artifact"]),
@@ -118,6 +125,18 @@ export const reconstructionVerificationResultSchema = z
         rationale: z.string().min(1),
         claim_ids: z.array(claimIdSchema).min(1),
         unknown_ids: z.array(unknownIdSchema),
+        evidence_links: z.array(evidenceIdSchema).optional(),
+        argument_variations: z
+          .array(
+            z.object({
+              left_source_evidence_id: evidenceIdSchema,
+              right_source_evidence_id: evidenceIdSchema,
+              argument_index: z.number().int().nonnegative(),
+              observed_value: z.string(),
+              candidate_values: z.array(z.string()).length(2),
+            }),
+          )
+          .optional(),
       }),
     ),
     evidence_links: z.array(evidenceIdSchema).min(2),
