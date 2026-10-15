@@ -7,7 +7,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createEvidenceBundle } from "../../../dist/domain/evidenceBundle.js";
-import { synthesizeBlackBoxExpression } from "./black-box-expression-synthesis.mjs";
+import {
+  rankDiscriminatingInputs,
+  synthesizeBlackBoxExpression,
+} from "./black-box-expression-synthesis.mjs";
 import {
   executeApprovedReconstructionProcessProbeBatch,
   prepareReconstructionProcessProbeBatch,
@@ -28,6 +31,12 @@ const approveRecommendedProbes = scriptArguments.includes(
 );
 const refineCandidate = scriptArguments.includes("--refine-candidate");
 const blackBoxSynthesis = scriptArguments.includes("--black-box-synthesis");
+const activeHypothesisDiscrimination = scriptArguments.includes(
+  "--active-hypothesis-discrimination",
+);
+const hypothesisProbeApproval = scriptArguments
+  .find((argument) => argument.startsWith("--approve-hypothesis-probe="))
+  ?.slice("--approve-hypothesis-probe=".length);
 const proposalApproval = scriptArguments
   .find((argument) => argument.startsWith("--approve-proposed-patch="))
   ?.slice("--approve-proposed-patch=".length);
@@ -36,6 +45,8 @@ const requestedOutputRoot = scriptArguments.find(
     argument !== "--approve-recommended-probes" &&
     argument !== "--refine-candidate" &&
     argument !== "--black-box-synthesis" &&
+    argument !== "--active-hypothesis-discrimination" &&
+    !argument.startsWith("--approve-hypothesis-probe=") &&
     !argument.startsWith("--approve-proposed-patch="),
 );
 if (
@@ -45,14 +56,37 @@ if (
       argument !== "--approve-recommended-probes" &&
       argument !== "--refine-candidate" &&
       argument !== "--black-box-synthesis" &&
+      argument !== "--active-hypothesis-discrimination" &&
+      !argument.startsWith("--approve-hypothesis-probe=") &&
       !argument.startsWith("--approve-proposed-patch="),
   )
 )
   throw new Error(
-    "Usage: c-process-probe.mjs [new-output-directory] [--approve-recommended-probes] [--refine-candidate] [--black-box-synthesis] [--approve-proposed-patch=<sha256>]",
+    "Usage: c-process-probe.mjs [new-output-directory] [--approve-recommended-probes] [--refine-candidate] [--black-box-synthesis] [--active-hypothesis-discrimination] [--approve-hypothesis-probe=<sha256>] [--approve-proposed-patch=<sha256>]",
   );
 if (blackBoxSynthesis && !refineCandidate)
   throw new Error("Black-box synthesis requires --refine-candidate.");
+if (activeHypothesisDiscrimination && !blackBoxSynthesis)
+  throw new Error(
+    "Active hypothesis discrimination requires --black-box-synthesis.",
+  );
+if (hypothesisProbeApproval !== undefined && !activeHypothesisDiscrimination)
+  throw new Error("Hypothesis probe approval requires active discrimination.");
+if (
+  hypothesisProbeApproval !== undefined &&
+  !/^[a-f0-9]{64}$/u.test(hypothesisProbeApproval)
+)
+  throw new Error(
+    "--approve-hypothesis-probe must contain the SHA-256 shown in a prior probe plan.",
+  );
+if (
+  activeHypothesisDiscrimination &&
+  proposalApproval !== undefined &&
+  hypothesisProbeApproval === undefined
+)
+  throw new Error(
+    "Patch approval requires re-approving the hypothesis probe plan for this run.",
+  );
 if (refineCandidate && !approveRecommendedProbes)
   throw new Error(
     "Candidate refinement requires --approve-recommended-probes so its bounded source probes are explicitly approved first.",
@@ -322,41 +356,48 @@ const execute = (binary, unitPrice, quantity) =>
   run(binary, [unitPrice, String(quantity)]).stdout.trim();
 
 const control = { unit_price: "199.00", quantity: 3 };
-assert.equal(
-  execute(authorityBinary, control.unit_price, control.quantity),
-  "597.00",
-);
-assert.equal(
-  execute(candidateBinary, control.unit_price, control.quantity),
-  "597.00",
-);
+if (!activeHypothesisDiscrimination) {
+  assert.equal(
+    execute(authorityBinary, control.unit_price, control.quantity),
+    "597.00",
+  );
+  assert.equal(
+    execute(candidateBinary, control.unit_price, control.quantity),
+    "597.00",
+  );
+}
 
 let selectedProbe;
 let candidatesExamined = 0;
-for (
-  let cents = domain.unit_price_cents.minimum;
-  cents <= domain.unit_price_cents.maximum && selectedProbe === undefined;
-  cents += domain.unit_price_cents.step
-) {
-  const unitPrice = (cents / 100).toFixed(2);
-  for (const quantity of domain.quantity_values) {
-    const product = (cents / 100) * quantity;
-    if (Math.abs(product - (Math.floor(product) + 0.5)) > 1e-9) continue;
-    candidatesExamined += 1;
-    const authorityOutput = execute(authorityBinary, unitPrice, quantity);
-    const candidateOutput = execute(candidateBinary, unitPrice, quantity);
-    if (authorityOutput !== candidateOutput) {
-      selectedProbe = {
-        unit_price: unitPrice,
-        quantity,
-        authority_output: authorityOutput,
-        candidate_output: candidateOutput,
-      };
-      break;
+if (!activeHypothesisDiscrimination) {
+  for (
+    let cents = domain.unit_price_cents.minimum;
+    cents <= domain.unit_price_cents.maximum && selectedProbe === undefined;
+    cents += domain.unit_price_cents.step
+  ) {
+    const unitPrice = (cents / 100).toFixed(2);
+    for (const quantity of domain.quantity_values) {
+      const product = (cents / 100) * quantity;
+      if (Math.abs(product - (Math.floor(product) + 0.5)) > 1e-9) continue;
+      candidatesExamined += 1;
+      const authorityOutput = execute(authorityBinary, unitPrice, quantity);
+      const candidateOutput = execute(candidateBinary, unitPrice, quantity);
+      if (authorityOutput !== candidateOutput) {
+        selectedProbe = {
+          unit_price: unitPrice,
+          quantity,
+          authority_output: authorityOutput,
+          candidate_output: candidateOutput,
+        };
+        break;
+      }
     }
   }
+  assert.ok(
+    selectedProbe,
+    "The declared domain should contain a counterexample",
+  );
 }
-assert.ok(selectedProbe, "The declared domain should contain a counterexample");
 
 const captureScenario = async (label, scenario) => {
   const scenarioPath = join(outputRoot, `${label}.scenario.json`);
@@ -464,12 +505,124 @@ const controlComparison = await compare(
   controlPair.left,
   controlPair.right,
 );
+let activeHypothesisPlan;
+if (activeHypothesisDiscrimination) {
+  const seedObservation = {
+    input: {
+      unit_price: Number(control.unit_price),
+      quantity: control.quantity,
+    },
+    expected_stdout: terminalOutput(controlPair.left),
+  };
+  const ranking = rankDiscriminatingInputs([seedObservation], domain);
+  const planPath = join(outputRoot, "hypothesis-probe-plan.json");
+  const seedEvidence = createEvidenceBundle([
+    controlPair.left.evidence,
+    controlPair.right.evidence,
+    controlComparison,
+  ]);
+  await writeFile(
+    join(outputRoot, "hypothesis-probe-seed.evidence-bundle.json"),
+    `${JSON.stringify(seedEvidence, null, 2)}\n`,
+  );
+  if (ranking.state !== "probe-recommended") {
+    const abstention = {
+      ...ranking,
+      candidate_source_sha256: digest(candidateSource),
+      seed_comparison_evidence_id: controlComparison.evidence_id,
+      seed_observation: seedObservation,
+      execution: "no-probe-launched",
+      reason: ranking.reason,
+    };
+    await writeFile(planPath, `${JSON.stringify(abstention, null, 2)}\n`);
+    console.log(
+      JSON.stringify(
+        { output: outputRoot, hypothesis_probe_plan: abstention },
+        null,
+        2,
+      ),
+    );
+    process.exit(0);
+  }
+
+  const planMaterial = {
+    version: 1,
+    method: ranking.method,
+    reference_identity_sha256: digest(authoritySource),
+    candidate_source_sha256: digest(candidateSource),
+    domain,
+    seed_observation: seedObservation,
+    hypothesis_grammar: ranking.hypothesis_grammar,
+    surviving_hypothesis_ids: ranking.surviving_hypothesis_ids,
+    selected_probe: ranking.selected_probe,
+  };
+  activeHypothesisPlan = {
+    ...ranking,
+    plan_sha256: digest(canonicalString(planMaterial)),
+    reference_identity_sha256: digest(authoritySource),
+    candidate_source_sha256: digest(candidateSource),
+    domain,
+    seed_comparison_evidence_id: controlComparison.evidence_id,
+    seed_observation: seedObservation,
+    approval: "awaiting-explicit-probe-digest",
+  };
+  await writeFile(
+    planPath,
+    `${JSON.stringify(activeHypothesisPlan, null, 2)}\n`,
+  );
+  if (hypothesisProbeApproval === undefined) {
+    console.log(
+      JSON.stringify(
+        {
+          output: outputRoot,
+          hypothesis_probe_plan: activeHypothesisPlan,
+          next_step: `Re-run with --approve-hypothesis-probe=${activeHypothesisPlan.plan_sha256} to execute the selected input.`,
+        },
+        null,
+        2,
+      ),
+    );
+    process.exit(0);
+  }
+  assert.equal(
+    hypothesisProbeApproval,
+    activeHypothesisPlan.plan_sha256,
+    "Hypothesis probe approval must match the fresh plan, candidate source, domain, and seed observation",
+  );
+  activeHypothesisPlan.approval = "approved-for-this-run";
+  await writeFile(
+    join(outputRoot, "hypothesis-probe-approval.json"),
+    `${JSON.stringify(
+      {
+        state: "approved-for-this-run",
+        approval: "explicit --approve-hypothesis-probe digest",
+        plan_sha256: hypothesisProbeApproval,
+        planned_input: ranking.selected_probe.input,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  selectedProbe = {
+    ...ranking.selected_probe.input,
+    authority_output: undefined,
+    candidate_output: undefined,
+  };
+  candidatesExamined = ranking.examined_input_count;
+} else {
+  assert.ok(
+    selectedProbe,
+    "The declared domain should contain a counterexample",
+  );
+}
 const probePair = await capturePair("counterexample", selectedProbe);
 const probeComparison = await compare(
   "counterexample",
   probePair.left,
   probePair.right,
 );
+selectedProbe.authority_output = terminalOutput(probePair.left);
+selectedProbe.candidate_output = terminalOutput(probePair.right);
 
 const records = [
   controlPair.left.evidence,
@@ -567,6 +720,14 @@ assert.ok(
   counterexampleProbe,
   "The terminal counterexample should guide probes",
 );
+const adjacentUnitPrices = [
+  (Number(selectedProbe.unit_price) - 0.01).toFixed(2),
+  (Number(selectedProbe.unit_price) + 0.01).toFixed(2),
+];
+const adjacentQuantities = [
+  String(Math.max(0, selectedProbe.quantity - 1)),
+  String(selectedProbe.quantity + 1),
+];
 assert.deepEqual(
   counterexampleProbe.argument_variations.map(
     ({ argument_index, observed_value, candidate_values }) => ({
@@ -579,12 +740,12 @@ assert.deepEqual(
     {
       argument_index: 0,
       observed_value: selectedProbe.unit_price,
-      candidate_values: ["1.04", "1.06"],
+      candidate_values: adjacentUnitPrices,
     },
     {
       argument_index: 1,
       observed_value: String(selectedProbe.quantity),
-      candidate_values: ["9", "11"],
+      candidate_values: adjacentQuantities,
     },
   ],
 );
@@ -628,6 +789,24 @@ const runCandidateRefinement = async (batchEvidence) => {
         ...synthesis,
         method: "bounded-enumerative-expression-search",
         application: "not-applied",
+        hypothesis_probe_plan_sha256: activeHypothesisPlan?.plan_sha256 ?? null,
+        basis_comparison_evidence_ids: observations.map(
+          ({ comparison_evidence_id }) => comparison_evidence_id,
+        ),
+        hypothesis_update: {
+          previously_surviving_hypothesis_ids:
+            activeHypothesisPlan?.surviving_hypothesis_ids ??
+            synthesis.grammar?.map(({ id }) => id) ??
+            [],
+          observed_output: terminalOutput(probePair.left),
+          observation_comparison_evidence_id: probeComparison.evidence_id,
+          remaining_hypothesis_ids: synthesis.consistent_hypothesis_ids ?? [],
+          eliminated_hypothesis_ids: (
+            activeHypothesisPlan?.surviving_hypothesis_ids ??
+            synthesis.grammar?.map(({ id }) => id) ??
+            []
+          ).filter((id) => !synthesis.consistent_hypothesis_ids?.includes(id)),
+        },
       };
     } else if (candidateCall === undefined) {
       proposal = {
@@ -654,6 +833,8 @@ const runCandidateRefinement = async (batchEvidence) => {
           ...sourceIdentity,
           grammar: synthesis.grammar,
           selected_hypothesis_id: synthesis.selected_hypothesis_id,
+          hypothesis_probe_plan_sha256:
+            activeHypothesisPlan?.plan_sha256 ?? null,
           observations: observations.map(({ input, expected_stdout }) => ({
             input,
             expected_stdout,
@@ -677,11 +858,29 @@ const runCandidateRefinement = async (batchEvidence) => {
         basis_comparison_evidence_ids: observations.map(
           ({ comparison_evidence_id }) => comparison_evidence_id,
         ),
+        hypothesis_probe_plan_sha256: activeHypothesisPlan?.plan_sha256 ?? null,
+        hypothesis_update: {
+          previously_surviving_hypothesis_ids:
+            activeHypothesisPlan?.surviving_hypothesis_ids ??
+            synthesis.grammar.map(({ id }) => id),
+          observed_output: terminalOutput(probePair.left),
+          observation_comparison_evidence_id: probeComparison.evidence_id,
+          remaining_hypothesis_ids: synthesis.consistent_hypothesis_ids,
+          eliminated_hypothesis_ids: (
+            activeHypothesisPlan?.surviving_hypothesis_ids ??
+            synthesis.grammar.map(({ id }) => id)
+          ).filter((id) => !synthesis.consistent_hypothesis_ids.includes(id)),
+        },
+        hypothesis_probe_plan_path: activeHypothesisPlan
+          ? join(outputRoot, "hypothesis-probe-plan.json")
+          : null,
         reference_source_provided_to_synthesizer: false,
-        rationale:
-          "A unique expression in the declared grammar matches captured reference outputs for the control and counterexample. The synthesis function receives only these input/output observations; the reference implementation is queried as an executable and its source expression is not passed to the proposer.",
-        limitations:
-          "This is a small, target-specific arithmetic grammar fit to two examples. It is not general program synthesis, and only separately captured holdouts can test whether the selected expression generalizes.",
+        rationale: activeHypothesisPlan
+          ? "The approved probe was selected by expected information gain over the surviving grammar hypotheses. Its captured reference output eliminates inconsistent hypotheses, leaving a unique expression that matches the seed control and approved probe. The synthesis function receives only input/output observations; the reference source expression is not passed to it."
+          : "A unique expression in the declared grammar matches captured reference outputs for the control and counterexample. The synthesis function receives only these input/output observations; the reference implementation is queried as an executable and its source expression is not passed to the proposer.",
+        limitations: activeHypothesisPlan
+          ? "The probe ranking assumes a uniform prior over a human-authored five-expression grammar and searches only a human-authored bounded input domain. This is not general program synthesis; only separately captured holdouts test whether the selected expression generalizes."
+          : "This is a small, target-specific arithmetic grammar fit to two examples. It is not general program synthesis, and only separately captured holdouts can test whether the selected expression generalizes.",
         patch,
       };
     }
@@ -734,7 +933,7 @@ const runCandidateRefinement = async (batchEvidence) => {
   assert.equal(
     proposalApproval,
     proposal.proposal_sha256,
-    "Approval digest must match the freshly generated patch and both source snapshots",
+    "Approval digest must match the freshly generated patch, source identity, observations, and active probe plan",
   );
 
   const authorityCall = blackBoxSynthesis
@@ -1055,7 +1254,9 @@ const runCandidateRefinement = async (batchEvidence) => {
       "approved.verification.evidence.json",
     ),
     limitation: blackBoxSynthesis
-      ? "The proposer fits a declared five-expression arithmetic grammar from two observations; this does not demonstrate general program synthesis or behavioral equivalence. The input domain and initial probe search remain human-authored, and the reference source remains present in the repository outside the proposer input boundary."
+      ? activeHypothesisDiscrimination
+        ? "The proposer fits a declared five-expression arithmetic grammar from a human-authored bounded domain and uniform prior. The additional probe is selected by expected information gain, but this does not demonstrate general program synthesis or behavioral equivalence. The reference source remains present in the repository outside the proposer input boundary."
+        : "The proposer fits a declared five-expression arithmetic grammar from two observations; this does not demonstrate general program synthesis or behavioral equivalence. The input domain and initial probe search remain human-authored, and the reference source remains present in the repository outside the proposer input boundary."
       : "This source-differential expression transfer and finite owned C fixture do not demonstrate semantic patch synthesis or general behavioral equivalence.",
   };
   await Promise.all([
@@ -1277,11 +1478,31 @@ const feedback = approveRecommendedProbes
       const result = batch.value.normalized_result;
       assert.equal(result.state, "complete");
       assert.equal(result.probes.length, 2);
-      assert.ok(
-        result.probes.every(
-          ({ status, verification_status }) =>
-            status === "compared" && verification_status === "fail",
-        ),
+      const expectedVerificationStatuses = plan.probes.map(
+        ({ left_scenario, right_scenario }) => {
+          const leftOutput = execute(
+            left_scenario.executable,
+            left_scenario.arguments[0],
+            Number(left_scenario.arguments[1]),
+          );
+          const rightOutput = execute(
+            right_scenario.executable,
+            right_scenario.arguments[0],
+            Number(right_scenario.arguments[1]),
+          );
+          return leftOutput === rightOutput ? "pass" : "fail";
+        },
+      );
+      assert.deepEqual(
+        result.probes.map(({ status, verification_status }) => ({
+          status,
+          verification_status,
+        })),
+        expectedVerificationStatuses.map((verification_status) => ({
+          status: "compared",
+          verification_status,
+        })),
+        "Follow-up claim outcomes must match the captured process outputs",
       );
       assert.equal(
         result.evidence_bundle.records.length,
@@ -1355,8 +1576,10 @@ const summary = {
     (refineCandidate
       ? { state: "approval-required" }
       : { state: "not-requested" }),
-  limitation:
-    "The domain, half-unit probe rule, comparison Evidence, and dimensions included in the draft are human-selected. A terminal pass covers the selected captured scenario only; overall process behavior remains unknown when dimensions are unobserved.",
+  hypothesis_probe_plan_sha256: activeHypothesisPlan?.plan_sha256 ?? null,
+  limitation: activeHypothesisDiscrimination
+    ? "The expression grammar, uniform hypothesis prior, bounded domain, comparison dimension, and holdout cases are human-selected. The next input is ranked by expected information gain over this grammar; this does not establish correctness outside it."
+    : "The domain, half-unit probe rule, comparison Evidence, and dimensions included in the draft are human-selected. A terminal pass covers the selected captured scenario only; overall process behavior remains unknown when dimensions are unobserved.",
 };
 await writeFile(
   join(outputRoot, "summary.json"),

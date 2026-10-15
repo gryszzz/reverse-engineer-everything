@@ -66,9 +66,11 @@ jobs:
       - name: Verify source-blind bounded expression synthesis
         run: |
           node --test scripts/verify/reconstruction/black-box-expression-synthesis.test.mjs
-          node scripts/verify/reconstruction/c-process-probe.mjs "$RUNNER_TEMP/ree-blackbox-proposal" --approve-recommended-probes --refine-candidate --black-box-synthesis
-          proposal_digest="$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).proposal_sha256)' "$RUNNER_TEMP/ree-blackbox-proposal/candidate-refinement/candidate-patch-proposal.json")"
-          node scripts/verify/reconstruction/c-process-probe.mjs "$RUNNER_TEMP/ree-blackbox-approved" --approve-recommended-probes --refine-candidate --black-box-synthesis "--approve-proposed-patch=$proposal_digest"
+          node scripts/verify/reconstruction/c-process-probe.mjs "$RUNNER_TEMP/ree-hypothesis-plan" --approve-recommended-probes --refine-candidate --black-box-synthesis --active-hypothesis-discrimination
+          probe_digest="$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).plan_sha256)' "$RUNNER_TEMP/ree-hypothesis-plan/hypothesis-probe-plan.json")"
+          node scripts/verify/reconstruction/c-process-probe.mjs "$RUNNER_TEMP/ree-hypothesis-observed" --approve-recommended-probes --refine-candidate --black-box-synthesis --active-hypothesis-discrimination "--approve-hypothesis-probe=$probe_digest"
+          proposal_digest="$(node -e 'process.stdout.write(JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).proposal_sha256)' "$RUNNER_TEMP/ree-hypothesis-observed/candidate-refinement/candidate-patch-proposal.json")"
+          node scripts/verify/reconstruction/c-process-probe.mjs "$RUNNER_TEMP/ree-hypothesis-approved" --approve-recommended-probes --refine-candidate --black-box-synthesis --active-hypothesis-discrimination "--approve-hypothesis-probe=$probe_digest" "--approve-proposed-patch=$proposal_digest"
       - name: Verify a cross-language tax reconstruction probe loop
         run: node scripts/verify/reconstruction/cross-language-tax-probe.mjs --approve-recommended-probes
       - name: Verify real Mac-side REA MCP discovery

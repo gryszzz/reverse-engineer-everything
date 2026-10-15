@@ -23,6 +23,10 @@ import { PROCESS_PROVIDER } from "../domain/process/processEvidenceProvider.js";
 import { parseProcessCapture } from "../domain/process/processCaptureParsing.js";
 import { processTraceSpecificationSchema } from "../domain/process/processTraceSpecification.js";
 import {
+  comparableProcessObservationPayload,
+  comparableTerminalFrame,
+} from "../domain/process/processObservation.js";
+import {
   processScenarioCommitment,
   processScenarioSchema,
   type ProcessScenario,
@@ -46,6 +50,50 @@ import { err, ok, type Result } from "../domain/result.js";
 
 const OPERATION = "execute_reconstruction_probe_batch" as const;
 export const MAX_RECONSTRUCTION_PROCESS_PROBES = 4;
+
+/**
+ * A selected behavioral claim describes how to compare captures, while its
+ * exact values describe the original input. For a new probe, rebase terminal
+ * expectations on the freshly captured left (reference) process so the
+ * candidate is compared with the reference's result for this input.
+ */
+const rebaseTerminalTraceSpecification = (
+  specification: z.infer<typeof processTraceSpecificationSchema>,
+  reference: ReturnType<typeof parseProcessCapture>,
+): z.infer<typeof processTraceSpecificationSchema> => {
+  let rawIndex = 0;
+  let renderedIndex = 0;
+  return processTraceSpecificationSchema.parse({
+    ...specification,
+    events: specification.events.map((event) => {
+      if (event.source === "terminal_raw") {
+        const frame = reference.frames[rawIndex];
+        rawIndex += 1;
+        if (frame === undefined) return event;
+        return {
+          ...event,
+          exact: comparableProcessObservationPayload(
+            comparableTerminalFrame(frame),
+            event.ignore_fields,
+          ),
+        };
+      }
+      if (event.source === "terminal_rendered") {
+        const frame = reference.rendered_frames[renderedIndex];
+        renderedIndex += 1;
+        if (frame === undefined) return event;
+        return {
+          ...event,
+          exact: comparableProcessObservationPayload(
+            frame,
+            event.ignore_fields,
+          ),
+        };
+      }
+      return event;
+    }),
+  });
+};
 
 const probeSelectionSchema = z.strictObject({
   left_source_evidence_id: z.string().startsWith("ev_"),
@@ -401,12 +449,14 @@ export const executeApprovedReconstructionProcessProbeBatch = async (
       }
       const left = parseProcessCapture(leftCapture.normalized_result);
       const right = parseProcessCapture(rightCapture.normalized_result);
-      const comparisonResult =
+      const traceSpecification =
         probe.trace_specification === undefined
+          ? undefined
+          : rebaseTerminalTraceSpecification(probe.trace_specification, left);
+      const comparisonResult =
+        traceSpecification === undefined
           ? compareProcessCaptures(left, right)
-          : compareProcessCaptures(left, right, {
-              traceSpecification: probe.trace_specification,
-            });
+          : compareProcessCaptures(left, right, { traceSpecification });
       const comparison = createProcessComparisonEvidence(
         leftCapture,
         rightCapture,

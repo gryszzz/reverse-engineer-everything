@@ -250,10 +250,47 @@ general source recovery or proof of behavioral equivalence. The implementation
 of the reference remains present in this repository; source-blindness describes
 the proposer input boundary, not a secure isolation boundary.
 
-This experiment is limited to one argument variation, two process captures,
-and one comparison. Its approval record and new Evidence are saved alongside
-the original run. It does not provide a general-purpose approved probe
-executor for arbitrary targets.
+### Active hypothesis discrimination
+
+To let the same bounded grammar choose its next experiment, add
+`--active-hypothesis-discrimination`. The first run captures a matching control,
+retains the Evidence, ranks unobserved inputs by expected Shannon information
+gain under a uniform prior, and writes a plan without launching that probe:
+
+```sh
+node scripts/verify/reconstruction/c-process-probe.mjs /tmp/ree-hypothesis-plan --approve-recommended-probes --refine-candidate --black-box-synthesis --active-hypothesis-discrimination
+```
+
+Review `hypothesis-probe-plan.json`. The plan digest binds the reference and
+candidate source fingerprints for identity, seed observation, grammar, domain
+and selected input. The reference fingerprint is not passed to the ranker; the
+ranker receives only observations and the declared domain. A fresh run must
+present that digest before executing the proposed input:
+
+```sh
+node scripts/verify/reconstruction/c-process-probe.mjs /tmp/ree-hypothesis-observed --approve-recommended-probes --refine-candidate --black-box-synthesis --active-hypothesis-discrimination --approve-hypothesis-probe=<plan-sha256>
+```
+
+That run captures and compares the reference and candidate, removes hypotheses
+that disagree with the reference output, and writes a source patch proposal
+linked to the plan and comparison Evidence. Applying it requires a third fresh
+run with both the probe-plan digest and the patch-proposal digest:
+
+```sh
+node scripts/verify/reconstruction/c-process-probe.mjs /tmp/ree-hypothesis-verified --approve-recommended-probes --refine-candidate --black-box-synthesis --active-hypothesis-discrimination --approve-hypothesis-probe=<plan-sha256> --approve-proposed-patch=<proposal-sha256>
+```
+
+The existing holdout checks then evaluate the patched candidate. The planner abstains when
+the model is already unique, the grammar cannot explain the observations, or
+the bounded domain contains no discriminating input. Its prior, grammar and
+domain are explicit assumptions; an information-gain maximum only identifies
+the best query within those assumptions.
+
+The existing follow-up batch in this fixture permits two unique probes per
+batch (four process captures and two comparisons) and does not retry after a
+capture failure. Its approval record and Evidence are saved alongside the
+original run. It does not provide a general-purpose approved probe executor
+for arbitrary targets.
 
 The separate Python and Ruby tax fixture checks whether that workflow crosses
 implementation languages and executable wrappers. Both programs accept an
