@@ -778,10 +778,14 @@ const runCandidateRefinement = async (batchEvidence) => {
       },
     ];
     const synthesis = synthesizeBlackBoxExpression(
-      observations.map(({ input, expected_stdout }) => ({
-        input,
-        expected_stdout,
-      })),
+      observations.map(
+        ({ id, input, expected_stdout, comparison_evidence_id }) => ({
+          id,
+          input,
+          expected_stdout,
+          comparison_evidence_id,
+        }),
+      ),
     );
     const candidateCall = findCallArguments(candidateText, "printf");
     if (synthesis.state !== "unique-fit-in-declared-grammar") {
@@ -806,6 +810,7 @@ const runCandidateRefinement = async (batchEvidence) => {
             synthesis.grammar?.map(({ id }) => id) ??
             []
           ).filter((id) => !synthesis.consistent_hypothesis_ids?.includes(id)),
+          contradictory_observation: synthesis.conflict ?? null,
         },
       };
     } else if (candidateCall === undefined) {
@@ -870,6 +875,7 @@ const runCandidateRefinement = async (batchEvidence) => {
             activeHypothesisPlan?.surviving_hypothesis_ids ??
             synthesis.grammar.map(({ id }) => id)
           ).filter((id) => !synthesis.consistent_hypothesis_ids.includes(id)),
+          contradictory_observation: null,
         },
         hypothesis_probe_plan_path: activeHypothesisPlan
           ? join(outputRoot, "hypothesis-probe-plan.json")

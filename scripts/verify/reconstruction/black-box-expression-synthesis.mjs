@@ -75,13 +75,45 @@ export const synthesizeBlackBoxExpression = (observations) => {
   if (validation.state !== "valid") return validation;
 
   const consistent = consistentHypotheses(observations);
-  if (consistent.length === 0)
+  if (consistent.length === 0) {
+    // Preserve the first point at which an observation eliminates every
+    // hypothesis that explained the preceding prefix. This is a diagnosis,
+    // not proof that the earlier model was correct or that the new capture is
+    // wrong: the declared grammar may simply be incomplete.
+    let conflict;
+    for (let index = 0; index < observations.length; index += 1) {
+      if (index === 0) continue;
+      const prior = consistentHypotheses(observations.slice(0, index));
+      if (
+        prior.length > 0 &&
+        consistentHypotheses(observations.slice(0, index + 1)).length === 0
+      ) {
+        const observation = observations[index];
+        conflict = {
+          observation_index: index,
+          ...(typeof observation.id === "string"
+            ? { observation_id: observation.id }
+            : {}),
+          ...(typeof observation.comparison_evidence_id === "string"
+            ? { comparison_evidence_id: observation.comparison_evidence_id }
+            : {}),
+          input: observation.input,
+          observed_stdout: observation.expected_stdout,
+          previously_consistent_hypothesis_ids: prior.map(({ id }) => id),
+          diagnosis:
+            "This observation eliminated every hypothesis that explained the preceding observations; the declared grammar may be inadequate.",
+        };
+        break;
+      }
+    }
     return {
       state: "no-consistent-hypothesis",
       hypotheses_examined: hypotheses.length,
       reason:
         "No expression in the declared arithmetic grammar explains all observations.",
+      ...(conflict === undefined ? {} : { conflict }),
     };
+  }
   if (consistent.length !== 1)
     return {
       state: "ambiguous",

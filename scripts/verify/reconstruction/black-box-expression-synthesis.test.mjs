@@ -45,6 +45,41 @@ test("the synthesizer refuses observations outside its grammar", () => {
   ]);
 
   assert.equal(result.state, "no-consistent-hypothesis");
+  assert.equal(result.conflict, undefined);
+});
+
+test("the synthesizer identifies an observation that removes all prior fits", () => {
+  const result = synthesizeBlackBoxExpression([
+    {
+      id: "seed",
+      input: { unit_price: 199, quantity: 3 },
+      expected_stdout: "597.00",
+    },
+    {
+      id: "discriminating-probe",
+      comparison_evidence_id: "comparison:probe-1",
+      input: { unit_price: 1.03, quantity: 1 },
+      expected_stdout: "1.03",
+    },
+    {
+      id: "contradictory-follow-up",
+      comparison_evidence_id: "comparison:probe-2",
+      input: { unit_price: 1.04, quantity: 1 },
+      expected_stdout: "2.00",
+    },
+  ]);
+
+  assert.equal(result.state, "no-consistent-hypothesis");
+  assert.deepEqual(result.conflict, {
+    observation_index: 2,
+    observation_id: "contradictory-follow-up",
+    comparison_evidence_id: "comparison:probe-2",
+    input: { unit_price: 1.04, quantity: 1 },
+    observed_stdout: "2.00",
+    previously_consistent_hypothesis_ids: ["direct-product"],
+    diagnosis:
+      "This observation eliminated every hypothesis that explained the preceding observations; the declared grammar may be inadequate.",
+  });
 });
 
 test("malformed or absent observations fail closed", () => {
