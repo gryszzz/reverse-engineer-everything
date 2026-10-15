@@ -14,7 +14,11 @@ import {
   type Evidence,
 } from "../domain/evidence.js";
 import { createEvidenceBundle } from "../domain/evidenceBundle.js";
-import { jsonObjectSchema, jsonValueSchema } from "../domain/jsonValue.js";
+import {
+  jsonObjectSchema,
+  jsonValueSchema,
+  type JsonValue,
+} from "../domain/jsonValue.js";
 import {
   compareProcessCaptures,
   processCaptureComparisonSchema,
@@ -47,6 +51,11 @@ import {
 import { RECONSTRUCTION_PROVIDER } from "./InvestigationProviders.js";
 import { requestInputError, workflowInputError } from "./workflowInputError.js";
 import { err, ok, type Result } from "../domain/result.js";
+import {
+  discriminateFiniteHypotheses,
+  updateFiniteHypotheses,
+  type FiniteHypothesisDiscriminationRequest,
+} from "../domain/finiteHypothesisDiscrimination.js";
 
 const OPERATION = "execute_reconstruction_probe_batch" as const;
 export const MAX_RECONSTRUCTION_PROCESS_PROBES = 4;
@@ -196,6 +205,293 @@ export interface ReconstructionProcessProbeBatchPorts {
   /** Capture one exact, already-approved process scenario. */
   readonly capture: (scenario: ProcessScenario) => Promise<Evidence>;
 }
+
+/** Explicit mapping from a JSON hypothesis input to one process argv slot. */
+const hypothesisArgumentMappingSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("string-argument"),
+    argument_index: z.number().int().nonnegative(),
+  }),
+  z.strictObject({
+    kind: z.literal("object-property-argument"),
+    property: z.string().min(1),
+    argument_index: z.number().int().nonnegative(),
+  }),
+]);
+
+export const finiteHypothesisProcessProbeRequestSchema = z.strictObject({
+  hypotheses: z.unknown(),
+  source_evidence_id: z.string().regex(/^ev_[a-f0-9]{64}$/u),
+  selected_input: jsonValueSchema,
+  argument_mapping: hypothesisArgumentMappingSchema,
+  outcome_json_pointer: z.string().startsWith("/"),
+  outcome_encoding: z.enum(["json-value", "json-text"]).default("json-value"),
+  max_probes: z.literal(1),
+});
+
+const finiteHypothesisProcessProbePlanSchema = z.strictObject({
+  version: z.literal(1),
+  request: finiteHypothesisProcessProbeRequestSchema,
+  hypotheses: z.unknown(),
+  scenario: processScenarioSchema,
+  executable_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  source_evidence_id: z.string().regex(/^ev_[a-f0-9]{64}$/u),
+  input: jsonValueSchema,
+  predicted_outcomes: z.array(
+    z.strictObject({ hypothesis_id: z.string(), outcome: jsonValueSchema }),
+  ),
+  execution_budget: z.strictObject({
+    process_captures: z.literal(1),
+    retries: z.literal(0),
+  }),
+  plan_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+});
+export type FiniteHypothesisProcessProbePlan = z.infer<
+  typeof finiteHypothesisProcessProbePlanSchema
+>;
+
+/** Prepare one bounded probe from a planner recommendation. JSON is mapped to argv only by an explicit scalar mapping. */
+export const prepareFiniteHypothesisProcessProbe = (
+  input: unknown,
+  sourceEvidence: Evidence,
+) => {
+  const parsed = finiteHypothesisProcessProbeRequestSchema.safeParse(input);
+  if (!parsed.success)
+    return err(requestInputError(OPERATION, parsed.error, input));
+  const hypotheses = parsed.data
+    .hypotheses as FiniteHypothesisDiscriminationRequest;
+  const recommendation = discriminateFiniteHypotheses(hypotheses);
+  if (recommendation.state !== "probe-recommended")
+    return err(
+      inputFailure(
+        "hypotheses",
+        `A finite-hypothesis probe is not available: ${recommendation.state}.`,
+      ),
+    );
+  if (
+    digest(recommendation.selected_probe.input) !==
+    digest(parsed.data.selected_input)
+  )
+    return err(
+      inputFailure(
+        "selected_input",
+        "The selected input must equal the planner's recommended input.",
+      ),
+    );
+  const source = parseEvidence(sourceEvidence);
+  if (
+    source.evidence_id !== parsed.data.source_evidence_id ||
+    source.operation !== "capture_process_scenario" ||
+    source.predicate_type !== "rea.process-capture"
+  )
+    return err(
+      inputFailure(
+        "source_evidence_id",
+        "The source must be the declared process-capture Evidence.",
+      ),
+    );
+  const capture = parseProcessCapture(source.normalized_result);
+  const index = parsed.data.argument_mapping.argument_index;
+  const rawScenario = { ...capture.manifest.scenario };
+  delete rawScenario["executable_sha256"];
+  const parsedScenario = processScenarioSchema.safeParse(rawScenario);
+  if (!parsedScenario.success)
+    return err(
+      inputFailure(
+        "source_evidence_id",
+        "The source process scenario is invalid.",
+      ),
+    );
+  const oldArgument = parsedScenario.data.arguments[index];
+  if (oldArgument === undefined)
+    return err(
+      inputFailure(
+        "argument_mapping",
+        "The mapped argv position does not exist in the source scenario.",
+      ),
+    );
+  const mappedValue = mappedHypothesisArgument(
+    parsed.data.selected_input,
+    parsed.data.argument_mapping,
+  );
+  if (mappedValue === undefined)
+    return err(
+      inputFailure(
+        "argument_mapping",
+        "The declared mapping must resolve to a string, number, or boolean.",
+      ),
+    );
+  const revised = sourceProcessScenario(
+    source,
+    source.evidence_id,
+    index,
+    oldArgument,
+    mappedValue,
+  );
+  if (!revised.ok) return revised;
+  const scenario = revised.value.scenario;
+  const planBody = {
+    version: 1 as const,
+    request: parsed.data,
+    hypotheses,
+    scenario,
+    executable_sha256: revised.value.executable_sha256,
+    source_evidence_id: source.evidence_id,
+    input: parsed.data.selected_input,
+    predicted_outcomes: recommendation.selected_probe.predictions.map(
+      ({ hypothesis_id, outcome }) => ({ hypothesis_id, outcome }),
+    ),
+    execution_budget: { process_captures: 1 as const, retries: 0 as const },
+  };
+  const plan = finiteHypothesisProcessProbePlanSchema.parse({
+    ...planBody,
+    plan_sha256: digest(planBody),
+  });
+  return ok(plan);
+};
+
+/** Execute only a digest-approved one-capture plan through the existing process ports, then reassess hypotheses from the captured Evidence. */
+export const executeApprovedFiniteHypothesisProcessProbe = async (
+  planInput: unknown,
+  approval: string,
+  ports: ReconstructionProcessProbeBatchPorts,
+) => {
+  const parsed = finiteHypothesisProcessProbePlanSchema.safeParse(planInput);
+  if (!parsed.success)
+    return err(requestInputError(OPERATION, parsed.error, planInput));
+  const { plan_sha256: planHash, ...body } = parsed.data;
+  if (digest(body) !== planHash || approval !== planHash)
+    return err(
+      inputFailure(
+        "approved_plan_sha256",
+        "Approval must match the exact finite-hypothesis probe plan.",
+      ),
+    );
+  const target = {
+    executable: parsed.data.scenario.executable,
+    expected_sha256: parsed.data.executable_sha256,
+    source_evidence_id: parsed.data.source_evidence_id,
+  };
+  try {
+    if (!(await ports.validateTarget(target)))
+      return err(
+        inputFailure(
+          "plan_sha256",
+          "Executable identity changed; no probe was executed.",
+        ),
+      );
+    const captured = parseEvidence(await ports.capture(parsed.data.scenario));
+    validateCapturedTarget(
+      captured,
+      parsed.data.scenario,
+      parsed.data.executable_sha256,
+    );
+    const selectedOutcome = jsonPointer(
+      captured.normalized_result,
+      parsed.data.request.outcome_json_pointer,
+    );
+    if (selectedOutcome === undefined)
+      return err(
+        inputFailure(
+          "outcome_json_pointer",
+          "The declared output path is absent from the captured process Evidence.",
+        ),
+      );
+    const outcome =
+      parsed.data.request.outcome_encoding === "json-text"
+        ? parseJsonText(selectedOutcome)
+        : selectedOutcome;
+    if (outcome === undefined)
+      return err(
+        inputFailure(
+          "outcome_encoding",
+          "The selected output is not valid JSON text.",
+        ),
+      );
+    const updated = updateFiniteHypotheses(parsed.data.hypotheses, {
+      input: parsed.data.input,
+      outcome,
+      evidence_ids: [captured.evidence_id],
+    });
+    const evidence = createEvidence(undefined, RECONSTRUCTION_PROVIDER, {
+      predicateType: "rea.reconstruction-finite-hypothesis-probe",
+      operation: OPERATION,
+      parameters: jsonObjectSchema.parse({
+        plan_sha256: planHash,
+        approved_plan_sha256: approval,
+        source_evidence_id: parsed.data.source_evidence_id,
+        input: parsed.data.input,
+      }),
+      result: jsonValueSchema.parse({
+        plan_sha256: planHash,
+        input: parsed.data.input,
+        observed_outcome: outcome,
+        surviving_hypotheses: updated,
+        capture_evidence_id: captured.evidence_id,
+        partial: false,
+      }),
+      confidence: "derived",
+      authority: "analyst-inference",
+      limitations: [
+        "One approved input was captured with zero retries; hypothesis conclusions apply only within the caller-declared finite model and observed evidence.",
+      ],
+      evidenceLinks: [parsed.data.source_evidence_id, captured.evidence_id],
+    });
+    return ok(evidence);
+  } catch (cause: unknown) {
+    return err(
+      inputFailure(
+        "plan_sha256",
+        `Approved finite-hypothesis probe failed: ${safeError(cause)}`,
+      ),
+    );
+  }
+};
+
+const mappedHypothesisArgument = (
+  input: JsonValue,
+  mapping: z.infer<typeof hypothesisArgumentMappingSchema>,
+): string | undefined => {
+  const value =
+    mapping.kind === "string-argument"
+      ? input
+      : typeof input === "object" && input !== null && !Array.isArray(input)
+        ? input[mapping.property]
+        : undefined;
+  return typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+    ? String(value)
+    : undefined;
+};
+const jsonPointer = (
+  value: unknown,
+  pointer: string,
+): JsonValue | undefined => {
+  let current: unknown = value;
+  for (const raw of pointer.slice(1).split("/")) {
+    const key = raw.replaceAll("~1", "/").replaceAll("~0", "~");
+    if (
+      typeof current !== "object" ||
+      current === null ||
+      !Object.hasOwn(current, key)
+    )
+      return undefined;
+    current = Reflect.get(current, key);
+  }
+  const parsed = jsonValueSchema.safeParse(current);
+  return parsed.success ? parsed.data : undefined;
+};
+
+const parseJsonText = (value: JsonValue): JsonValue | undefined => {
+  if (typeof value !== "string") return undefined;
+  try {
+    const parsed = jsonValueSchema.safeParse(JSON.parse(value));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 /** Derive a deterministic, exact-plan digest from current verifier recommendations. */
 export const prepareReconstructionProcessProbeBatch = (
