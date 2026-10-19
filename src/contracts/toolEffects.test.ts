@@ -66,6 +66,7 @@ const EXECUTION_WORDING_EXCEPTIONS: Readonly<Record<string, string>> = {
   observe_javascript_runtime: "never evaluates or resumes the target",
   trace_application_feature: "never executes the application",
   trace_javascript_semantics: "static reachability never claims execution",
+  discriminate_finite_hypotheses: "states it does not execute targets",
   compare_javascript_export_shapes: "states it does not execute JavaScript",
   project_android_application_graph: "execution-free inventory",
   project_apple_application_graph: "execution-free inventory",

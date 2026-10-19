@@ -278,76 +278,84 @@ export const prepareFiniteHypothesisProcessProbe = (
         "The selected input must equal the planner's recommended input.",
       ),
     );
-  const source = parseEvidence(sourceEvidence);
-  if (
-    source.evidence_id !== parsed.data.source_evidence_id ||
-    source.operation !== "capture_process_scenario" ||
-    source.predicate_type !== "rea.process-capture"
-  )
-    return err(
-      inputFailure(
-        "source_evidence_id",
-        "The source must be the declared process-capture Evidence.",
-      ),
+  try {
+    const source = parseEvidence(sourceEvidence);
+    if (
+      source.evidence_id !== parsed.data.source_evidence_id ||
+      source.operation !== "capture_process_scenario" ||
+      source.predicate_type !== "rea.process-capture"
+    )
+      return err(
+        inputFailure(
+          "source_evidence_id",
+          "The source must be the declared process-capture Evidence.",
+        ),
+      );
+    const capture = parseProcessCapture(source.normalized_result);
+    const index = parsed.data.argument_mapping.argument_index;
+    const rawScenario = { ...capture.manifest.scenario };
+    delete rawScenario["executable_sha256"];
+    const parsedScenario = processScenarioSchema.safeParse(rawScenario);
+    if (!parsedScenario.success)
+      return err(
+        inputFailure(
+          "source_evidence_id",
+          "The source process scenario is invalid.",
+        ),
+      );
+    const oldArgument = parsedScenario.data.arguments[index];
+    if (oldArgument === undefined)
+      return err(
+        inputFailure(
+          "argument_mapping",
+          "The mapped argv position does not exist in the source scenario.",
+        ),
+      );
+    const mappedValue = mappedHypothesisArgument(
+      parsed.data.selected_input,
+      parsed.data.argument_mapping,
     );
-  const capture = parseProcessCapture(source.normalized_result);
-  const index = parsed.data.argument_mapping.argument_index;
-  const rawScenario = { ...capture.manifest.scenario };
-  delete rawScenario["executable_sha256"];
-  const parsedScenario = processScenarioSchema.safeParse(rawScenario);
-  if (!parsedScenario.success)
-    return err(
-      inputFailure(
-        "source_evidence_id",
-        "The source process scenario is invalid.",
-      ),
+    if (mappedValue === undefined)
+      return err(
+        inputFailure(
+          "argument_mapping",
+          "The declared mapping must resolve to a string, number, or boolean.",
+        ),
+      );
+    const revised = sourceProcessScenario(
+      source,
+      source.evidence_id,
+      index,
+      oldArgument,
+      mappedValue,
     );
-  const oldArgument = parsedScenario.data.arguments[index];
-  if (oldArgument === undefined)
-    return err(
-      inputFailure(
-        "argument_mapping",
-        "The mapped argv position does not exist in the source scenario.",
+    if (!revised.ok) return revised;
+    const scenario = revised.value.scenario;
+    const planBody = {
+      version: 1 as const,
+      request: parsed.data,
+      hypotheses,
+      scenario,
+      executable_sha256: revised.value.executable_sha256,
+      source_evidence_id: source.evidence_id,
+      input: parsed.data.selected_input,
+      predicted_outcomes: recommendation.selected_probe.predictions.map(
+        ({ hypothesis_id, outcome }) => ({ hypothesis_id, outcome }),
       ),
-    );
-  const mappedValue = mappedHypothesisArgument(
-    parsed.data.selected_input,
-    parsed.data.argument_mapping,
-  );
-  if (mappedValue === undefined)
+      execution_budget: { process_captures: 1 as const, retries: 0 as const },
+    };
+    const plan = finiteHypothesisProcessProbePlanSchema.parse({
+      ...planBody,
+      plan_sha256: digest(planBody),
+    });
+    return ok(plan);
+  } catch (cause: unknown) {
     return err(
-      inputFailure(
-        "argument_mapping",
-        "The declared mapping must resolve to a string, number, or boolean.",
-      ),
+      cause instanceof TypeError || cause instanceof z.ZodError
+        ? workflowInputError(OPERATION, cause)
+        : new AnalysisInputError(OPERATION, { cause }),
     );
-  const revised = sourceProcessScenario(
-    source,
-    source.evidence_id,
-    index,
-    oldArgument,
-    mappedValue,
-  );
-  if (!revised.ok) return revised;
-  const scenario = revised.value.scenario;
-  const planBody = {
-    version: 1 as const,
-    request: parsed.data,
-    hypotheses,
-    scenario,
-    executable_sha256: revised.value.executable_sha256,
-    source_evidence_id: source.evidence_id,
-    input: parsed.data.selected_input,
-    predicted_outcomes: recommendation.selected_probe.predictions.map(
-      ({ hypothesis_id, outcome }) => ({ hypothesis_id, outcome }),
-    ),
-    execution_budget: { process_captures: 1 as const, retries: 0 as const },
-  };
-  const plan = finiteHypothesisProcessProbePlanSchema.parse({
-    ...planBody,
-    plan_sha256: digest(planBody),
-  });
-  return ok(plan);
+  }
 };
 
 /** Execute only a digest-approved one-capture plan through the existing process ports, then reassess hypotheses from the captured Evidence. */
@@ -381,7 +389,7 @@ export const executeApprovedFiniteHypothesisProcessProbe = async (
         ),
       );
     const captured = parseEvidence(await ports.capture(parsed.data.scenario));
-    validateCapturedTarget(
+    const capture = validateCapturedTarget(
       captured,
       parsed.data.scenario,
       parsed.data.executable_sha256,
@@ -428,11 +436,13 @@ export const executeApprovedFiniteHypothesisProcessProbe = async (
         observed_outcome: outcome,
         surviving_hypotheses: updated,
         capture_evidence_id: captured.evidence_id,
-        partial: false,
+        partial: capture.truncated,
+        capture_residual_unknowns: capture.residual_unknowns,
       }),
       confidence: "derived",
       authority: "analyst-inference",
       limitations: [
+        ...captured.limitations,
         "One approved input was captured with zero retries; hypothesis conclusions apply only within the caller-declared finite model and observed evidence.",
       ],
       evidenceLinks: [parsed.data.source_evidence_id, captured.evidence_id],
@@ -1028,7 +1038,7 @@ const validateCapturedTarget = (
   evidenceInput: Evidence,
   expectedScenario: ProcessScenario,
   expectedSha256: string,
-): void => {
+): ReturnType<typeof parseProcessCapture> => {
   const evidence = parseEvidence(evidenceInput);
   if (
     evidence.operation !== "capture_process_scenario" ||
@@ -1052,6 +1062,7 @@ const validateCapturedTarget = (
     throw new TypeError(
       "Captured scenario differs from the approved process probe plan",
     );
+  return capture;
 };
 
 const createProcessComparisonEvidence = (

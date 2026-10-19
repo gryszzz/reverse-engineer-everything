@@ -668,6 +668,7 @@ export const TOOL_EFFECTS: Readonly<Record<string, ToolEffects>> = {
   build_reconstruction_obligation_ledger: evidence,
   derive_reconstruction_specification: evidence,
   evaluate_reconstruction_coverage: effects(),
+  discriminate_finite_hypotheses: effects(),
   project_android_application_graph: evidence,
   project_apple_application_graph: evidence,
   project_harmony_application_graph: evidence,

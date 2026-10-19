@@ -150,6 +150,7 @@ export const CLI_COMMANDS = Object.freeze({
   compareJavaScriptExportShapes: "compare-javascript-export-shapes",
   buildReconstructionObligationLedger: "build-reconstruction-obligation-ledger",
   verifyReconstruction: "verify-reconstruction",
+  discriminateFiniteHypotheses: "discriminate-finite-hypotheses",
   deriveReconstructionSpecification: "derive-reconstruction-specification",
   evaluateReconstructionCoverage: "evaluate-reconstruction-coverage",
   projectAndroidApplicationGraph: "project-android-application-graph",
@@ -184,6 +185,7 @@ export const CLI_COMMAND_TOOL_ALIASES = Object.freeze({
   "list-frida-devices": ["list_frida_devices"],
   "list-frida-processes": ["list_frida_processes"],
   "instrument-with-frida": ["instrument_with_frida"],
+  "discriminate-finite-hypotheses": ["discriminate_finite_hypotheses"],
   "verify-reconstruction": ["verify_reconstruction"],
   "derive-reconstruction-specification": [
     "derive_reconstruction_specification",

@@ -119,6 +119,62 @@ tools. Provider-specific target support is described in the
 [raw binary guide](raw-binary.md), and
 [Windows Ghidra guide](windows-ghidra-p0.md).
 
+## Select a finite hypothesis probe
+
+Use `rea discriminate-finite-hypotheses hypotheses.json --json` (MCP:
+`discriminate_finite_hypotheses`) to rank caller-supplied candidate inputs by
+expected information gain. The request contains `hypotheses` with prediction
+tables, `observations` with `input`, `outcome`, and `evidence_ids`, and
+`candidate_inputs`. Predictions must cover the observed and candidate inputs.
+
+```json
+{
+  "hypotheses": [
+    {
+      "id": "identity",
+      "predictions": [
+        { "input": 0, "outcome": 0 },
+        { "input": 1, "outcome": 1 }
+      ]
+    },
+    {
+      "id": "double",
+      "predictions": [
+        { "input": 0, "outcome": 0 },
+        { "input": 1, "outcome": 2 }
+      ]
+    }
+  ],
+  "observations": [
+    {
+      "input": 0,
+      "outcome": 0,
+      "evidence_ids": [
+        "ev_<64 hexadecimal characters from your capture Evidence ID>"
+      ]
+    }
+  ],
+  "candidate_inputs": [1]
+}
+```
+
+The result's `assessment` reports a recommended input, a unique surviving
+hypothesis within the model, contradictions, or why no useful probe is available.
+The planner is pure: predictions and observations remain caller assertions;
+Evidence IDs are links, not authenticated records or proof of behavior.
+
+Capture an explicitly selected authorized scenario using the existing
+`capture-process` command or `capture_process_scenario` MCP tool. Choose the
+argument mapping and observed outcome explicitly, append the observation with
+its capture Evidence ID, and call the planner again. The planner never launches
+the scenario. Its plan digest identifies the finite ranking decision; it does
+not authorize process execution. The internal process-probe service uses a
+separate exact execution-plan digest and executable identity check.
+
+The process-probe service preserves capture truncation, limitations, and residual
+unknowns in its derived Evidence. A surviving hypothesis explains only the
+selected observations within the declared finite model.
+
 ## Draft and verify a reconstruction specification
 
 Draft typed claims from exact comparison Evidence IDs and dimensions. The

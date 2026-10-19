@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { finiteHypothesisResultSchema } from "./finiteHypothesisResultSchema.js";
 import { digestCanonicalValue } from "./canonicalDigest.js";
 import { compareUnicodeCodePoints } from "./unicodeCodePointOrder.js";
 import { jsonValueSchema, type JsonValue } from "./jsonValue.js";
@@ -39,59 +40,9 @@ export type FiniteHypothesisDiscriminationRequest = z.infer<
 type Request = FiniteHypothesisDiscriminationRequest;
 type Prediction = z.infer<typeof predictionSchema>;
 
-export type FiniteHypothesisDiscriminationResult =
-  | {
-      readonly state: "invalid-contract";
-      readonly reason: string;
-    }
-  | {
-      readonly state: "insufficient-predictions";
-      readonly reason: string;
-    }
-  | {
-      readonly state: "no-consistent-hypothesis";
-      readonly surviving_hypothesis_ids: readonly [];
-      readonly conflicting_observation_index?: number;
-      readonly evidence_ids: readonly string[];
-      readonly reason: string;
-    }
-  | {
-      readonly state: "insufficient-evidence";
-      readonly surviving_hypothesis_ids: readonly string[];
-      readonly reason: string;
-    }
-  | {
-      readonly state: "already-unique-within-model";
-      readonly surviving_hypothesis_ids: readonly [string];
-      readonly reason: string;
-    }
-  | {
-      readonly state: "no-discriminating-input-in-domain";
-      readonly surviving_hypothesis_ids: readonly string[];
-      readonly examined_input_count: number;
-      readonly reason: string;
-    }
-  | {
-      readonly state: "probe-recommended";
-      readonly surviving_hypothesis_ids: readonly string[];
-      readonly examined_input_count: number;
-      readonly selected_probe: {
-        readonly input: JsonValue;
-        readonly information_gain_bits: number;
-        readonly distinct_predicted_outcomes: number;
-        readonly predictions: readonly {
-          readonly hypothesis_id: string;
-          readonly outcome: JsonValue;
-        }[];
-      };
-      readonly scoring: {
-        readonly prior: "uniform-over-surviving-hypotheses";
-        readonly measure: "shannon-entropy-reduction-bits";
-        readonly tie_break: "more-outcomes-then-canonical-input-digest";
-      };
-      readonly plan_sha256: string;
-      readonly reason: string;
-    };
+export type FiniteHypothesisDiscriminationResult = z.infer<
+  typeof finiteHypothesisResultSchema
+>;
 
 const inputKey = (input: JsonValue): string => digestCanonicalValue(input);
 const outcomeKey = (outcome: JsonValue): string =>

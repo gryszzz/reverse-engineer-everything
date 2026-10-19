@@ -1,3 +1,4 @@
+import { registerFiniteHypothesisTool } from "./registerApplicationTools/finiteHypotheses.js";
 import type { EvidenceMcpServer } from "./EvidenceMcpServer.js";
 
 import { registerTraceFeatureTool } from "./registerApplicationTools/traceFeature.js";
@@ -24,5 +25,6 @@ export const registerApplicationTools = (
   registerReconstructionObligationLedgerTool(server, options);
   registerReconstructionSpecificationTool(server, options);
   registerCoverageTools(server, options);
+  registerFiniteHypothesisTool(server, options);
   registerProjectMobileApplicationGraphTools(server, options);
 };

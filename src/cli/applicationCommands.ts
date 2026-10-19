@@ -1,3 +1,4 @@
+import { finiteHypothesisDiscriminationRequestSchema } from "../domain/finiteHypothesisDiscrimination.js";
 import { reconstructionCoverageEvaluationInputSchema } from "../domain/reconstructionCoverageInput.js";
 import { Cli, z } from "incur";
 
@@ -97,6 +98,19 @@ export const registerApplicationCommands = (
   registerReconstructionVerificationCommand(cli, logger);
   registerReconstructionSpecificationCommand(cli, logger);
   registerCoverageCommand(cli, logger);
+  registerJsonCommand({
+    cli,
+    logger,
+    name: CLI_COMMANDS.discriminateFiniteHypotheses,
+    description:
+      "Select discriminating inputs within caller-declared finite hypotheses without target execution",
+    inputSchema: finiteHypothesisDiscriminationRequestSchema,
+    workflow: async (input) => {
+      const { assessFiniteHypotheses } =
+        await import("../application/FiniteHypothesisService.js");
+      return assessFiniteHypotheses(input);
+    },
+  });
   registerJsonCommand({
     cli,
     logger,

@@ -1,3 +1,5 @@
+import { finiteHypothesisDiscriminationRequestSchema } from "../domain/finiteHypothesisDiscrimination.js";
+import { finiteHypothesisAssessmentSchema } from "../domain/finiteHypothesisResultSchema.js";
 import { applicationVersionComparisonResultSchema } from "../domain/javascript/javascriptApplicationVersionComparisonSchemas.js";
 import { applicationFeatureTraceResultSchema } from "../domain/javascript/javascriptFeatureTraceSchemas.js";
 import { javaScriptSemanticTraceResultSchema } from "../domain/javascript/javascriptSemanticTraceSchemas.js";
@@ -334,6 +336,42 @@ export const APPLICATION_TOOL_CONTRACTS = [
     outputSchema: reconstructionSpecificationDraftOutputSchema,
     examples: [],
   },
+  {
+    name: "discriminate_finite_hypotheses",
+    ...toolContractMetadata("discriminate_finite_hypotheses"),
+    description:
+      "Rank caller-supplied candidate inputs by information gain among declared finite hypotheses, or reassess after appending observations linked to Evidence IDs. Does not execute targets, invent predictions, authenticate caller assertions, or prove equivalence outside the declared model. Use capture_process_scenario for runtime observations.",
+    kind: "application",
+    inputSchema: finiteHypothesisDiscriminationRequestSchema,
+    outputSchema: finiteHypothesisAssessmentSchema,
+    examples: [
+      {
+        title: "Distinguish two caller-declared numeric rules",
+        input: {
+          hypotheses: [
+            {
+              id: "identity",
+              predictions: [
+                { input: 0, outcome: 0 },
+                { input: 1, outcome: 1 },
+              ],
+            },
+            {
+              id: "double",
+              predictions: [
+                { input: 0, outcome: 0 },
+                { input: 1, outcome: 2 },
+              ],
+            },
+          ],
+          observations: [
+            { input: 0, outcome: 0, evidence_ids: [`ev_${HASH}`] },
+          ],
+          candidate_inputs: [1],
+        },
+      },
+    ],
+  },
 ] as const satisfies readonly ToolContract[];
 
 /** Resolve one named application contract without relying on array position. */
@@ -370,6 +408,9 @@ export function applicationToolContract(
 export function applicationToolContract(
   name: "derive_reconstruction_specification",
 ): (typeof APPLICATION_TOOL_CONTRACTS)[10];
+export function applicationToolContract(
+  name: "discriminate_finite_hypotheses",
+): (typeof APPLICATION_TOOL_CONTRACTS)[11];
 export function applicationToolContract(
   name: (typeof APPLICATION_TOOL_CONTRACTS)[number]["name"],
 ): (typeof APPLICATION_TOOL_CONTRACTS)[number] {
