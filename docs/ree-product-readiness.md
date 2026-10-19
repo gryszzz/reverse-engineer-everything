@@ -48,7 +48,7 @@ release qualification.
 These checks do not establish external native-provider readiness, macOS/Windows
 operation, complete reconstruction, or a passing full CI matrix. The planner
 surface is implemented locally; an automatic guided investigation is still a
-proposed product milestone. Changes have not been pushed as part of this work.
+proposed product milestone. This snapshot records local verification; consult GitHub Actions for subsequent remote checks.
 
 ## First usable release
 

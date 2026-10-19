@@ -2,43 +2,64 @@
 
 # REE
 
-### Preserve the intelligence. Expand the possibilities.
+### Reverse Engineering Everything
 
-**Reverse Engineering Everything**
+**Preserve the intelligence. Expand the possibilities.**
 
-A local investigation workbench built on the full REA analysis engine: native and managed binaries, apps, Android, firmware, runtime observations, and more.
+A local investigation workbench for software structure, runtime behavior, and evidence.
+Built on the REA engine, with a simpler entry point and its full analysis foundation retained.
 
-[Start here](#start-here) · [How the system fits together](#from-artifact-to-claim) · [Choose an investigation path](#choose-a-path) · [Explore the engine](#under-the-surface) · [Use with Codex](#connect-codex)
+[![CI](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/ci.yml)
+[![macOS smoke](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/rel-macos-smoke.yml/badge.svg?branch=main)](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/rel-macos-smoke.yml)
+[![Node.js pinned version](https://img.shields.io/badge/Node.js-24.18.0-339933?style=flat-square&logo=nodedotjs&logoColor=white)](.nvmrc)
+[![Interface](https://img.shields.io/badge/interfaces-CLI%20%2B%20MCP-58a6ff?style=flat-square)](#cli-and-mcp)
+[![License: MIT](https://img.shields.io/badge/license-MIT-56e0bd?style=flat-square)](LICENSE)
+
+[Get started](#get-started) · [Capabilities](#capability-map) · [Architecture](#architecture) · [Evidence](#the-evidence-model) · [Codex](#connect-codex) · [Readiness](#status-and-readiness)
+
+<img src="docs/assets/ree-system-map.svg" alt="REE system map: software artifacts enter selected REA analysis routes, produce provenance-rich Evidence, and support tracing, comparison, runtime reconciliation, and bounded reconstruction verification." width="1200" />
 
 </div>
 
----
+## What REE gives you
 
-REE gives the REA analysis engine a deliberate front door and an evidence-centered workflow. **REE** is this project's identity, onboarding, and beginner CLI. **REA** is the inherited analysis engine and MCP server. The Mac-first entry point adds a more approachable way into the system; it does not narrow the engine's capabilities or replace its mature workflows. The repository preserves that foundation, its licensing, and its attribution while building on it.
+REE brings a broad reverse-engineering engine into an evidence-centered investigation workflow. Start with an artifact and a question, select an appropriate analysis route, inspect the findings, and retain what supports each conclusion.
 
-The aim is disciplined understanding: identify the artifact, choose an analysis route that fits it, retain where each result came from, and keep conclusions within the evidence collected. No single provider or reconstruction check explains every system.
+| You want to…                     | REE / REA provides                                                                                                   |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Understand an application        | Static module graphs, imports, entry points, feature traces, source locations, and provider-specific code inspection |
+| Inspect compiled software        | Native function inventories, disassembly, decompilation, references, types, and specialist artifact readers          |
+| Follow behavior across layers    | Static and supplied runtime Evidence, browser/Electron observations, managed/native boundaries, and process captures |
+| Explain a change                 | Version, artifact, function, source-to-bundle, and selected behavioral comparisons                                   |
+| Test an explanation              | Finite hypothesis selection, controlled experiments, reconstruction obligations, and scoped verification             |
+| Keep an investigation reviewable | Identified Evidence records, coverage, limitations, unknowns, selected views, and portable bundles                   |
 
-![REE system map: diverse software artifacts enter selected REA analysis routes, produce provenance-rich Evidence, and support tracing, comparison, runtime reconciliation, and bounded reconstruction checks.](docs/assets/ree-system-map.svg)
+**REE** is this independent project's identity, beginner CLI, and onboarding. **REA** is the inherited analysis engine and MCP server. The Mac-first front door complements the existing engine, including its Linux and Windows workflows, provider families, and advanced tools.
 
-## Start here
+The current beginner `analyze` command runs static JavaScript/Electron analysis. Other artifact families use their existing REA CLI/MCP routes and matching prerequisites. REE is developed from this source checkout; the upstream `rea-agents` npm package is a separate distribution.
 
-On macOS, the quickest first look is a small, fictional lesson served on your machine. It needs no REA build and does not inspect another application. The underlying engine also has platform-specific Linux and Windows workflows.
+## Get started
+
+### 1. Open the workbench
+
+Clone this repository, then use the pinned toolchain: **Node 24.18.0** and **npm 11.16.0**. The commands below assume those versions are already available; `nvm use` selects the repository's Node version when using nvm. The quick-start shell examples use macOS/Linux syntax; Windows workflows are documented in the matching provider guides.
 
 ```sh
+git clone https://github.com/gryszzz/reverse-engineer-everything.git
+cd reverse-engineer-everything
+nvm use
+
 node ree.mjs doctor
 node ree.mjs lab --open
 ```
 
-`doctor` reports host and toolchain readiness without installing software. The visual lesson explains a sample relationship graph; it is not a live analyzer dashboard.
+`doctor` reports selected host and toolchain facts without installing software. `lab` opens a fictional, local teaching exercise; it needs no REA build. It explains analysis relationships and is separate from live target analysis.
 
-On macOS, you can also open [`Start-REE.command`](Start-REE.command) from Finder. Keep its Terminal window open while the lesson runs; press Control+C to stop it. If macOS blocks the unsigned launcher, run `zsh ./Start-REE.command` from the checkout.
+On macOS, [`Start-REE.command`](Start-REE.command) also opens the lesson from Finder. Keep its Terminal window open while the lesson runs. If macOS blocks the unsigned launcher, use `zsh ./Start-REE.command` from the checkout.
 
-### Build REA and run the owned example
-
-The checkout pins Node `24.18.0` in `.nvmrc` and npm `11.16.0` in `package.json`. With the pinned Node version already installed, use it and build the local analyzer:
+### 2. Build and run the owned example
 
 ```sh
-nvm use
 npm ci
 npm run build:cached
 
@@ -47,143 +68,258 @@ node ree.mjs demo --run --out "$OUT"
 cat "$OUT/REE_EVIDENCE_REPORT.md"
 ```
 
-This runs static analysis on REE's own source-controlled example. It saves the full `evidence.json` plus a selected view, summary, and readable report outside the checkout. The command uses the locally built REA engine; it does not analyze or launch a third-party target.
+This analyzes the repository's own JavaScript example and runs its owned lesson checks. It retains the complete analysis plus a smaller summary and a readable report. The separate [C investigation example](#from-a-hypothesis-to-an-experiment) explores bounded behavioral reconstruction.
 
-For a source tree or Electron ASAR you are authorized to inspect, start with a preview and then explicitly select the static analysis route:
+### 3. Inspect your application
+
+For a JavaScript/TypeScript source directory, an extracted Electron application, or an Electron ASAR you are authorized to inspect:
 
 ```sh
 node ree.mjs inspect /absolute/path/to/app
+
 OUT="$(mktemp -d)/ree-investigation"
 node ree.mjs analyze /absolute/path/to/app \
   --authorized \
   --out "$OUT" \
   --question "How does the settings screen load and persist preferences?"
+
+cat "$OUT/REE_EVIDENCE_REPORT.md"
 ```
 
-This REE route reads source and package files as data. It does not execute the supplied application. The output directory must be new and outside both the checkout and target. Source selection is bounded; unselected files and unresolved relationships remain unknown.
+This route parses source and package files as data. The application is not launched. The question is saved as investigation context; the command produces a static graph and report for you or your agent to investigate, rather than automatically answering arbitrary questions.
 
-## From artifact to claim
+Choose a **new output directory** outside both the target and this checkout, with an existing parent. Source selection is bounded: unselected files, dynamic behavior, and unresolved relationships remain explicit unknowns.
 
-The investigation record is the connecting tissue. It retains artifact identity, the analysis operation and provider, observations and derivations, confidence, authority, source locations, relationship coverage, limitations, and links to related Evidence. Summaries and selected views point back to that record rather than replacing it.
+<details>
+<summary><strong>What is saved, and how do I explore it?</strong></summary>
 
-The same Evidence can support different questions: trace a feature across modules, compare two versions, reconcile static structure with supplied runtime observations, or record a reconstruction obligation and compare a candidate against selected cases. These are existing engine workflows, not one automatic end-to-end REE command.
+| File                     | Purpose                                                                    |
+| ------------------------ | -------------------------------------------------------------------------- |
+| `REE_EVIDENCE_REPORT.md` | Readable entry point with coverage, limitations, and investigation context |
+| `summary.json`           | Graph identities, counts, coverage, unknowns, and run metadata             |
+| `view-evidence.json`     | Engine-produced summary linked to the parent Evidence                      |
+| `evidence.json`          | Complete retained analysis record for deeper inspection                    |
 
-### Keep the strength of a claim visible
+Browse recorded JavaScript relationships with the existing Evidence Explorer:
 
-| Label        | Meaning                                                           |
-| ------------ | ----------------------------------------------------------------- |
-| **Observed** | Present in the supplied artifact or captured event.               |
-| **Derived**  | Produced by a parser or an explicit relationship rule.            |
-| **Inferred** | A conclusion supported by observations but not directly observed. |
-| **Unknown**  | Unselected, unsupported, ambiguous, truncated, or unobserved.     |
+```sh
+node rel/evidence-explorer.mjs "$OUT/evidence.json" --limit 12
+node rel/evidence-explorer.mjs "$OUT/evidence.json" --find settings --json
+node rel/evidence-explorer.mjs "$OUT/evidence.json" --dot
+```
 
-A static import edge does not prove a module executed. A matching output for selected cases verifies only that comparison dimension for those cases; it does not establish universal behavioral equivalence. Human judgment still chooses hypotheses, cases, and the boundary a result supports.
+The explorer is a local CLI projection over saved application graphs, with a 64 MiB input limit. It preserves source links and uncertainty; it does not independently revalidate Evidence digests. For larger records, start with the report or the engine's bounded analysis views. See [Evidence Explorer](rel/EVIDENCE_EXPLORER.md).
 
-## Choose a path
+</details>
 
-| Question or artifact                                             | Where to begin                                                  | Boundary                                                                                    |
-| ---------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Learn how an analysis graph works                                | `node ree.mjs lab --open`                                       | Fictional teaching data; no target analysis.                                                |
-| Preview an artifact or available workflow                        | `node ree.mjs inspect PATH` / `node ree.mjs types`              | Classification and catalogs are not proof of support or behavior.                           |
-| Analyze JavaScript or Electron source                            | `node ree.mjs analyze PATH --authorized --out NEW_DIR`          | Static analysis after explicit authorization and local build; supplied app is not launched. |
-| Inspect native code                                              | REA CLI or MCP with a selected Ghidra, Hopper, or IDA route     | Bring-your-own provider; host, license, and workflow requirements differ.                   |
-| Inspect Android, firmware, databases, captures, or other formats | Follow the matching [REA guide](UPSTREAM_REA_README.md)         | Each route has its own parser, provider, host, and side-effect limits.                      |
-| Compare runtime behavior                                         | Use a supported runtime observation or process-capture workflow | Runtime capture is separate from static analysis and is not available for every target.     |
+## Capability map
 
-Provider declarations, installed tools, provider discovery, and a verified run are different states. A recognized extension or catalog entry does not establish that the matching backend works on your machine. See the [compatibility notes](#compatibility-and-readiness) before choosing a provider.
+These are routes present in the REA engine. A listed route, an installed dependency, provider discovery, and a verified run are different states. Follow each guide for exact formats, host support, authority, and prerequisites.
 
-## Under the surface
+| Artifact / domain                    | Available investigation routes                                                                                                   | Requirements and guide                                                                                                                                                             |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **JavaScript, TypeScript, Electron** | Directory/ASAR graphs, static semantic relations, feature traces, version and export-shape comparisons, source-to-bundle mapping | Built-in static route; [application graph](docs/javascript-application-graph.md), [workflows](docs/javascript-application-workflows.md)                                            |
+| **Native executables and libraries** | Function inventories, instructions, pseudocode, references, types, bounded static traces                                         | Selected, compatible Ghidra, Hopper, or IDA; [native investigation](docs/native-investigation.md)                                                                                  |
+| **ELF layouts and recorded crashes** | Binary layouts, mappings, core-file and crash inspection                                                                         | Route-specific offline tools and host requirements; [binary layout](docs/binary-diagnostics.md), [recorded crashes](docs/recorded-crashes.md)                                      |
+| **Go and Rust binaries**             | Compiler/runtime metadata and package or dependency information where present                                                    | Metadata availability depends on the artifact; [Go](docs/go-binaries.md), [Rust](docs/rust-binaries.md)                                                                            |
+| **Managed .NET**                     | PE/CLI metadata, members, IL, application graphs, comparisons, managed/native boundaries                                         | Static metadata workflow with declared coverage; [managed analysis](docs/managed-code-analysis.md)                                                                                 |
+| **Android and mobile layers**        | APK inventory, code/resource inspection, application graphs, selected Apktool, ADB, JEB, and Flutter workflows                   | Caller-supplied tools and route-specific device/execution scope; [Android](docs/android-analysis.md)                                                                               |
+| **Apple artifacts**                  | Package and native-resource inspection, platform metadata, UI resources, selected desktop/runtime workflows                      | Artifact- and host-specific routes; [Apple artifacts](docs/apple-application-analysis.md), [native guide](docs/native-investigation.md)                                            |
+| **Firmware and raw binaries**        | Format and region inspection, extraction, selected native analysis profiles                                                      | Caller-supplied Binwalk/Unblob or matching native toolchain; [firmware](docs/firmware-analysis.md), [raw binaries](docs/raw-binary.md)                                             |
+| **WebAssembly**                      | Module/artifact inspection and interface comparisons                                                                             | Compatible caller-supplied WABT; [WebAssembly](docs/wasm-artifacts.md)                                                                                                             |
+| **EVM bytecode**                     | Offline bytecode and inferred interface inspection, metadata-oriented workflows                                                  | Route-specific carrier and inference limits; [EVM](docs/evm-bytecode.md)                                                                                                           |
+| **SQLite**                           | Read-only database snapshot inspection                                                                                           | Node 24.15+ or 26+ for native SQLite; [databases](docs/sqlite-databases.md)                                                                                                        |
+| **Browser and Electron runtime**     | Captured scripts, source maps, module relationships, runtime observations, selected static/runtime reconciliation                | Matching browser, Electron, Inspector, or observation provider; [browser analysis](docs/browser-observation.md), [JavaScript observations](docs/javascript-runtime-observation.md) |
+| **Recorded network and signal data** | Packet/capture inspection, recorded web traffic, signal recordings                                                               | Matching parser or specialist toolchain; [PCAP](docs/pcap-analysis.md), [web captures](docs/web-network-captures.md), [signals](docs/signal-recordings.md)                         |
+| **Process behavior**                 | Bounded PTY scenarios, terminal/process/filesystem observations, comparisons and trace claims                                    | Supported capture host and explicit target scope; [process capture](docs/process-capture.md)                                                                                       |
 
-REE is intentionally a small front door over a much broader inherited engine. The engine's architecture keeps caller-facing adapters, shared workflows, domain rules, and provider-specific details in distinct layers.
+For the larger inherited capability catalog and additional client/provider guides, see the preserved [upstream README](UPSTREAM_REA_README.md) and [documentation index](docs/index.md).
 
-The beginner interface and the experiments developed around it are only a small sample of the engine. REA's provider ecosystem, CLI and MCP workflows, Evidence contracts, reconstruction tools, and Linux, macOS, and Windows paths remain part of REE's foundation. Routes that need an external provider remain available even when that provider is not installed on a particular Mac. The [source-verified engineering map](docs/ree-engineering-map.md) distinguishes inherited capabilities, REE additions, and behavior that has actually been verified.
+### Native analysis from this checkout
 
-- **CLI and MCP:** one-shot commands and a long-lived `rea` MCP server expose shared application workflows through different interfaces. MCP provides the full REA tool set, with its own capabilities and authority; it is not limited to REE's guarded static path.
-- **Analysis routes:** built-in source and format parsers work alongside optional native and specialist providers. Provider selection and operation ownership are explicit; one failing provider does not silently become another.
-- **Evidence and navigation:** immutable, identified records retain provenance and unknowns. Summaries, pages, graphs, traces, and portable bundles are projections or links over those records.
-- **Comparisons and verification:** feature traces, version and source-to-bundle comparisons, runtime reconciliation, and reconstruction obligations reuse prior Evidence. Verification evaluates declared claims over selected evidence and cases.
+Select a provider you have installed and configured. For example, with Ghidra:
 
-These are implemented workflows with specific limits, not a promise that every combination of provider and artifact is supported. The [source-verified engineering map](docs/ree-engineering-map.md) describes the composition, known constraints, and inspected experiment results. The [architecture diagram](docs/architecture.mermaid) and [investigation workflow notes](docs/fork-investigation-workflows.md) go deeper.
+```sh
+node scripts/rea.mjs inspect /absolute/path/to/program --provider ghidra --json
+node scripts/rea.mjs search /absolute/path/to/program entry \
+  --kind procedures --provider ghidra --json
+```
 
-### Formats and integrations
+Choose an exact procedure name or address from the inventory, then use `function`, `instructions`, `decompile`, or `xrefs` as documented in the [native guide](docs/native-investigation.md). Provider licensing, supported architectures, GUI/headless behavior, and lifecycle requirements differ. REE does not silently substitute one native engine for another.
 
-The engine contains routes for JavaScript/Electron, native binaries, managed .NET metadata, Android packages, Apple artifacts, firmware, WebAssembly, EVM bytecode, Go and Rust metadata, SQLite, browser/Electron observations, process capture, and recorded network or signal data. Some routes are built in; others need a compatible external tool or provider. Start with the guide for the artifact or question:
+## Architecture
 
-- **JavaScript and Electron:** [application graph](docs/javascript-application-graph.md), [feature and version workflows](docs/javascript-application-workflows.md), [runtime observations](docs/javascript-runtime-observation.md), [runtime reconciliation](docs/javascript-runtime-reconciliation.md).
-- **Native binaries:** [native investigation](docs/native-investigation.md).
-- **Managed .NET:** [managed code](docs/managed-code-analysis.md).
-- **Android:** [package analysis](docs/android-analysis.md).
-- **Data and captures:** [SQLite](docs/sqlite-databases.md), [packet captures](docs/pcap-analysis.md), [signal recordings](docs/signal-recordings.md).
-- **Firmware and bytecode:** [firmware](docs/firmware-analysis.md), [WebAssembly](docs/wasm-artifacts.md), [EVM bytecode](docs/evm-bytecode.md).
+The system separates user entry points, shared investigation workflows, provider adapters, and domain semantics. Provider protocols stay in their adapters; Evidence and comparison rules remain reusable across CLI and MCP consumers.
 
-Ghidra, Hopper, IDA, JADX, Binwalk/Unblob, WABT, Wireshark, Graphviz, and other specialist tools are not interchangeable. REE does not silently install them; any setup changes require a reviewed plan and approval. A passing source-level or simulated-provider test does not prove that an external provider is installed, licensed, or operational on a particular host.
+```mermaid
+flowchart TB
+    REE["REE front door<br/>preview · readiness · static JS/Electron"]
+    CLI["REA CLI<br/>one-shot investigation commands"]
+    MCP["REA MCP server<br/>agent tools · sessions"]
+    WORK["Shared application workflows<br/>analysis · tracing · comparison · verification"]
+    ROUTE["Explicit provider selection<br/>built-in readers + external analysis engines"]
+    STATIC["Static artifacts<br/>source · binaries · metadata · packages"]
+    RUNTIME["Selected runtime observations<br/>process · browser · platform adapters"]
+    EVIDENCE["Canonical Evidence<br/>identity · provenance · authority · coverage · unknowns"]
+    VIEWS["Reports & selected views<br/>graphs · pages · traces · portable bundles"]
+    CLAIMS["Investigation conclusions<br/>explanation · differences · bounded reconstruction claims"]
+    REE --> WORK
+    CLI --> WORK
+    MCP --> WORK
+    WORK --> ROUTE
+    ROUTE --> STATIC
+    ROUTE --> RUNTIME
+    STATIC --> EVIDENCE
+    RUNTIME --> EVIDENCE
+    EVIDENCE --> VIEWS
+    VIEWS --> CLAIMS
+    classDef entry fill:#112536,stroke:#58a6ff,color:#e6edf3
+    classDef core fill:#102c30,stroke:#56e0bd,color:#e6edf3
+    classDef result fill:#221c35,stroke:#b79cff,color:#e6edf3
+    class REE,CLI,MCP entry
+    class WORK,ROUTE,STATIC,RUNTIME core
+    class EVIDENCE,VIEWS,CLAIMS result
+```
 
-## Compatibility and readiness
+| Layer                    | Responsibility                                                                             | Source                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------ | ---------------------------------------------------------- |
+| Entry points             | Beginner interaction, one-shot commands, and stdio MCP dispatch                            | [`ree.mjs`](ree.mjs), [`scripts/rea.mjs`](scripts/rea.mjs) |
+| Public contracts         | Named tool schemas, examples, outputs, declared effects, and client-facing semantics       | [`src/contracts/`](src/contracts/)                         |
+| Application workflows    | Shared analysis, evidence navigation, traces, comparisons, and reconstruction services     | [`src/application/`](src/application/)                     |
+| Composition and sessions | Provider factories, explicit routing, target/session binding, retained investigation state | [`src/composition/`](src/composition/)                     |
+| Providers and bridges    | Format readers, native engines, platform APIs, browser protocols, and tool adapters        | [`src/`](src/), [`bridge/`](bridge/)                       |
+| Domain model             | Evidence identity, graph semantics, unknowns, comparison rules, and verification contracts | [`src/domain/`](src/domain/)                               |
+| Process foundation       | Owned processes, resource bounds, cancellation, private workspaces, and cleanup            | [`src/process/`](src/process/)                             |
 
-- **Node.js:** package support is `^22.19.0 || ^24.11.0 || >=26.0.0`; this checkout pins `24.18.0` for reproducible development. Node 23 and 25 are outside the supported range.
-- **SQLite:** inspection uses Node's native SQLite API and requires Node `24.15+` or `26+`. See the [SQLite guide](docs/sqlite-databases.md).
-- **npm:** use the lockfile with `npm@11.16.0`, the version declared by the package manager field.
-- **Platforms:** Linux, macOS, and Windows CI exercise different paths. Passing CI on one runner does not certify every provider or host combination.
-- **Readiness:** `node ree.mjs doctor` checks selected local facts. It cannot prove a provider license, GUI state, live MCP connection, or hardware availability.
+The diagram shows the shared system, not a single automatic analyze-everything command. Static analysis and runtime capture retain their different authority. The JavaScript semantic graph can follow backward provenance, forward influence, callers and ownership, including selected closure, Promise, event, timer and resource relations; unresolved dynamic behavior remains unknown. See the [engineering map](docs/ree-engineering-map.md), [detailed architecture](docs/architecture.mermaid), and [workflow design](docs/fork-investigation-workflows.md).
 
-For the latest workflow results, see [GitHub Actions](https://github.com/gryszzz/reverse-engineer-everything/actions). Avoid opening large Evidence records on low-memory machines; begin with the report or a bounded view.
+## The Evidence model
 
-### Move from an uncertainty to a counterexample
+An explanation is useful when another person can inspect what supports it. REA's Evidence records preserve the artifact and operation identities, provider, confidence, authority, source locations, coverage, limitations, and links to related records. Reports and selected views point back to those records.
 
-The owned [C investigation fixture](experiments/ree-investigation-boundary/README.md)
-shows how the existing REA operations can support a small differential experiment:
+| Interpretation | What it means                                                   |
+| -------------- | --------------------------------------------------------------- |
+| **Observed**   | Present in the supplied artifact or captured event              |
+| **Derived**    | Produced by a parser or explicit analysis rule                  |
+| **Inferred**   | Supported by observations, with the inference boundary retained |
+| **Unknown**    | Unselected, unsupported, ambiguous, truncated, or unobserved    |
+
+These are explanatory categories; the actual contracts retain confidence and authority as separate fields. Static reachability does not prove execution. Matching selected outputs does not establish universal equivalence. Missing observations remain unknown rather than becoming evidence of absence.
+
+### From a hypothesis to an experiment
+
+Existing workflows can connect an uncertainty to a finite test:
+
+```text
+Declare competing explanations + existing observations
+                         ↓
+Select an input that distinguishes the declared hypotheses
+                         ↓
+Capture an explicitly selected process scenario
+                         ↓
+Compare the observed outcome with the predictions
+                         ↓
+Keep the surviving explanations, contradictions, and unknowns
+```
+
+The finite planner is available as `discriminate-finite-hypotheses` in the CLI and `discriminate_finite_hypotheses` through MCP. It ranks caller-supplied prediction tables and candidate inputs, and reassesses when you append observations. It does not invent the hypotheses, authenticate caller assertions, or launch the target. See the [input and output workflow](docs/cli.md#select-a-finite-hypothesis-probe).
+
+Reconstruction services reuse Evidence bundles, obligation ledgers, comparison results, and finite specifications to evaluate selected claims. Experimental patch proposals and bounded synthesis remain scoped mechanisms, not general source-code recovery.
+
+The owned [C investigation fixture](experiments/ree-investigation-boundary/README.md) demonstrates a differential experiment:
 
 ```sh
 npm run verify:ree-investigation-boundary -- /tmp/ree-c-investigation
 ```
 
-The harness declares a numeric domain and a rounding hypothesis, searches that
-bounded domain for a discriminating input, then uses Process Capture, comparison,
-and reconstruction verification to test the original and candidate programs.
-It saves complete Evidence and a summary with the discovered input and claim
-statuses. This runner needs macOS, Clang, and a built REA runtime.
+This fixture requires macOS, Clang, and the built runtime. It searches a declared numeric domain for a rounding counterexample, then uses process capture, comparison, and reconstruction verification. A counterexample refutes the candidate for that case. Finding none in the chosen range does not prove behavior outside it.
 
-The search rule and domain are supplied by the investigator. A passing terminal
-claim covers the captured case; an unknown overall result means some process
-dimensions were not observed. Finding one counterexample refutes the candidate
-for that case, while finding none inside the selected range does not prove
-equivalence outside it. The fixture is a repeatable example of hypothesis-led
-investigation, not automatic hypothesis discovery.
+## CLI and MCP
 
-## Connect Codex
+The beginner REE commands and the complete REA tools serve different levels of investigation. The latter expose shared engine workflows through terminal commands and a long-lived MCP server.
 
-Open this repository as a trusted local Codex workspace, build it, then check the project-scoped server:
+| Task                                  | CLI                                   | MCP                                   |
+| ------------------------------------- | ------------------------------------- | ------------------------------------- |
+| Inspect an analysis view              | `inspect-analysis-view`               | `inspect_analysis_view`               |
+| Trace an application feature          | `trace-application-feature`           | `trace_application_feature`           |
+| Compare application versions          | `compare-application-versions`        | `compare_application_versions`        |
+| Capture a process scenario            | `capture-process`                     | `capture_process_scenario`            |
+| Select a finite hypothesis probe      | `discriminate-finite-hypotheses`      | `discriminate_finite_hypotheses`      |
+| Draft a reconstruction specification  | `derive-reconstruction-specification` | `derive_reconstruction_specification` |
+| Verify selected reconstruction claims | `verify-reconstruction`               | `verify_reconstruction`               |
+
+Each operation has its own inputs, Evidence requirements, and effects. Explore the built local CLI and [canonical MCP contracts](docs/mcp-contracts.md):
 
 ```sh
-npm ci
-npm run build:cached
+node scripts/rea.mjs --help
+node scripts/rea.mjs discriminate-finite-hypotheses --help
+```
+
+### Connect Codex
+
+Open this checkout as a trusted local Codex workspace. After building:
+
+```sh
 node ree.mjs codex
 codex mcp list
 ```
 
-In the Codex session, check `/mcp` for `rea`; the committed [project configuration](.codex/config.toml) starts this checkout's `scripts/rea.mjs mcp`. The server exposes the full REA tool set. Keep the target and allowed actions explicit, and review individual tool descriptions. The project workflow skill is [`ree-investigator`](.agents/skills/ree-investigator/SKILL.md). For setup and recovery, see the [Codex connection guide](rel/CONNECT_CODEX.md).
+The committed [project configuration](.codex/config.toml) starts `node scripts/rea.mjs mcp` from this checkout. In Codex, check `/mcp` for `rea` and use the repository's [`ree-investigator`](.agents/skills/ree-investigator/SKILL.md) workflow. The server exposes the full REA tools, with more authority than the beginner static-analysis command. Keep the target and permitted actions explicit.
 
-This repository-scoped connection does not change account-wide Codex settings, train a model, or give a remote/cloud session access to files on your Mac. ChatGPT's GitHub access and a local MCP server are separate environments.
+The status command checks local configuration and compiled files; it does not prove a live MCP connection. A cloud session also needs its own checkout and toolchain—files on your Mac do not become available remotely. Setup and recovery: [Codex connection guide](rel/CONNECT_CODEX.md).
 
-## Repository map
+## Status and readiness
 
-| Path                                                                                 | What lives there                                                                                  |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| [`ree.mjs`](ree.mjs), [`rel/`](rel/)                                                 | REE CLI, preview and authorization boundary, Mac readiness, lesson server, and Evidence Explorer. |
-| [`experiments/rel-visual-lab/`](experiments/rel-visual-lab/)                         | Local introductory lesson.                                                                        |
-| [`experiments/rel-first-lab/`](experiments/rel-first-lab/)                           | Source-owned analysis example and recorded verification.                                          |
-| [`experiments/ree-investigation-boundary/`](experiments/ree-investigation-boundary/) | Bounded cross-technology counterexample search and reconstruction verification.                   |
-| [`scripts/rea.mjs`](scripts/rea.mjs)                                                 | REA CLI and MCP dispatcher.                                                                       |
-| [`src/application/`](src/application/), [`src/domain/`](src/domain/)                 | Shared investigation workflows, Evidence, graphs, comparisons, and domain rules.                  |
-| [`src/composition/`](src/composition/), [`src/contracts/`](src/contracts/)           | Provider wiring and CLI/MCP input and output contracts.                                           |
-| [`docs/`](docs/)                                                                     | Architecture, provider guides, engineering map, and development guidance.                         |
-| [`.agents/skills/ree-investigator/`](.agents/skills/ree-investigator/SKILL.md)       | REE project workflow for authorized investigations.                                               |
-| [`UPSTREAM_REA_README.md`](UPSTREAM_REA_README.md)                                   | Preserved upstream README and technical entry points.                                             |
+REE currently provides a working static JavaScript/Electron entry point over a larger engine with route-specific requirements. A complete guided investigation and dependable resumption across artifact families are next product milestones. See the [product-readiness plan](docs/ree-product-readiness.md) for acceptance criteria and recorded local verification.
 
-The `rel/` and `experiments/rel-*` paths remain for compatibility. REE is the current project identity; REA remains the analysis engine and MCP server identity.
+| Check                        | What it establishes                                              |
+| ---------------------------- | ---------------------------------------------------------------- |
+| `node ree.mjs doctor --json` | Selected local host, toolchain, and build facts; tuned for macOS |
+| Source and contract tests    | Behavior at the tested software boundaries                       |
+| CLI/MCP boundary tests       | Actual command/tool behavior for the selected cases              |
+| Real-provider verification   | The declared provider, artifact, host, and workflow actually ran |
+| GitHub Actions               | The status of each selected CI lane for that commit              |
 
-## Attribution and contribution
+The badges above reflect GitHub's live results. A passed local test or one green platform job does not certify every backend, target, or operating system. Ghidra, Hopper, IDA, JADX, firmware tools, browser runtimes, devices, and hardware each need their own readiness checks. Provider installation/configuration changes follow their reviewed setup plans.
 
-REE builds on [morluto/rea](https://github.com/morluto/rea). The upstream README, technical guides, [MIT license](LICENSE), and [third-party notices](THIRD_PARTY_NOTICES.md) are retained. This repository is maintained independently and does not claim authorship of the inherited REA engine or providers. It does not publish as the upstream `rea-agents` npm package.
+**Runtime compatibility:** the package supports Node `^22.19.0 || ^24.11.0 || >=26.0.0`; this checkout pins `24.18.0` and npm `11.16.0`. SQLite inspection specifically requires Node `24.15+` or `26+`. See [installation](docs/installation.md), [testing](docs/testing.md), and [current CI runs](https://github.com/gryszzz/reverse-engineer-everything/actions).
 
-Contributions should preserve the engine's scope, authority, Evidence provenance, and compatibility boundaries. Start with [contribution guidance](CONTRIBUTING.md), [tool design](docs/tool-design.md), and [testing guidance](docs/testing.md). Generated Evidence and local target data belong outside the source tree.
+## Explore the repository
+
+| Path                                                                                 | What lives here                                                                            |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| [`ree.mjs`](ree.mjs), [`rel/`](rel/)                                                 | REE entry point, intake, readiness checks, static reports, local lesson, Evidence Explorer |
+| [`src/`](src/)                                                                       | REA domain, contracts, workflows, composition, and provider implementations                |
+| [`bridge/`](bridge/), [`native/`](native/)                                           | Engine bridges and platform-specific native components                                     |
+| [`tests/`](tests/)                                                                   | Boundary, acceptance, conformance, platform, and provider verification fixtures            |
+| [`experiments/rel-first-lab/`](experiments/rel-first-lab/)                           | Owned JavaScript analysis example and recorded verification                                |
+| [`experiments/ree-investigation-boundary/`](experiments/ree-investigation-boundary/) | Bounded process comparison and reconstruction experiment                                   |
+| [`experiments/analysis-efficiency/`](experiments/analysis-efficiency/)               | Analysis-cost measurements and technical investigation records                             |
+| [`docs/`](docs/)                                                                     | Architecture, provider guides, CLI/MCP contracts, engineering map, and readiness plan      |
+| [`.agents/skills/`](.agents/skills/), [`.codex/`](.codex/)                           | Repository workflows and project-scoped Codex configuration                                |
+| [`UPSTREAM_REA_README.md`](UPSTREAM_REA_README.md)                                   | Preserved upstream documentation and technical entry points                                |
+
+The `rel/` paths remain for compatibility; REE is the current project identity.
+
+<details>
+<summary><strong>Development and verification commands</strong></summary>
+
+```sh
+npm ci
+npm run build:cached
+npm run test:prepare
+npm run test:local -- src/domain/finiteHypothesisDiscrimination.test.ts
+npm run test:focused -- tests/boundary/mcp/finiteHypothesisMcp.test.ts
+npm run check:fast
+npm run docs:check
+```
+
+Use `test:prepare` when preparing the complete test environment, including the SDK-converted MCP catalog. Use focused source feedback while editing and select real-provider lanes for provider claims. See [contributing](CONTRIBUTING.md), [testing](docs/testing.md), and [tool design](docs/tool-design.md). Keep generated Evidence and target data outside the checkout.
+
+</details>
+
+## Attribution and license
+
+REE builds on **[morluto/rea](https://github.com/morluto/rea)**. The inherited engine, providers, technical guides, upstream README, [MIT license](LICENSE), and [third-party notices](THIRD_PARTY_NOTICES.md) are preserved. This independent repository does not claim authorship of that foundation and does not publish as the upstream `rea-agents` npm package.
+
+Contributions should preserve provider capabilities, Evidence provenance, platform boundaries, and upstream attribution while making investigations easier to complete and review.
