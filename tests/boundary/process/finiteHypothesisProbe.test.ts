@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { expect } from "vitest";
 
+import { ProcessCaptureError } from "../../../src/process/capture/ProcessCaptureError.js";
 import {
   executeApprovedFiniteHypothesisProcessProbe,
   prepareFiniteHypothesisProcessProbe,
@@ -15,6 +16,42 @@ import {
 } from "../../../src/domain/process/processScenario.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { itWithCaptureCapability } from "./processCaptureCapability.js";
+
+const verifyProbeFailureEvidence = async (
+  plan: { readonly plan_sha256: string },
+  missingProjectionPlan: { readonly plan_sha256: string },
+  ports: Parameters<typeof executeApprovedFiniteHypothesisProcessProbe>[2],
+) => {
+  const captureFailure = new ProcessCaptureError(
+    "injected process capture failure",
+  );
+  const failedCapture = await executeApprovedFiniteHypothesisProcessProbe(
+    plan,
+    plan.plan_sha256,
+    {
+      ...ports,
+      capture: async () => {
+        throw captureFailure;
+      },
+    },
+  );
+  expect(failedCapture.ok).toBe(false);
+  if (!failedCapture.ok) expect(failedCapture.error).toBe(captureFailure);
+
+  const missingProjection = await executeApprovedFiniteHypothesisProcessProbe(
+    missingProjectionPlan,
+    missingProjectionPlan.plan_sha256,
+    ports,
+  );
+  expect(missingProjection.ok).toBe(false);
+  if (!missingProjection.ok) {
+    expect(missingProjection.error._tag).toBe("AnalysisOutputError");
+    expect(missingProjection.error.partialObservation).toMatchObject({
+      predicate_type: "rea.process-capture",
+      operation: "capture_process_scenario",
+    });
+  }
+};
 
 itWithCaptureCapability(
   "narrows hypotheses from an approved real process capture and rejects stale or altered plans",
@@ -143,6 +180,18 @@ itWithCaptureCapability(
       });
       expect(executed.value.evidence_links).toContain(source.evidence_id);
       expect(captures).toBe(2);
+
+      const missingProjectionPlan = prepareFiniteHypothesisProcessProbe(
+        { ...request, outcome_json_pointer: "/missing" },
+        source,
+      );
+      if (!missingProjectionPlan.ok) throw missingProjectionPlan.error;
+      await verifyProbeFailureEvidence(
+        plan,
+        missingProjectionPlan.value,
+        ports,
+      );
+      expect(captures).toBe(3);
     } finally {
       await scope.close();
     }

@@ -5,9 +5,10 @@ import { z } from "zod";
 
 import {
   AnalysisInputError,
+  AnalysisOutputError,
   AnalysisProtocolError,
 } from "../domain/analysisErrorCore.js";
-import type { AnalysisError } from "../domain/analysisErrorBase.js";
+import { AnalysisError } from "../domain/analysisErrorBase.js";
 import {
   createEvidence,
   parseEvidence,
@@ -380,6 +381,7 @@ export const executeApprovedFiniteHypothesisProcessProbe = async (
     expected_sha256: parsed.data.executable_sha256,
     source_evidence_id: parsed.data.source_evidence_id,
   };
+  let captured: Evidence | undefined;
   try {
     if (!(await ports.validateTarget(target)))
       return err(
@@ -388,7 +390,7 @@ export const executeApprovedFiniteHypothesisProcessProbe = async (
           "Executable identity changed; no probe was executed.",
         ),
       );
-    const captured = parseEvidence(await ports.capture(parsed.data.scenario));
+    captured = parseEvidence(await ports.capture(parsed.data.scenario));
     const capture = validateCapturedTarget(
       captured,
       parsed.data.scenario,
@@ -400,9 +402,10 @@ export const executeApprovedFiniteHypothesisProcessProbe = async (
     );
     if (selectedOutcome === undefined)
       return err(
-        inputFailure(
-          "outcome_json_pointer",
+        new AnalysisOutputError(
+          OPERATION,
           "The declared output path is absent from the captured process Evidence.",
+          { partialObservation: captured },
         ),
       );
     const outcome =
@@ -411,9 +414,10 @@ export const executeApprovedFiniteHypothesisProcessProbe = async (
         : selectedOutcome;
     if (outcome === undefined)
       return err(
-        inputFailure(
-          "outcome_encoding",
+        new AnalysisOutputError(
+          OPERATION,
           "The selected output is not valid JSON text.",
+          { partialObservation: captured },
         ),
       );
     const updated = updateFiniteHypotheses(parsed.data.hypotheses, {
@@ -449,10 +453,14 @@ export const executeApprovedFiniteHypothesisProcessProbe = async (
     });
     return ok(evidence);
   } catch (cause: unknown) {
+    if (cause instanceof AnalysisError) return err(cause);
     return err(
-      inputFailure(
-        "plan_sha256",
+      new AnalysisProtocolError(
         `Approved finite-hypothesis probe failed: ${safeError(cause)}`,
+        {
+          cause,
+          ...(captured === undefined ? {} : { partialObservation: captured }),
+        },
       ),
     );
   }
