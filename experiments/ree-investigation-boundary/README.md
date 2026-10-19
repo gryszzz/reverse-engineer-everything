@@ -57,12 +57,16 @@ process lifecycle journal order can vary even when terminal evidence matches,
 so the fixture does not claim lifecycle equivalence. That broader claim
 remains unknown.
 
-This is a demonstration of evidence-derived specification drafting and
-explicitly approved fixture probe execution, not an autonomous REA feature.
-The human supplies the hypothesis, candidate input domain, probe rule,
-comparison Evidence, dimensions to include, and approval flag. The drafter
-validates exact selections and source closure; the verifier proposes only
-bounded adjacent lexical values for eligible failed claims. Neither infers
-missing claims, generates candidate implementations, nor establishes that the
-domain is complete. Process capture also retains its normal limits for
-inherited environment, unobserved filesystem changes, and sampled process trees.
+The optional source-blind expression and active-hypothesis modes extend this
+fixture with a bounded synthesis experiment. The planner ranks inputs within a
+declared arithmetic grammar; a separate proposer fits an expression to captured
+input/output pairs; explicit plan and patch digests gate execution and patch
+application. The complete three-run procedure and generated artifacts are
+documented in the [CLI reconstruction walkthrough](../../docs/cli.md#active-hypothesis-discrimination).
+
+These modes remain fixture experiments. The input domain and grammar are
+bounded, and the reference source remains in the repository even though its
+expression is excluded from the proposer inputs. Passing the selected terminal
+cases does not establish behavior outside those cases. Process capture also
+retains its normal limits for inherited environment, unobserved filesystem
+changes, and sampled process trees.

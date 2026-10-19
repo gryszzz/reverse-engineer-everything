@@ -234,6 +234,8 @@ npm run verify:ree-investigation-boundary -- /tmp/ree-c-investigation
 
 This fixture requires macOS, Clang, and the built runtime. It searches a declared numeric domain for a rounding counterexample, then uses process capture, comparison, and reconstruction verification. A counterexample refutes the candidate for that case. Finding none in the chosen range does not prove behavior outside it.
 
+The same owned C fixture also has a staged source-blind expression experiment. It ranks a probe within a five-expression arithmetic grammar, requires separate digests to approve the probe and proposed patch, then evaluates the candidate against five terminal scenarios. Follow the [active hypothesis walkthrough](docs/cli.md#active-hypothesis-discrimination) for the commands, saved outputs, and scope limits. This is a bounded fixture experiment; the reference source remains in the repository, outside the proposer input boundary.
+
 ## CLI and MCP
 
 The beginner REE commands and the complete REA tools serve different levels of investigation. The latter expose shared engine workflows through terminal commands and a long-lived MCP server.
