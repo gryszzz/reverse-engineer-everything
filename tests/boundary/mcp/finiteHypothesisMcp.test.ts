@@ -1,3 +1,5 @@
+import { Ajv2020 } from "ajv/dist/2020.js";
+import type { AnySchema } from "ajv";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
@@ -41,6 +43,16 @@ it("selects and reassesses finite hypotheses through matching CLI and MCP workfl
   try {
     await server.connect(serverTransport);
     await client.connect(clientTransport);
+    const catalog = await client.listTools();
+    const tool = catalog.tools.find(
+      ({ name }) => name === "discriminate_finite_hypotheses",
+    );
+    expect(tool?.outputSchema).toBeDefined();
+    const ajv = new Ajv2020({ strict: false, validateFormats: false });
+    expect(
+      ajv.validateSchema(tool!.outputSchema as AnySchema),
+      ajv.errorsText(ajv.errors),
+    ).toBe(true);
     const result = await client.callTool({
       name: "discriminate_finite_hypotheses",
       arguments: request,

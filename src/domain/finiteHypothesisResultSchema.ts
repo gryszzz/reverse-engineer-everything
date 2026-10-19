@@ -10,7 +10,7 @@ export const finiteHypothesisResultSchema = z.discriminatedUnion("state", [
   z.strictObject({ state: z.literal("insufficient-predictions"), reason }),
   z.strictObject({
     state: z.literal("no-consistent-hypothesis"),
-    surviving_hypothesis_ids: z.tuple([]),
+    surviving_hypothesis_ids: z.array(z.string()).length(0),
     conflicting_observation_index: z.number().int().nonnegative().optional(),
     evidence_ids: z.array(z.string().regex(/^ev_[a-f0-9]{64}$/u)),
     reason,
