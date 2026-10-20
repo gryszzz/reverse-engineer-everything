@@ -40,6 +40,11 @@ The current beginner `analyze` command runs static JavaScript/Electron analysis.
 
 ## Get started
 
+> **Distribution status:** REE does not have a separate published npm package
+> or release yet. The steps below run this repository checkout. `npx
+> rea-agents setup` installs the upstream REA package, not this fork; the
+> inherited [REA setup guide](docs/installation.md) documents that package.
+
 ### 1. Open the workbench
 
 Clone this repository, then use the pinned toolchain: **Node 24.18.0** and **npm 11.16.0**. The commands below assume those versions are already available; `nvm use` selects the repository's Node version when using nvm. The quick-start shell examples use macOS/Linux syntax; Windows workflows are documented in the matching provider guides.
@@ -232,7 +237,7 @@ The owned [C investigation fixture](experiments/ree-investigation-boundary/READM
 npm run verify:ree-investigation-boundary -- /tmp/ree-c-investigation
 ```
 
-This fixture requires macOS, Clang, and the built runtime. It searches a declared numeric domain for a rounding counterexample, then uses process capture, comparison, and reconstruction verification. A counterexample refutes the candidate for that case. Finding none in the chosen range does not prove behavior outside it.
+This command builds the local runtime and runs the owned fixture; it requires macOS, Clang, and the repository dependencies. It searches a declared numeric domain for a rounding counterexample, then uses process capture, comparison, and reconstruction verification. The deliberately incorrect candidate is expected to receive a verifier `fail`; the command succeeds only when it records the expected control pass and counterexample failure. It writes a readable `REE_RECONSTRUCTION_REPORT.md` alongside the complete Evidence. A counterexample refutes the candidate for that case. Finding none in the chosen range does not prove behavior outside it, and this fixture report is not a general equivalence certificate.
 
 The same owned C fixture also has a staged source-blind expression experiment. It ranks a probe within a five-expression arithmetic grammar, requires separate digests to approve the probe and proposed patch, then evaluates the candidate against five terminal scenarios. Follow the [active hypothesis walkthrough](docs/cli.md#active-hypothesis-discrimination) for the commands, saved outputs, and scope limits. This is a bounded fixture experiment; the reference source remains in the repository, outside the proposer input boundary.
 
@@ -284,7 +289,7 @@ REE currently provides a working static JavaScript/Electron entry point over a l
 
 The badges above reflect GitHub's live results. A passed local test or one green platform job does not certify every backend, target, or operating system. Ghidra, Hopper, IDA, JADX, firmware tools, browser runtimes, devices, and hardware each need their own readiness checks. Provider installation/configuration changes follow their reviewed setup plans.
 
-**Runtime compatibility:** the package supports Node `^22.19.0 || ^24.11.0 || >=26.0.0`; this checkout pins `24.18.0` and npm `11.16.0`. SQLite inspection specifically requires Node `24.15+` or `26+`. See [installation](docs/installation.md), [testing](docs/testing.md), and [current CI runs](https://github.com/gryszzz/reverse-engineer-everything/actions).
+**Runtime compatibility:** the inherited REA package supports Node `^22.19.0 || ^24.11.0 || >=26.0.0`; this checkout pins `24.18.0` and npm `11.16.0`. SQLite inspection specifically requires Node `24.15+` or `26+`. See the [inherited REA setup guide](docs/installation.md), [testing](docs/testing.md), and [current CI runs](https://github.com/gryszzz/reverse-engineer-everything/actions).
 
 ## Explore the repository
 

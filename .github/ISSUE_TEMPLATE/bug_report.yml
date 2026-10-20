@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible problem in REA
+description: Report a reproducible problem in REE or its inherited REA engine
 title: "[Bug] "
 labels:
   - bug
@@ -75,11 +75,11 @@ body:
       required: true
 
   - type: input
-    id: rea-version
+    id: ree-revision
     attributes:
-      label: REA version
-      description: Use `rea --version` or provide the source revision.
-      placeholder: 3.1.0 or git revision
+      label: REE revision or REA package version
+      description: Provide the source commit, or the REA package version when using a packaged release.
+      placeholder: Git commit SHA or REA package version
     validations:
       required: true
 

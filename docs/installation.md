@@ -1,5 +1,12 @@
 # Installation and setup
 
+> **This is the inherited REA package guide.** Commands such as `npx
+> rea-agents setup` install or configure the published upstream REA package;
+> they do not install this REE fork. REE currently has no separate published
+> package or release. To run REE, clone this repository and follow [Get
+> started](../README.md#get-started). Use this guide when you specifically
+> intend to install or configure the upstream `rea-agents` distribution.
+
 Run REA, connect your selected agents, and check the tools needed for your task.
 Setup previews configuration changes and asks for approval before applying them.
 

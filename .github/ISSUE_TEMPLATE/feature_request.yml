@@ -1,5 +1,5 @@
 name: Feature request
-description: Propose a focused improvement to REA
+description: Propose a focused improvement to REE or its inherited REA engine
 title: "[Feature] "
 labels:
   - enhancement
@@ -12,7 +12,7 @@ body:
         welcome. Choose "Not sure yet" wherever needed; you do not need code, a
         finished design, or a complete test plan to propose an idea.
 
-        Read the [contribution scope](https://github.com/morluto/rea/blob/main/CONTRIBUTING.md#contribution-scope).
+        Read this repository's [contribution scope](https://github.com/gryszzz/reverse-engineer-everything/blob/main/CONTRIBUTING.md#contribution-scope).
         Maintainers can help resolve scope and technical questions. Unresolved
         boundaries block integration, not opening a request for discussion.
 
@@ -23,7 +23,7 @@ body:
       options:
         - label: I searched the open and closed issues and pull requests for a related proposal.
           required: true
-        - label: I understand the [contribution scope](https://github.com/morluto/rea/blob/main/CONTRIBUTING.md#contribution-scope) must be reviewed before integration; open questions are welcome here.
+        - label: I understand this repository's [contribution scope](https://github.com/gryszzz/reverse-engineer-everything/blob/main/CONTRIBUTING.md#contribution-scope) must be reviewed before integration; open questions are welcome here.
           required: true
         - label: This request does not include credentials, private samples, or sensitive target data.
           required: true

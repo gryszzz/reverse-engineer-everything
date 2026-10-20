@@ -481,17 +481,26 @@ records the supplied source closure in the session and successfully passes
 the drafted specification to the session verifier. The guided reconstruction
 prompt now describes this sequence.
 
-A local macOS arm64 run under supported Node 24.19.0 compiled both C programs
-with Apple clang 21, captured and compared them through the CLI, selected
-`overall` and `terminal` for two comparisons, and derived four finite claims.
-Verification returned terminal control `pass`, overall control `unknown`,
-and both counterexample claims `fail`. The draft and verifier each return
-their own Evidence IDs. This demonstrates evidence-to-specification-to-
-verification through public CLI and MCP surfaces. It does not automate
-hypothesis formation, select a search domain, generate candidates, or establish
-global equivalence. Function and artifact comparison schemas are supported by
-the derivation service, but were not exercised end to end with real providers
-in this investigation.
+An earlier macOS arm64 run under supported Node 24.19.0 compiled both C
+programs with Apple clang 21, captured and compared them through the CLI,
+selected `overall` and `terminal` for two comparisons, and derived four finite
+claims. Verification returned terminal control `pass`, overall control
+`unknown`, and both counterexample claims `fail`. This records the earlier
+four-claim experiment; it is not the claim count of the current checked-in
+harness. The draft and verifier each return their own Evidence IDs. This
+demonstrates evidence-to-specification-to-verification through public CLI and
+MCP surfaces. It does not automate hypothesis formation, select a search
+domain, generate candidates, or establish global equivalence. Function and
+artifact comparison schemas are supported by the derivation service, but were
+not exercised end to end with real providers in this investigation.
+
+The current harness deliberately narrows this example to two terminal-only
+claims: the control passes, the counterexample fails, and process-level
+equivalence remains unclaimed. It now also writes
+`REE_RECONSTRUCTION_REPORT.md` beside the complete JSON Evidence so readers can
+review the outcome, artifact digests, provenance IDs, and scope limits without
+parsing the full records. This report is specific to the C fixture; a common
+report contract across all reconstruction workflows remains unimplemented.
 
 The shared verifier now uses a failed terminal comparison to suggest adjacent
 decimal values for argv positions that have identical plain-decimal strings in

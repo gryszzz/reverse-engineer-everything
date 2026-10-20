@@ -1,5 +1,5 @@
 name: Design discussion
-description: Discuss an REA architecture, provider, contract, or scope decision
+description: Discuss an REE/REA architecture, provider, contract, or scope decision
 title: "[Design] "
 labels:
   - enhancement
@@ -13,7 +13,7 @@ body:
         enough to start. Choose "Not sure yet" where needed; maintainers can help
         with technical details, alternatives, and verification.
 
-        Read the [contribution scope](https://github.com/morluto/rea/blob/main/CONTRIBUTING.md#contribution-scope).
+        Read this repository's [contribution scope](https://github.com/gryszzz/reverse-engineer-everything/blob/main/CONTRIBUTING.md#contribution-scope).
         Unresolved boundaries block integration, not opening a discussion.
 
   - type: checkboxes
@@ -23,7 +23,7 @@ body:
       options:
         - label: I searched the open and closed issues and pull requests for a related discussion.
           required: true
-        - label: I understand the [contribution scope](https://github.com/morluto/rea/blob/main/CONTRIBUTING.md#contribution-scope) must be reviewed before integration; open questions are welcome here.
+        - label: I understand this repository's [contribution scope](https://github.com/gryszzz/reverse-engineer-everything/blob/main/CONTRIBUTING.md#contribution-scope) must be reviewed before integration; open questions are welcome here.
           required: true
         - label: This discussion does not include credentials, private samples, or sensitive target data.
           required: true

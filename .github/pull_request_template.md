@@ -16,10 +16,10 @@ describe the use case and observable outcome. -->
 
 ## Change and scope
 
-<!-- Explain the chosen approach, why it fits REA's architecture, and what is
+<!-- Explain the chosen approach, why it fits REE or the inherited REA engine, and what is
 intentionally not included. -->
 
-Follow the [contribution scope](https://github.com/morluto/rea/blob/main/CONTRIBUTING.md#contribution-scope).
+Follow this repository's [contribution scope](https://github.com/gryszzz/reverse-engineer-everything/blob/main/CONTRIBUTING.md#contribution-scope).
 Unresolved scope, authority, side effects, or required verification block
 integration. Link the required maintainer scope decision for new providers or
 capabilities involving target execution, injection, mutation, or protection

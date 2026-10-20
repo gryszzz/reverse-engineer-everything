@@ -8,12 +8,12 @@ candidate rounds every product to a whole unit.
 The harness first declares a finite input range and a hypothesis about
 half-unit rounding. It enumerates only inputs matching that hypothesis, finds
 a counterexample, then asks REA to capture and compare an agreeing integer
-control and the discovered counterexample. It verifies that a terminal-only
-control claim passes, the control's overall claim remains unknown, and both
-counterexample claims fail. It uses the public CLI to draft four typed claims
-from the exact comparison Evidence IDs and the explicitly selected `terminal`
-and `overall` dimensions, then passes that specification to
-`verify-reconstruction`.
+control and the discovered counterexample. The current workflow drafts two
+typed claims from the exact comparison Evidence IDs, selecting only the
+`terminal` dimension. The control claim passes and the counterexample claim
+fails; the process-level `overall` comparison remains unknown and is not
+included as a claim. This keeps the reconstruction statement within the
+observed terminal behavior.
 
 Run after building the checkout with its pinned Node toolchain:
 
@@ -23,14 +23,19 @@ node scripts/verify/reconstruction/c-process-probe.mjs /tmp/ree-c-investigation
 ```
 
 The output directory must be new. It contains scenarios, complete capture and
-comparison Evidence, stderr progress logs, and a summary with source and binary
-digests, the declared search domain, selected input, draft specification
-Evidence, verifier Evidence, comparison IDs, and claim statuses. Its overall
-verification result is expected to be `fail` because the
+comparison Evidence, stderr progress logs, a machine-readable summary, and
+`REE_RECONSTRUCTION_REPORT.md`. The report presents the observed control and
+counterexample, claim statuses, Evidence IDs, source and binary digests, and
+limits in a reviewable format. Its overall verification result is expected to
+be `fail` because the
 candidate is deliberately incorrect; the harness exits successfully only when
-the terminal and overall counterexample claims fail and the control statuses
-match expectations. The macOS smoke workflow retains this output as a
+the terminal counterexample claim fails and the control claim passes as
+expected. The macOS smoke workflow retains this output as a
 short-lived CI artifact.
+
+The report is specific to this fixture. It demonstrates a readable projection
+over existing reconstruction Evidence; it does not establish a shared report
+contract for every provider or reconstruction workflow.
 
 The normal command never executes a verifier recommendation. To explicitly
 approve one bounded follow-up against the freshly built project-owned C
