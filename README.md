@@ -91,7 +91,7 @@ node ree.mjs analyze /absolute/path/to/app \
 cat "$OUT/REE_EVIDENCE_REPORT.md"
 ```
 
-`inspect` is intake only: it classifies the target and prints the route and prerequisites without analyzing it. For this JavaScript/Electron route, `analyze` parses source and package files as data; it does not launch the target. The report retains the question, shows up to three matching relationships for each of at most five literal search terms, and provides exact commands to inspect more matches and their recorded source locations. Each preview includes the relationship state, confidence, authority, and edge ID. This guides Evidence review; it does not automatically interpret or answer arbitrary questions.
+`inspect` is intake only: it classifies the target and prints the route and prerequisites without analyzing it. For this JavaScript/Electron route, `analyze` parses source and package files as data; it does not launch the target. The report retains the question, shows up to three matching relationships in each of the application and semantic graphs for each of at most five literal search terms, and provides exact commands to inspect more matches and their recorded source locations. Each preview includes provenance and an edge or relation ID. This guides Evidence review; it does not automatically interpret or answer arbitrary questions.
 
 A matching relationship is a lead, not proof that a path executed. No match means no recorded relationship matched that text; it does not establish that a feature or behavior is absent. The report also lists coverage, limitations, and unknowns. This route does not capture runtime observations or verify a reconstruction claim.
 
@@ -107,17 +107,18 @@ Choose a **new output directory** outside both the target and this checkout, wit
 | `view-evidence.json`     | Engine-produced summary linked to the parent Evidence                      |
 | `evidence.json`          | Complete retained analysis record for deeper inspection                    |
 
-Browse recorded JavaScript relationships with the existing Evidence Explorer:
+Browse recorded JavaScript relationships with the existing Evidence Explorer. The default view is the structural application graph; add `--semantic` to search the saved static syntax relationships separately:
 
 ```sh
 node rel/evidence-explorer.mjs "$OUT/evidence.json" --limit 12
 node rel/evidence-explorer.mjs "$OUT/evidence.json" --find settings --json
+node rel/evidence-explorer.mjs "$OUT/evidence.json" --semantic --find menu --limit 20
 node rel/evidence-explorer.mjs "$OUT/evidence.json" --dot
 ```
 
 The question-specific commands are copied into `REE_EVIDENCE_REPORT.md`. Run them from the checkout root, replacing `$OUT` if needed. They search the saved graph without rerunning analysis.
 
-The explorer is a local CLI projection over saved application graphs, with a 64 MiB input limit. It preserves source links and uncertainty; it does not independently revalidate Evidence digests. For larger records, start with the report or the engine's bounded analysis views. See [Evidence Explorer](rel/EVIDENCE_EXPLORER.md).
+The explorer is a local CLI projection over saved Evidence, with a 64 MiB input limit. Its semantic search matches relation labels, endpoint labels, and recorded relationship metadata by case-insensitive whole words, complete identifiers, and camel-case segments; it does not search source text or every literal value. JSON views report per-family unknown counts while the complete Evidence file retains the full unknown IDs. Both views preserve source links and uncertainty, and neither independently revalidates Evidence digests. DOT export currently represents the application graph. For larger records, start with the report or the engine's bounded analysis views. See [Evidence Explorer](rel/EVIDENCE_EXPLORER.md).
 
 </details>
 
@@ -282,7 +283,7 @@ The status command checks local configuration and compiled files; it does not pr
 
 ## Status and readiness
 
-REE currently provides a bounded, question-guided static JavaScript/Electron entry point over a larger engine with route-specific requirements. Its report proposes literal searches through retained graph Evidence; a person or agent still interprets the matching source and static results. A complete answer grounded in source locations, direct runtime verification, and dependable resumption remain future work. See the [product-readiness plan](docs/ree-product-readiness.md), [reconstruction report contract](docs/reconstruction-reports.md), [independent distribution readiness assessment](docs/independent-distribution.md), and [contributor opportunities](docs/contributor-opportunities.md).
+REE currently provides a bounded, question-guided static JavaScript/Electron entry point over a larger engine with route-specific requirements. Its report proposes term searches through retained graph Evidence; a person or agent still interprets the matching source and static results. A complete answer grounded in source locations, direct runtime verification, and dependable resumption remain future work. See the [verified ZoCo mobile-navigation investigation](docs/ree-zoco-static-investigation.md), [product-readiness plan](docs/ree-product-readiness.md), [reconstruction report contract](docs/reconstruction-reports.md), [independent distribution readiness assessment](docs/independent-distribution.md), and [contributor opportunities](docs/contributor-opportunities.md).
 
 | Check                        | What it establishes                                              |
 | ---------------------------- | ---------------------------------------------------------------- |

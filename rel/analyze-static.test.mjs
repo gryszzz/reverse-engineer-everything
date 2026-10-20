@@ -30,6 +30,13 @@ writeFileSync(
   'import { answer } from "./helper.mjs";\nexport { answer };\n',
 );
 writeFileSync(join(fixture, "helper.mjs"), "export const answer = 42;\n");
+writeFileSync(
+  join(fixture, "script.js"),
+  "const menuButton = document.querySelector('.menu-btn');\n" +
+    "menuButton?.addEventListener('click', () => {\n" +
+    "  menuButton.setAttribute('aria-expanded', 'true');\n" +
+    "});\n",
+);
 const sourceFile = join(fixture, "example.mjs");
 const webCapture = join(home, "test.har");
 writeFileSync(webCapture, "{}");
@@ -122,7 +129,7 @@ test("plain-English report does not confuse static data with runtime proof", () 
   assert.match(report, /does not prove runtime behavior/);
   assert.match(report, /Source maps unavailable/);
   assert.match(report, /--find 'search'/u);
-  assert.match(report, /No match means no recorded relationship matched/u);
+  assert.match(report, /No match in either view means/u);
   assert.match(report, /did not launch the target/u);
   assert.match(report, /does not show that the feature or behavior is absent/u);
   assert.match(report, /No automatic Evidence preview was available/u);
@@ -170,6 +177,59 @@ test("report exposes bounded literal Evidence matches with provenance and limits
   assert.match(report, /edge `edge_test`/u);
   assert.match(report, /Additional matches are available/u);
   assert.match(report, /not semantic answers or proof of runtime execution/u);
+  assert.match(report, /No semantic-graph preview was recorded/u);
+});
+
+test("question report shows structural misses beside semantic source-location leads", () => {
+  const report = investigationReport({
+    input_path: fixture,
+    question: "How does the menu open?",
+    evidence_id: "ev_test",
+    artifact_sha256: "a".repeat(64),
+    application_graph_id: "jag_test",
+    counts: { nodes: 2, edges: 0 },
+    relationships: {},
+    node_kinds: {},
+    limitations: [],
+    question_evidence_preview: {
+      status: "searched",
+      queries: [
+        {
+          term: "menu",
+          matching: 0,
+          displayed: 0,
+          truncated: false,
+          edges: [],
+          semantic_status: "searched",
+          semantic_matching: 3,
+          semantic_displayed: 1,
+          semantic_truncated: true,
+          semantic_relations: [
+            {
+              relation_id: "sem_rel_1",
+              relation: "captures",
+              source: "menuButton",
+              target: "click handler",
+              location:
+                '{"kind":"source-range","source":"script.js","start":{"line":7,"column":0}}',
+              resolution: "resolved",
+              evidence_context_id: "sem_ctx_1",
+              state: "inferred",
+              confidence: "high",
+              authority: "static-relationship-inference",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  assert.match(report, /No application-graph relationship matched/u);
+  assert.match(report, /3 recorded relationships matched; showing 1/u);
+  assert.match(report, /`menuButton` --\[captures\]--> `click handler`/u);
+  assert.match(report, /`script\.js:7`/u);
+  assert.match(report, /--semantic --find 'menu'/u);
+  assert.match(report, /relation `sem_rel_1`, context `sem_ctx_1`/u);
+  assert.match(report, /not semantic answers or proof of runtime execution/u);
 });
 
 test("large Evidence skips automatic previews without losing saved Evidence", () => {
@@ -193,6 +253,8 @@ test("large Evidence skips automatic previews without losing saved Evidence", ()
   assert.match(report, /Automatic preview skipped/u);
   assert.match(report, /Use REA's bounded analysis views/u);
   assert.match(report, /exceeds the local explorer limit/u);
+  assert.match(report, /saved Evidence file exceeds the local explorer limit/u);
+  assert.doesNotMatch(report, /node rel\/evidence-explorer\.mjs .*--find/u);
 });
 
 test("report keeps coverage compact and avoids repeating limitations as unknowns", () => {
@@ -301,7 +363,7 @@ test("real REE command retains complete Evidence once and reports the authentica
       "--out",
       output,
       "--question",
-      "How does example import helper.mjs?",
+      "How does example import helper.mjs and update menuButton?",
     ],
     { stdio: "pipe" },
   );
@@ -335,6 +397,8 @@ test("real REE command retains complete Evidence once and reports the authentica
     "example",
     "import",
     "helper.mjs",
+    "update",
+    "menubutton",
   ]);
   assert.equal(summary.question_evidence_preview.status, "searched");
   const importMatches = summary.question_evidence_preview.queries.find(
@@ -349,8 +413,28 @@ test("real REE command retains complete Evidence once and reports the authentica
   );
   assert.ok(helperImport, "The bounded preview should show the helper import");
   assert.match(helperImport.location, /example\.mjs/);
+  const menuPreview = summary.question_evidence_preview.queries.find(
+    (query) => query.term === "menubutton",
+  );
+  assert.equal(menuPreview.matching, 0);
+  assert.equal(menuPreview.semantic_status, "searched");
+  assert.ok(menuPreview.semantic_matching >= 1);
+  assert.ok(
+    menuPreview.semantic_relations.some(
+      (relation) =>
+        relation.source === "menuButton" || relation.target === "menuButton",
+    ),
+    "The question preview should expose semantic relationships to the named binding",
+  );
+  assert.ok(
+    menuPreview.semantic_relations.some((relation) =>
+      relation.location?.includes("script.js"),
+    ),
+  );
   const markdown = readFileSync(join(output, "REE_EVIDENCE_REPORT.md"), "utf8");
   assert.match(markdown, /--find 'helper\.mjs'/u);
+  assert.match(markdown, /--semantic --find 'menubutton'/u);
+  assert.match(markdown, /Semantic graph: \d+ recorded relationships matched/u);
   assert.match(markdown, /did not launch the target/u);
   const explored = JSON.parse(
     execFileSync(
@@ -387,6 +471,28 @@ test("real REE command retains complete Evidence once and reports the authentica
   assert.equal(imported.authority, rawEdge.evidence.authority);
   assert.equal(imported.state, rawEdge.evidence.state);
   assert.equal(imported.confidence, rawEdge.evidence.confidence);
+  const semantic = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        join(repository, "rel/evidence-explorer.mjs"),
+        join(output, "evidence.json"),
+        "--semantic",
+        "--find",
+        "menubutton",
+        "--json",
+      ],
+      { encoding: "utf8" },
+    ),
+  );
+  assert.ok(semantic.matching >= 1);
+  assert.ok(
+    semantic.relations.some(
+      (relation) =>
+        relation.source.label === "menuButton" ||
+        relation.target.label === "menuButton",
+    ),
+  );
   const original = readFileSync(join(output, "evidence.json"), "utf8");
   assert.throws(
     () =>

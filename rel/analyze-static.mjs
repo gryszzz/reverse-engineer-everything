@@ -22,6 +22,7 @@ import {
 import { fileURLToPath } from "node:url";
 import { classifyTarget } from "./intake.mjs";
 import {
+  createSemanticEvidenceSearcher,
   exploreEvidence,
   MAX_EVIDENCE_FILE_BYTES,
 } from "./evidence-explorer.mjs";
@@ -197,14 +198,26 @@ const questionEvidencePreviews = (evidencePath, question) => {
       status: "skipped-evidence-exceeds-explorer-limit",
       evidence_bytes: evidenceSize,
       max_evidence_bytes: MAX_EVIDENCE_FILE_BYTES,
-      queries: terms.map((term) => ({ term, matching: null, edges: [] })),
+      queries: terms.map((term) => ({
+        term,
+        matching: null,
+        edges: [],
+        semantic_status: "skipped",
+        semantic_matching: null,
+        semantic_relations: [],
+      })),
     };
   const evidence = JSON.parse(readFileSync(evidencePath, "utf8"));
+  const searchSemanticEvidence = createSemanticEvidenceSearcher(evidence);
   return {
     status: "searched",
     evidence_bytes: evidenceSize,
     queries: terms.map((term) => {
       const result = exploreEvidence(evidence, { find: term, limit: 3 });
+      const semantic = searchSemanticEvidence({
+        find: term,
+        limit: 3,
+      });
       return {
         term,
         matching: result.matching,
@@ -219,6 +232,26 @@ const questionEvidencePreviews = (evidencePath, question) => {
           state: edge.state,
           confidence: edge.confidence,
           authority: edge.authority,
+        })),
+        semantic_status:
+          semantic.status === "semantic-graph-unavailable"
+            ? "unavailable"
+            : "searched",
+        semantic_graph_id: semantic.semantic_graph_id,
+        semantic_matching: semantic.matching,
+        semantic_displayed: semantic.displayed,
+        semantic_truncated: semantic.truncated,
+        semantic_relations: semantic.relations.map((relation) => ({
+          relation_id: relation.relation_id,
+          relation: relation.relation,
+          source: relation.source.label,
+          target: relation.target.label,
+          location: relation.location,
+          resolution: relation.resolution,
+          evidence_context_id: relation.evidence_context_id,
+          state: relation.state,
+          confidence: relation.confidence,
+          authority: relation.authority,
         })),
       };
     }),
@@ -255,25 +288,64 @@ const questionEvidenceReport = (preview) => {
   const lines = [];
   for (const query of preview.queries) {
     lines.push(
-      `### ${inlineCode(query.term)} — ${query.matching} recorded relationships matched; showing ${query.displayed}.`,
+      `### ${inlineCode(query.term)} — ${query.matching} recorded relationships matched; showing ${query.displayed} in the application graph.`,
       "",
     );
     if (query.matching === 0) {
       lines.push(
-        "No recorded relationship matched this text. That does not show that the feature or behavior is absent.",
+        "No application-graph relationship matched this text. That does not show that the feature or behavior is absent.",
         "",
       );
-      continue;
+    } else {
+      for (const edge of query.edges) {
+        lines.push(
+          `- ${inlineCode(edge.source)} --[${safe(edge.relation)}]--> ${inlineCode(edge.target)}; ${inlineCode(readableLocation(edge.location))}; state ${inlineCode(edge.state)}, confidence ${inlineCode(edge.confidence)}, authority ${inlineCode(edge.authority)}; edge ${inlineCode(edge.edge_id)}.`,
+        );
+      }
+      if (query.truncated)
+        lines.push(
+          "- Additional matches are available in the application graph with: " +
+            inlineCode(
+              `node rel/evidence-explorer.mjs "$OUT/evidence.json" --find '${safe(query.term)}' --limit 20`,
+            ) +
+            ".",
+        );
     }
-    for (const edge of query.edges) {
+
+    if (query.semantic_status === "unavailable") {
       lines.push(
-        `- ${inlineCode(edge.source)} --[${safe(edge.relation)}]--> ${inlineCode(edge.target)}; ${inlineCode(readableLocation(edge.location))}; state ${inlineCode(edge.state)}, confidence ${inlineCode(edge.confidence)}, authority ${inlineCode(edge.authority)}; edge ${inlineCode(edge.edge_id)}.`,
+        "Semantic-graph relationships were not available in this Evidence record; this is unknown, not an empty result.",
       );
+    } else if (query.semantic_status === "skipped") {
+      lines.push(
+        "Semantic-graph search was skipped with the oversized Evidence preview.",
+      );
+    } else if (query.semantic_status === "searched") {
+      lines.push(
+        `Semantic graph: ${query.semantic_matching} recorded relationships matched; showing ${query.semantic_displayed}.`,
+      );
+      if (query.semantic_matching === 0) {
+        lines.push(
+          "No semantic-graph relationship matched this text. This does not establish that the source lacks the behavior.",
+        );
+      } else {
+        for (const relation of query.semantic_relations) {
+          lines.push(
+            `- ${inlineCode(relation.source)} --[${safe(relation.relation)}]--> ${inlineCode(relation.target)}; ${inlineCode(readableLocation(relation.location))}; resolution ${inlineCode(relation.resolution)}, state ${inlineCode(relation.state)}, confidence ${inlineCode(relation.confidence)}, authority ${inlineCode(relation.authority)}; relation ${inlineCode(relation.relation_id)}, context ${inlineCode(relation.evidence_context_id)}.`,
+          );
+        }
+        if (query.semantic_truncated)
+          lines.push(
+            "- Additional semantic-graph matches are available with: " +
+              inlineCode(
+                `node rel/evidence-explorer.mjs "$OUT/evidence.json" --semantic --find '${safe(query.term)}' --limit 20`,
+              ) +
+              ".",
+          );
+      }
+    } else {
+      lines.push("No semantic-graph preview was recorded in this summary.");
     }
-    if (query.truncated)
-      lines.push(
-        `- Additional matches are available with the exact \`--find '${safe(query.term)}'\` command above.`,
-      );
     lines.push("");
   }
   return lines;
@@ -333,8 +405,8 @@ export function investigationReport(record) {
       "- No additional unknown descriptions beyond the listed limitations. Check coverage and the retained Evidence before treating a behavior as understood.",
     ),
     "",
-    "## Literal Evidence matches",
-    "The bounded previews below run the Evidence Explorer's case-insensitive text filter over saved static relationships. They are search results, not semantic answers or proof of runtime execution.",
+    "## Question-led Evidence search",
+    "The bounded previews search saved application-graph and semantic-graph relationships separately. They are term-based navigation hints, not semantic answers or proof of runtime execution; semantic relations do not expose every source literal.",
     "",
     ...questionEvidenceReport(
       record.question_evidence_preview ?? {

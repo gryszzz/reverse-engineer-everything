@@ -107,17 +107,20 @@ export function questionEvidenceSearchGuide(
 ) {
   const terms = questionSearchTerms(question);
   const commands = terms.length
-    ? terms.map(
-        (term) =>
-          `node rel/evidence-explorer.mjs "$OUT/evidence.json" --find '${term}' --limit 20`,
-      )
-    : ['node rel/evidence-explorer.mjs "$OUT/evidence.json" --limit 12'];
+    ? terms.flatMap((term) => [
+        `node rel/evidence-explorer.mjs "$OUT/evidence.json" --find '${term}' --limit 20`,
+        `node rel/evidence-explorer.mjs "$OUT/evidence.json" --semantic --find '${term}' --limit 20`,
+      ])
+    : [
+        'node rel/evidence-explorer.mjs "$OUT/evidence.json" --limit 12',
+        'node rel/evidence-explorer.mjs "$OUT/evidence.json" --semantic --limit 12',
+      ];
   return {
     terms,
     markdown: [
       "## Follow the question into saved Evidence",
       "",
-      "These are literal, case-insensitive searches of recorded JavaScript graph relationships. They are navigation hints, not an automatic interpretation of the question.",
+      "These commands search the saved application graph and semantic graph separately. Searches are literal and case-insensitive; they are navigation hints, not an automatic interpretation of the question.",
       ...(terms.length
         ? [
             "",
@@ -135,7 +138,7 @@ export function questionEvidenceSearchGuide(
         : commands),
       "```",
       "",
-      "A matching relationship is a lead to inspect with its saved source location and Evidence. No match means no recorded relationship matched that text; it does not show that the feature or behavior is absent. If results are truncated, narrow the term or raise the limit to at most 40. The explorer accepts Evidence files up to 64 MiB.",
+      "A matching relationship is a lead to inspect with its saved source location and Evidence. Application-graph results describe artifact structure; semantic-graph results describe static syntax relationships. No match in either view means only that no recorded relationship in that view matched the text; it does not show that the feature or behavior is absent. Semantic searches do not search source text or every literal value. If results are truncated, narrow the term or raise the limit to at most 40. The explorer accepts Evidence files up to 64 MiB.",
       "",
       "## Verification boundary",
       "",

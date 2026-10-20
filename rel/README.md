@@ -36,10 +36,14 @@ report retain the parent Evidence ID, graph identities, counts, coverage and
 unknowns. The report no longer loads or duplicates the complete graph. Large
 analyses still require memory for the engine and disk for full Evidence.
 
-Use [Evidence Explorer](EVIDENCE_EXPLORER.md) to follow recorded relationships,
-or the engine's `inspect-analysis-view` with an `evidence-file` source for module
-pages and detailed module views. Saved-file views validate the full record and
-remain subject to the engine's memory limits.
+Use [Evidence Explorer](EVIDENCE_EXPLORER.md) to follow recorded relationships.
+Its default view searches the structural application graph; `--semantic`
+searches the separate static syntax graph for source-located leads. Neither view
+interprets arbitrary questions or proves runtime behavior. Semantic JSON output
+summarizes per-family unknown counts; the complete `evidence.json` keeps all
+unknown IDs. For module pages and detailed module views, use the engine's
+`inspect-analysis-view` with an `evidence-file` source. Saved-file views
+validate the full record and remain subject to the engine's memory limits.
 
 See [the fork's investigation architecture](../docs/fork-investigation-workflows.md)
 for the existing engine connections, measured refinements and unresolved limits.
