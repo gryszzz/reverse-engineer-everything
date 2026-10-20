@@ -267,6 +267,15 @@ export function classifyTarget(raw) {
 }
 
 export function renderPlan(plan, question = null) {
+  const nextStep =
+    plan.kind === "javascript"
+      ? [
+          "If you own or are authorized to inspect this target, run:",
+          'node ree.mjs analyze TARGET --authorized --out NEW_DIR --question "YOUR QUESTION"',
+          "Replace TARGET with the path above, choose a new output directory outside it and this checkout, and keep your investigation question.",
+          "This route analyzes JavaScript/Electron source statically; it does not launch the target.",
+        ].join("\n")
+      : plan.next;
   const lines = [
     "REE  /  Investigation intake",
     `Target: ${plan.target}`,
@@ -281,7 +290,7 @@ export function renderPlan(plan, question = null) {
     plan.meaning,
     "",
     "Next step:",
-    plan.next,
+    nextStep,
     `Guide: ${plan.documentation}`,
     "Requirements / limitations:",
     ...plan.needs.map((need) => `- ${need}`),

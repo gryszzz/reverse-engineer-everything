@@ -87,6 +87,9 @@ test("shows recorded graph links without claiming observed execution", () => {
 
 test("supports bounded investigation filters with explicit truncation", () => {
   assert.equal(exploreEvidence(saved(), { find: "search.mjs" }).matching, 1);
+  assert.equal(exploreEvidence(saved(), { find: "inferred" }).matching, 1);
+  assert.equal(exploreEvidence(saved(), { find: "evidence" }).matching, 0);
+  assert.equal(exploreEvidence(saved(), { find: "confidence" }).matching, 0);
   assert.equal(exploreEvidence(saved(), { find: "absent" }).matching, 0);
   const r = exploreEvidence(saved(), { limit: 1 });
   assert.equal(r.displayed, 1);

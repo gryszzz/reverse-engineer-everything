@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { summarizeEvidence } from "./evidence-summary.mjs";
 
-const MAX_FILE = 64 * 1024 * 1024;
+export const MAX_EVIDENCE_FILE_BYTES = 64 * 1024 * 1024;
 const isObject = (v) =>
   v !== null && typeof v === "object" && !Array.isArray(v);
 const string = (v) =>
@@ -56,6 +56,7 @@ export function exploreEvidence(record, { find = "", limit = 12 } = {}) {
     };
   };
   const edges = [];
+  const normalizedFind = find.trim().toLowerCase();
   let matching = 0;
   for (const edge of graph.edges) {
     if (!isObject(edge)) continue;
@@ -77,15 +78,30 @@ export function exploreEvidence(record, { find = "", limit = 12 } = {}) {
       confidence: string(edge.evidence.confidence),
       authority: string(edge.evidence.authority),
       coverage: edge.evidence.coverage ?? null,
-      limitations: edge.evidence.limitations ?? [],
+      limitations: Array.isArray(edge.evidence.limitations)
+        ? edge.evidence.limitations.filter((item) => typeof item === "string")
+        : [],
     };
-    if (
-      find.trim() &&
-      !JSON.stringify({ ...entry, raw: edge })
-        .toLowerCase()
-        .includes(find.trim().toLowerCase())
-    )
-      continue;
+    if (normalizedFind) {
+      const searchableText = [
+        entry.edge_id,
+        entry.relation,
+        ...entry.source.labels,
+        entry.source.id,
+        ...entry.target.labels,
+        entry.target.id,
+        entry.location,
+        entry.state,
+        entry.confidence,
+        entry.authority,
+        entry.coverage === null ? null : JSON.stringify(entry.coverage),
+        ...entry.limitations,
+      ]
+        .filter((value) => typeof value === "string")
+        .join("\n")
+        .toLowerCase();
+      if (!searchableText.includes(normalizedFind)) continue;
+    }
     matching += 1;
     if (edges.length < limit) edges.push(entry);
   }
@@ -187,7 +203,7 @@ export function readEvidence(path, options) {
     throw new Error("Supply a saved evidence.json path.");
   const file = resolve(path);
   const meta = statSync(file);
-  if (!meta.isFile() || meta.size > MAX_FILE)
+  if (!meta.isFile() || meta.size > MAX_EVIDENCE_FILE_BYTES)
     throw new Error("Evidence must be a regular JSON file of at most 64 MiB.");
   return exploreEvidence(JSON.parse(readFileSync(file, "utf8")), options);
 }

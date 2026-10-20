@@ -12,15 +12,15 @@ part of the engine.
 
 ## Current position
 
-| Area                          | Present implementation                                                                          | Remaining readiness work                                                                                         |
-| ----------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Beginner entry point          | `ree.mjs doctor`, `types`, `inspect`, lab, and static JavaScript/Electron analysis              | Guide users through the deeper routes already exposed by REA                                                     |
-| Static application analysis   | Saved Evidence, compact views, readable reports, feature traces and comparisons                 | Verify a complete beginner journey on representative real applications                                           |
-| Native and specialist formats | REA provider contracts, CLI/MCP tools, format-specific guides and verification lanes            | Verify tool availability and selected provider operation on each claimed platform                                |
-| Runtime evidence              | Existing process capture and observation workflows with ownership and cleanup rules             | Present target scope, prerequisites, capture results and remaining unknowns coherently                           |
-| Hypothesis testing            | Finite prediction-table planner; CLI/MCP selection and reassessment added in the current change | Connect the user's selected question, capture outcome and next probe through a documented investigation flow     |
-| Reconstruction                | Finite claims, obligations, comparisons and bounded experimental synthesis                      | Make scope and failed or unknown claims understandable in the investigation report                               |
-| Distribution                  | Source checkout and local build; inherited release workflow is gated to `morluto/rea`           | Select distinct npm/MCP identities, isolate install/update ownership, and qualify a clean package before release |
+| Area                          | Present implementation                                                                                          | Remaining readiness work                                                                                         |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Beginner entry point          | `ree.mjs doctor`, `types`, `inspect`, optional teaching lab, and static JavaScript/Electron analysis            | Validate the first-use route on a permitted application and make route hand-offs easier to follow                |
+| Static application analysis   | Saved Evidence, compact views, readable reports, bounded question-term previews, feature traces and comparisons | Turn lexical leads into source-grounded findings without implying a question was answered automatically          |
+| Native and specialist formats | REA provider contracts, CLI/MCP tools, format-specific guides and verification lanes                            | Verify tool availability and selected provider operation on each claimed platform                                |
+| Runtime evidence              | Existing process capture and observation workflows with ownership and cleanup rules                             | Present target scope, prerequisites, capture results and remaining unknowns coherently                           |
+| Hypothesis testing            | Finite prediction-table planner, CLI/MCP selection and reassessment, and bounded process probe workflows        | Connect the user's selected question, capture outcome and next probe through a documented investigation flow     |
+| Reconstruction                | Finite claims, obligations, comparisons and bounded experimental synthesis                                      | Make scope and failed or unknown claims understandable in the investigation report                               |
+| Distribution                  | Source checkout and local build; inherited release workflow is gated to `morluto/rea`                           | Select distinct npm/MCP identities, isolate install/update ownership, and qualify a clean package before release |
 
 See [the engineering map](ree-engineering-map.md),
 [Simple Mode](../rel/README.md), and [testing guidance](testing.md) for the
@@ -49,9 +49,60 @@ release qualification.
   execution environment with those restrictions lifted.
 
 These checks do not establish external native-provider readiness, macOS/Windows
-operation, complete reconstruction, or a passing full CI matrix. The planner
-surface is implemented locally; an automatic guided investigation is still a
-proposed product milestone. This snapshot records local verification; consult GitHub Actions for subsequent remote checks.
+operation, complete reconstruction, or a passing full CI matrix. The hypothesis
+planner and its CLI/MCP surfaces are implemented; question-led static Evidence
+search guidance is a separate, lexical convenience and does not perform semantic
+question answering. Consult GitHub Actions for subsequent remote qualification.
+
+## Guided static route check — 2026-10-20
+
+The first-user route now connects preview intake, explicit static authorization,
+JavaScript/Electron analysis, retained Evidence, report limitations, and
+question-term previews through the existing Evidence Explorer. Search terms are
+bounded to five and report previews to three relationships per term. Each
+preview retains its edge ID, source/target labels, source location, state,
+confidence, and authority. A no-match result is explicitly not evidence of
+absence; more matches can be opened with the exact generated CLI commands.
+
+The route remains static-only: it does not launch the application, derive a
+behavioral specification, or verify a reconstruction. The source-owned first
+lab is the reproducible fixture. A second, permitted representative application
+is still required before this route can be called independently qualified. A
+checkout-owned project component can exercise the route but does not stand in
+for an external contributor's application.
+
+### Local verification details
+
+- Host: macOS arm64. Node 24.12.0 and npm 11.15.0 were available. Node is
+  within REA's supported range but is not the repository-pinned Node 24.18.0 /
+  npm 11.16.0 pair. Dependencies and the runtime build were already present;
+  this was not a clean-install test.
+- Forty-three focused Node tests passed across intake, static reporting, Evidence
+  Explorer, and the owned report fixture.
+- The owned first lab analyzed seven JavaScript files with zero parse failures,
+  49 graph nodes, and 67 edges. Its separate behavior verifier passed 11 checks.
+  The suggested `search` lookup returned seven recorded relationships, including
+  the `cli.mjs` to `search.mjs` import at `cli.mjs:2`.
+- A second local analysis of REE's `rel/` source subtree parsed 13 JavaScript
+  files with zero parse failures and returned 176 nodes and 259 edges. Its
+  question suggested `evidence`; the saved-graph search found 55 relationships
+  and the report previewed three with source lines, edge IDs, and Evidence
+  metadata. This is a broad lexical lead, not an answer. The run retained 2,527
+  semantic graph unknowns. It exercises REE code but is not an external
+  representative application.
+- On that 14,098,374-byte Evidence file, the complete static-analysis command
+  took 3.98 seconds wall time (4.86 user, 0.35 system). macOS `time -l` reported
+  335,478,784 bytes maximum RSS and 102,739,200 bytes peak memory footprint for
+  the timed command. One saved-graph search took 0.08 seconds wall time (0.07
+  user, 0.01 system), with 124,911,616 bytes maximum RSS and 97,004,032 bytes
+  peak memory footprint. These are single after-change measurements, not a
+  before/after comparison; process-family aggregation and agent token costs were
+  not independently measured.
+
+These runs confirm the owned end-to-end path and a larger in-repository source
+tree. They do not satisfy the permitted external-application criterion, test a
+clean install, establish behavior on Windows/Linux, or replace the latest hosted
+CI result for this revision.
 
 ## First usable release
 
@@ -61,10 +112,14 @@ its beginner-facing formats:
 1. Open a target and identify its actual artifact family, retaining ambiguity.
 2. Check prerequisites for the selected route and explain missing tools.
 3. Ask the user's investigation question and select static or runtime actions
-   explicitly. Reuse the existing analysis and capture authority boundaries.
+   explicitly. For JavaScript/Electron static analysis, derive literal search
+   hints into retained Evidence; select a separate capture route only when
+   runtime observations are needed and its authority is explicitly confirmed.
 4. Run the selected engine workflow with progress, cancellation, bounded
    resources and retained diagnostics.
 5. Show a concise explanation linked to files, locations and canonical Evidence.
+   Current question-term search hints are not yet an explanation and require a
+   person or agent to inspect matching source and Evidence.
 6. Offer useful next actions: follow a relationship, inspect an unresolved area,
    compare another version, or design a discriminating experiment.
 7. Save enough investigation state to resume without rerunning completed work.
@@ -112,11 +167,13 @@ useful action. An unknown format must not silently select an arbitrary provider.
 
 ## Delivery order
 
-1. Finish the current hypothesis planner and service regression checks.
-2. Select the first target family and host; verify the existing beginner journey
-   and record the usability failures before redesigning it.
-3. Design the smallest guided investigation flow that fixes those failures while
-   reusing REA's contracts, Evidence, views, comparisons and provider selection.
+1. Validate the question-guided static workflow on the owned fixture and a
+   permitted representative application, recording friction and actual
+   Evidence/source matches.
+2. Improve the source-grounded finding step while preserving the distinction
+   between search hits, static deductions, runtime observations, and unknowns.
+3. Reuse REA's contracts, Evidence, views, comparisons and provider selection
+   for the next bounded investigation route.
 4. Add dependable resumption and evidence navigation, with measured large-target
    behavior and failure recovery.
 5. Qualify additional artifact families one at a time against the same acceptance

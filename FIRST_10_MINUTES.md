@@ -1,6 +1,6 @@
 # Your first ten minutes with REE (Mac)
 
-You don't have to know Terminal, MCP, assembly, or JavaScript before starting. REE keeps the advanced REA engine and adds an explanation layer; this lesson uses a tiny sample so you can learn what genuine evidence means.
+This optional lesson is a safe way to learn what genuine evidence means before analyzing an application. REE also includes a real static JavaScript/Electron investigation route; after the lesson, continue with [the workbench quick start](README.md#get-started). You don't have to know MCP, assembly, or JavaScript to begin.
 
 ## Start the first lesson
 

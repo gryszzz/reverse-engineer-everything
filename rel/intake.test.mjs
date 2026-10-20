@@ -30,6 +30,9 @@ test("recognizes a local JavaScript project without executing anything", () => {
   assert.equal(r.kind, "javascript");
   assert.equal(r.input_type, "directory");
   assert.equal(r.capability, "static-supported");
+  const plan = renderPlan(r, "How does its configuration load?");
+  assert.match(plan, /ree\.mjs analyze TARGET --authorized --out NEW_DIR/u);
+  assert.match(plan, /does not launch the target/u);
 });
 test("recognizes JavaScript source file", () =>
   assert.equal(classifyTarget(join(root, "example.js")).kind, "javascript"));

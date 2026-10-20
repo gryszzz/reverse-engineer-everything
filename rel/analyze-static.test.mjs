@@ -20,6 +20,7 @@ import {
   repository,
 } from "./analyze-static.mjs";
 import { summarizeAnalysisView } from "./evidence-summary.mjs";
+import { questionSearchTerms } from "./question-guidance.mjs";
 
 const home = mkdtempSync(join(tmpdir(), "rel-generic-test-"));
 const fixture = join(home, "owned-fixture");
@@ -120,6 +121,152 @@ test("plain-English report does not confuse static data with runtime proof", () 
   assert.match(report, /unknown/);
   assert.match(report, /does not prove runtime behavior/);
   assert.match(report, /Source maps unavailable/);
+  assert.match(report, /--find 'search'/u);
+  assert.match(report, /No match means no recorded relationship matched/u);
+  assert.match(report, /did not launch the target/u);
+  assert.match(report, /does not show that the feature or behavior is absent/u);
+  assert.match(report, /No automatic Evidence preview was available/u);
+});
+
+test("report exposes bounded literal Evidence matches with provenance and limits", () => {
+  const report = investigationReport({
+    input_path: fixture,
+    question: "How does search load?",
+    evidence_id: "ev_test",
+    artifact_sha256: "a".repeat(64),
+    application_graph_id: "jag_test",
+    counts: { nodes: 2, edges: 1 },
+    relationships: { imports: 1 },
+    node_kinds: { module: 2 },
+    limitations: [],
+    question_evidence_preview: {
+      status: "searched",
+      queries: [
+        {
+          term: "search",
+          matching: 4,
+          displayed: 1,
+          truncated: true,
+          edges: [
+            {
+              edge_id: "edge_test",
+              relation: "imports",
+              source: "entry.mjs",
+              target: "search.mjs",
+              location: '{"source":"entry.mjs","start":{"line":7,"column":0}}',
+              state: "inferred",
+              confidence: "high",
+              authority: "static-relationship-inference",
+            },
+          ],
+        },
+      ],
+    },
+  });
+  assert.match(report, /4 recorded relationships matched; showing 1/u);
+  assert.match(report, /`entry\.mjs` --\[imports\]--> `search\.mjs`/u);
+  assert.match(report, /`entry\.mjs:7`/u);
+  assert.match(report, /`static-relationship-inference`/u);
+  assert.match(report, /edge `edge_test`/u);
+  assert.match(report, /Additional matches are available/u);
+  assert.match(report, /not semantic answers or proof of runtime execution/u);
+});
+
+test("large Evidence skips automatic previews without losing saved Evidence", () => {
+  const report = investigationReport({
+    input_path: fixture,
+    question: "How does search work?",
+    evidence_id: "ev_test",
+    artifact_sha256: "a".repeat(64),
+    application_graph_id: "jag_test",
+    counts: { nodes: 1, edges: 0 },
+    relationships: {},
+    node_kinds: {},
+    limitations: [],
+    question_evidence_preview: {
+      status: "skipped-evidence-exceeds-explorer-limit",
+      evidence_bytes: 100,
+      max_evidence_bytes: 64,
+      queries: [],
+    },
+  });
+  assert.match(report, /Automatic preview skipped/u);
+  assert.match(report, /Use REA's bounded analysis views/u);
+  assert.match(report, /exceeds the local explorer limit/u);
+});
+
+test("report keeps coverage compact and avoids repeating limitations as unknowns", () => {
+  const record = {
+    input_path: "/tmp/fixture",
+    question: "How does behavior work?",
+    evidence_id: "ev_test",
+    artifact_sha256: "a".repeat(64),
+    application_graph_id: "jag_test",
+    graph_coverage: { status: "complete", truncated: false, omitted_count: 0 },
+    semantic_coverage: {
+      status: "unknown",
+      families: [{ unknown_count: 3 }],
+    },
+    counts: { nodes: 1, edges: 0 },
+    relationships: {},
+    node_kinds: {},
+    limitations: ["Known limitation"],
+    unknowns: ["Known limitation", "Unresolved path", "Unresolved path"],
+  };
+  const report = investigationReport(record);
+  assert.match(report, /Graph coverage: status complete; not truncated/u);
+  assert.match(
+    report,
+    /Semantic coverage: status unknown; 3 family-level unknowns/u,
+  );
+  assert.equal(report.split("Known limitation").length - 1, 1);
+  assert.equal(report.split("Unresolved path").length - 1, 1);
+  assert.doesNotMatch(report, /families.*unknown_count/u);
+});
+
+test("untrusted question text stays escaped in the Markdown report", () => {
+  const record = {
+    input_path: "/tmp/fixture",
+    question: "Read <script> [private](https://example.org)",
+    evidence_id: "ev_test",
+    artifact_sha256: "a".repeat(64),
+    application_graph_id: "jag_test",
+    counts: { nodes: 1, edges: 0 },
+    relationships: {},
+    node_kinds: {},
+    limitations: [],
+  };
+  const report = investigationReport(record);
+  assert.doesNotMatch(report, /<script>|\[private\]\(https:/u);
+  assert.match(report, /\\\[private\\\]/u);
+});
+
+test("question terms are bounded, deduplicated and safe to place in shell examples", () => {
+  assert.deepEqual(
+    questionSearchTerms(
+      "How does settings load settings? Is <script> used? Also config/path_name and preferences",
+    ),
+    ["settings", "load", "script", "used", "config/path_name"],
+  );
+  assert.deepEqual(questionSearchTerms("¿Dónde está café?"), [
+    "dónde",
+    "está",
+    "café",
+  ]);
+  assert.deepEqual(
+    questionSearchTerms(
+      "How does the static route present source Evidence to a newcomer?",
+    ),
+    ["evidence"],
+  );
+  assert.deepEqual(
+    questionSearchTerms(
+      "Which static relationships explain the source-owned search demo?",
+    ),
+    ["search"],
+  );
+  assert.deepEqual(questionSearchTerms(null), []);
+  assert.deepEqual(questionSearchTerms("a".repeat(161)), []);
 });
 
 test("Codex status command is informational and has no configuration side effects", () => {
@@ -146,7 +293,16 @@ test("real REE command retains complete Evidence once and reports the authentica
   const output = join(home, "real-analysis");
   execFileSync(
     process.execPath,
-    [cli, "analyze", fixture, "--authorized", "--out", output],
+    [
+      cli,
+      "analyze",
+      fixture,
+      "--authorized",
+      "--out",
+      output,
+      "--question",
+      "How does example import helper.mjs?",
+    ],
     { stdio: "pipe" },
   );
   const read = (name) => JSON.parse(readFileSync(join(output, name), "utf8"));
@@ -175,6 +331,27 @@ test("real REE command retains complete Evidence once and reports the authentica
   );
   assert.equal(existsSync(join(output, "summary-request.json")), false);
   assert.ok(Array.isArray(summary.unknowns));
+  assert.deepEqual(summary.question_search_terms, [
+    "example",
+    "import",
+    "helper.mjs",
+  ]);
+  assert.equal(summary.question_evidence_preview.status, "searched");
+  const importMatches = summary.question_evidence_preview.queries.find(
+    (query) => query.term === "import",
+  );
+  assert.ok(importMatches.matching >= 1);
+  const helperImport = importMatches.edges.find(
+    (edge) =>
+      edge.relation === "imports" &&
+      edge.source === "example.mjs" &&
+      edge.target === "helper.mjs",
+  );
+  assert.ok(helperImport, "The bounded preview should show the helper import");
+  assert.match(helperImport.location, /example\.mjs/);
+  const markdown = readFileSync(join(output, "REE_EVIDENCE_REPORT.md"), "utf8");
+  assert.match(markdown, /--find 'helper\.mjs'/u);
+  assert.match(markdown, /did not launch the target/u);
   const explored = JSON.parse(
     execFileSync(
       process.execPath,

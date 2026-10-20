@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { summarizeEvidence } from "../../rel/evidence-summary.mjs";
+import { questionEvidenceSearchGuide } from "../../rel/question-guidance.mjs";
 export { summarizeEvidence } from "../../rel/evidence-summary.mjs";
 
 const safeInline = (value) =>
@@ -44,6 +45,7 @@ export function markdownReport(summary) {
     "- No independent digest re-computation or full reconstruction-equivalence test was performed by this report script.",
     "- The graph is evidence of a single local sample, not evidence that the engine can reverse engineer every application.",
     "",
+    questionEvidenceSearchGuide(summary.question).markdown,
     "**Next question:** Can the saved Evidence trace `cli.mjs` importing `search.mjs` and `notes.mjs`, with exact source locations?",
     "",
   ];

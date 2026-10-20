@@ -2,6 +2,9 @@
 
 This repository welcomes contributions to the REE experience and to its inherited REA analysis engine. REE is the project and distribution identity; REA remains the engine name used by source paths, CLI/MCP contracts, and established workflows. Focused bug fixes, documentation improvements, tests, and reverse-engineering workflows are welcome. For large contract or architecture changes, explain the intended scope and link an issue in this repository.
 
+For scoped ways to help with onboarding, Evidence navigation, and cross-platform
+qualification, see [contributor opportunities](docs/contributor-opportunities.md).
+
 ## Choosing a contribution
 
 Explain the concrete problem, keep related corrections together, and report
