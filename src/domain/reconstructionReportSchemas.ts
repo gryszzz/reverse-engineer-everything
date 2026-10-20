@@ -167,9 +167,6 @@ export const reconstructionReportResultSchema = z.strictObject({
   verification_evidence: evidenceSchema,
 });
 
-export type ReconstructionReportRequest = z.infer<
-  typeof reconstructionReportRequestSchema
->;
 export type ReconstructionReport = z.infer<typeof reconstructionReportSchema>;
 export type ReconstructionReportResult = z.infer<
   typeof reconstructionReportResultSchema
