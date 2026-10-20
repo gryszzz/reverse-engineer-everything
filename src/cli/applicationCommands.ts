@@ -20,7 +20,9 @@ import { compareJavaScriptExportShapesInputSchema } from "../domain/javascript/j
 import { analysisInputErrorFromIssues } from "../domain/inputIssueProjection.js";
 import { reconstructionObligationLedgerInputSchema } from "../domain/reconstructionObligationLedgerSchemas.js";
 import { reconstructionVerificationRequestSchema } from "../domain/reconstructionVerificationSchemas.js";
+import { reconstructionReportRequestSchema } from "../domain/reconstructionReportSchemas.js";
 import { reconstructionSpecificationDerivationInputSchema } from "../domain/reconstructionSpecificationDerivationSchemas.js";
+import { renderReconstructionReportMarkdown } from "./reconstructionReportMarkdown.js";
 
 type CliInstance = ReturnType<typeof Cli.create>;
 
@@ -96,6 +98,7 @@ export const registerApplicationCommands = (
   });
   registerObligationLedgerCommand(cli, logger);
   registerReconstructionVerificationCommand(cli, logger);
+  registerReconstructionReportCommand(cli, logger);
   registerReconstructionSpecificationCommand(cli, logger);
   registerCoverageCommand(cli, logger);
   registerJsonCommand({
@@ -199,6 +202,33 @@ const registerReconstructionVerificationCommand = (
       const result = verifyReconstructionEvidence(input);
       return result.ok
         ? { ok: true, value: jsonValueSchema.parse(result.value.evidence) }
+        : result;
+    },
+  });
+
+const registerReconstructionReportCommand = (
+  cli: CliInstance,
+  logger: Logger,
+): void =>
+  registerJsonCommand({
+    cli,
+    logger,
+    name: CLI_COMMANDS.buildReconstructionReport,
+    description:
+      "Build a versioned JSON report and Markdown presentation from reconstruction Evidence",
+    inputSchema: reconstructionReportRequestSchema,
+    workflow: async (input) => {
+      const { buildReconstructionReport } =
+        await import("../application/ReconstructionReportService.js");
+      const result = buildReconstructionReport(input);
+      return result.ok
+        ? {
+            ok: true,
+            value: jsonValueSchema.parse({
+              ...result.value,
+              markdown: renderReconstructionReportMarkdown(result.value.report),
+            }),
+          }
         : result;
     },
   });

@@ -150,6 +150,7 @@ export const CLI_COMMANDS = Object.freeze({
   compareJavaScriptExportShapes: "compare-javascript-export-shapes",
   buildReconstructionObligationLedger: "build-reconstruction-obligation-ledger",
   verifyReconstruction: "verify-reconstruction",
+  buildReconstructionReport: "build-reconstruction-report",
   discriminateFiniteHypotheses: "discriminate-finite-hypotheses",
   deriveReconstructionSpecification: "derive-reconstruction-specification",
   evaluateReconstructionCoverage: "evaluate-reconstruction-coverage",

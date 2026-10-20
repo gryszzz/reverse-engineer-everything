@@ -237,7 +237,7 @@ The owned [C investigation fixture](experiments/ree-investigation-boundary/READM
 npm run verify:ree-investigation-boundary -- /tmp/ree-c-investigation
 ```
 
-This command builds the local runtime and runs the owned fixture; it requires macOS, Clang, and the repository dependencies. It searches a declared numeric domain for a rounding counterexample, then uses process capture, comparison, and reconstruction verification. The deliberately incorrect candidate is expected to receive a verifier `fail`; the command succeeds only when it records the expected control pass and counterexample failure. It writes a readable `REE_RECONSTRUCTION_REPORT.md` alongside the complete Evidence. A counterexample refutes the candidate for that case. Finding none in the chosen range does not prove behavior outside it, and this fixture report is not a general equivalence certificate.
+This command builds the local runtime and runs the owned fixture; it requires macOS, Clang, and the repository dependencies. It searches a declared numeric domain for a rounding counterexample, then uses process capture, comparison, and reconstruction verification. The deliberately incorrect candidate is expected to receive a verifier `fail`; the command succeeds only when it records the expected control pass and counterexample failure. It writes a versioned machine-readable report and a Markdown view from the same shared contract, alongside the complete Evidence. A counterexample refutes the candidate for that case. Finding none in the chosen range does not prove behavior outside it, and this fixture report is not a general equivalence certificate. See the [report contract and CLI usage](docs/reconstruction-reports.md).
 
 The same owned C fixture also has a staged source-blind expression experiment. It ranks a probe within a five-expression arithmetic grammar, requires separate digests to approve the probe and proposed patch, then evaluates the candidate against five terminal scenarios. Follow the [active hypothesis walkthrough](docs/cli.md#active-hypothesis-discrimination) for the commands, saved outputs, and scope limits. This is a bounded fixture experiment; the reference source remains in the repository, outside the proposer input boundary.
 
@@ -254,6 +254,7 @@ The beginner REE commands and the complete REA tools serve different levels of i
 | Select a finite hypothesis probe      | `discriminate-finite-hypotheses`      | `discriminate_finite_hypotheses`      |
 | Draft a reconstruction specification  | `derive-reconstruction-specification` | `derive_reconstruction_specification` |
 | Verify selected reconstruction claims | `verify-reconstruction`               | `verify_reconstruction`               |
+| Build a JSON and Markdown report      | `build-reconstruction-report`         | — (CLI presentation)                  |
 
 Each operation has its own inputs, Evidence requirements, and effects. Explore the built local CLI and [canonical MCP contracts](docs/mcp-contracts.md):
 
@@ -277,7 +278,7 @@ The status command checks local configuration and compiled files; it does not pr
 
 ## Status and readiness
 
-REE currently provides a working static JavaScript/Electron entry point over a larger engine with route-specific requirements. A complete guided investigation and dependable resumption across artifact families are next product milestones. See the [product-readiness plan](docs/ree-product-readiness.md) for acceptance criteria and recorded local verification.
+REE currently provides a working static JavaScript/Electron entry point over a larger engine with route-specific requirements. A complete guided investigation and dependable resumption across artifact families are next product milestones. See the [product-readiness plan](docs/ree-product-readiness.md) for acceptance criteria and recorded local verification, the [reconstruction report contract](docs/reconstruction-reports.md), and the [independent distribution readiness assessment](docs/independent-distribution.md).
 
 | Check                        | What it establishes                                              |
 | ---------------------------- | ---------------------------------------------------------------- |

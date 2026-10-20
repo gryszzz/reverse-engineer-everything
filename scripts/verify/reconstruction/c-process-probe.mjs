@@ -1588,79 +1588,68 @@ const summary = {
     : "The domain, half-unit probe rule, comparison Evidence, and dimensions included in the draft are human-selected. A terminal pass covers the selected captured scenario only; overall process behavior remains unknown when dimensions are unobserved.",
 };
 
-const claimCounts = Object.values(summary.claim_statuses).reduce(
-  (counts, status) => {
-    counts[status] = (counts[status] ?? 0) + 1;
-    return counts;
-  },
-  {},
-);
-const reportPath = join(outputRoot, "REE_RECONSTRUCTION_REPORT.md");
-const report = [
-  "# REE — bounded C reconstruction report",
-  "",
-  "> This report summarizes the repository-owned C rounding fixture. It is a",
-  "> readable view of this experiment's retained Evidence, not a general",
-  "> equivalence certificate.",
-  "",
-  "## Result",
-  "",
-  `**Verifier result: ${verificationResult.status.toUpperCase()}** — this fixture intentionally starts with an incorrect candidate, so the expected result is one matching control and one counterexample. The harness exits successfully when it observes those expected outcomes.`,
-  "",
-  `Declared claims: ${summary.derived_claim_count} (${claimCounts.pass ?? 0} passed, ${claimCounts.fail ?? 0} failed, ${claimCounts.unknown ?? 0} unknown).`,
-  "",
-  "## Captured terminal cases",
-  "",
-  "| Case | Input (unit price × quantity) | Reference output | Candidate output | Terminal claim |",
-  "| --- | --- | --- | --- | --- |",
-  `| Agreement control | ${control.unit_price} × ${control.quantity} | ${terminalOutput(controlPair.left)} | ${terminalOutput(controlPair.right)} | ${summary.claim_statuses["control.terminal"]} |`,
-  `| Discovered counterexample | ${summary.selected_probe.unit_price} × ${summary.selected_probe.quantity} | ${summary.selected_probe.authority_output} | ${summary.selected_probe.candidate_output} | ${summary.claim_statuses["counterexample.terminal"]} |`,
-  "",
-  "The candidate disagreed at the selected half-unit boundary. The planner's declared search range was 100–200 cents with quantities 1, 2, 3, and 10; the search and boundary rule are experiment inputs, not inferred universal behavior.",
-  "",
-  "## Evidence and artifact identity",
-  "",
-  `- Control comparison: \`${summary.comparison_evidence_ids.control}\``,
-  `- Counterexample comparison: \`${summary.comparison_evidence_ids.counterexample}\``,
-  `- Reconstruction specification: \`${summary.specification_evidence_id}\``,
-  `- Verification: \`${summary.verification_evidence_id}\``,
-  `- Reference source SHA-256: \`${summary.authority_source_sha256}\``,
-  `- Candidate source SHA-256: \`${summary.candidate_source_sha256}\``,
-  `- Reference binary SHA-256: \`${summary.authority_binary_sha256}\``,
-  `- Candidate binary SHA-256: \`${summary.candidate_binary_sha256}\``,
-  `- Environment: ${summary.compiler}; Node ${summary.node}; ${summary.platform}/${summary.architecture}.`,
-  "",
-  "Open `verification.evidence.json`, `specification.evidence.json`, the capture files, and the comparison files in the same output directory to inspect the full records. `summary.json` retains the experiment parameters and recommendation state.",
-  "",
-  "## Limits",
-  "",
-  summary.limitation,
-  "",
-  "Only the selected terminal outputs were claimed here. Process lifecycle and other unobserved dimensions remain unknown. A finite pass or fail applies to these recorded cases; it does not establish general behavioral equivalence.",
-  "",
-  "## Reproduce",
-  "",
-  "Run from the repository root with the pinned Node/npm toolchain and Clang:",
-  "",
-  "```sh",
-  "npm run verify:ree-investigation-boundary -- /tmp/ree-c-investigation",
-  "```",
-  "",
-].join("\n");
-
 await writeFile(
   join(outputRoot, "summary.json"),
   `${JSON.stringify(summary, null, 2)}\n`,
 );
-await writeFile(reportPath, report);
+const reportInputPath = join(outputRoot, "reconstruction-report.input.json");
+await writeFile(
+  reportInputPath,
+  `${JSON.stringify(
+    {
+      specification: specificationDraft.specification,
+      evidence_bundle: createEvidenceBundle(records),
+      participant_roles: { left: "reference", right: "candidate" },
+    },
+    null,
+    2,
+  )}\n`,
+);
+const reportRun = run(process.execPath, [
+  cliPath,
+  "build-reconstruction-report",
+  reportInputPath,
+  "--format",
+  "json",
+]);
+const reportOutput = JSON.parse(reportRun.stdout);
+const reportPath = join(outputRoot, "REE_RECONSTRUCTION_REPORT.md");
+await writeFile(reportPath, reportOutput.markdown);
+const machineReportPath = join(outputRoot, "reconstruction-report.json");
+await writeFile(
+  machineReportPath,
+  `${JSON.stringify(reportOutput, null, 2)}\n`,
+);
 const savedReport = await readFile(reportPath, "utf8");
-assert.match(savedReport, /Verifier result: FAIL/u);
-assert.match(savedReport, /Agreement control/u);
-assert.match(savedReport, /Discovered counterexample/u);
+assert.equal(reportOutput.report.report_type, "ree.reconstruction-report");
+assert.equal(reportOutput.report.schema_version, 1);
+assert.equal(reportOutput.report.verification.status, "fail");
+assert.equal(
+  reportOutput.verification_evidence.evidence_id,
+  verification.evidence_id,
+);
+assert.equal(
+  reportOutput.report.claims[0].participants.left.sources[0].identity_status,
+  "partial",
+);
+assert.equal(JSON.stringify(reportOutput.report).includes(outputRoot), false);
+assert.match(savedReport, /Result: FAIL/u);
+assert.match(savedReport, /Claim:/u);
+assert.match(savedReport, /reference \(left\)/u);
+assert.match(savedReport, /candidate \(right\)/u);
+assert.match(savedReport, /process executable SHA-256/u);
 assert.ok(savedReport.includes(summary.verification_evidence_id));
+assert.ok(
+  reportOutput.report.evidence_links.includes(summary.verification_evidence_id),
+);
 console.log(
   JSON.stringify(
-    { output: outputRoot, report: reportPath, ...summary },
+    {
+      output: outputRoot,
+      report: reportPath,
+      machine_report: machineReportPath,
+      ...summary,
+    },
     null,
     2,
   ),

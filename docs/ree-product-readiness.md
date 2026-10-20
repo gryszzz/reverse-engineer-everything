@@ -12,19 +12,22 @@ part of the engine.
 
 ## Current position
 
-| Area                          | Present implementation                                                                          | Remaining readiness work                                                                                     |
-| ----------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Beginner entry point          | `ree.mjs doctor`, `types`, `inspect`, lab, and static JavaScript/Electron analysis              | Guide users through the deeper routes already exposed by REA                                                 |
-| Static application analysis   | Saved Evidence, compact views, readable reports, feature traces and comparisons                 | Verify a complete beginner journey on representative real applications                                       |
-| Native and specialist formats | REA provider contracts, CLI/MCP tools, format-specific guides and verification lanes            | Verify tool availability and selected provider operation on each claimed platform                            |
-| Runtime evidence              | Existing process capture and observation workflows with ownership and cleanup rules             | Present target scope, prerequisites, capture results and remaining unknowns coherently                       |
-| Hypothesis testing            | Finite prediction-table planner; CLI/MCP selection and reassessment added in the current change | Connect the user's selected question, capture outcome and next probe through a documented investigation flow |
-| Reconstruction                | Finite claims, obligations, comparisons and bounded experimental synthesis                      | Make scope and failed or unknown claims understandable in the investigation report                           |
-| Distribution                  | Source checkout, dependency lockfile and local build                                            | Decide independent REE package identity, supported installation path and release ownership                   |
+| Area                          | Present implementation                                                                          | Remaining readiness work                                                                                         |
+| ----------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Beginner entry point          | `ree.mjs doctor`, `types`, `inspect`, lab, and static JavaScript/Electron analysis              | Guide users through the deeper routes already exposed by REA                                                     |
+| Static application analysis   | Saved Evidence, compact views, readable reports, feature traces and comparisons                 | Verify a complete beginner journey on representative real applications                                           |
+| Native and specialist formats | REA provider contracts, CLI/MCP tools, format-specific guides and verification lanes            | Verify tool availability and selected provider operation on each claimed platform                                |
+| Runtime evidence              | Existing process capture and observation workflows with ownership and cleanup rules             | Present target scope, prerequisites, capture results and remaining unknowns coherently                           |
+| Hypothesis testing            | Finite prediction-table planner; CLI/MCP selection and reassessment added in the current change | Connect the user's selected question, capture outcome and next probe through a documented investigation flow     |
+| Reconstruction                | Finite claims, obligations, comparisons and bounded experimental synthesis                      | Make scope and failed or unknown claims understandable in the investigation report                               |
+| Distribution                  | Source checkout and local build; inherited release workflow is gated to `morluto/rea`           | Select distinct npm/MCP identities, isolate install/update ownership, and qualify a clean package before release |
 
 See [the engineering map](ree-engineering-map.md),
 [Simple Mode](../rel/README.md), and [testing guidance](testing.md) for the
 underlying implementation and verification boundaries.
+See the [shared reconstruction report contract](reconstruction-reports.md) and
+[independent distribution readiness](independent-distribution.md) for current
+user-facing behavior and package blockers.
 
 ## Local verification snapshot — 2026-10-19
 

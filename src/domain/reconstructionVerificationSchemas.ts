@@ -174,6 +174,9 @@ export const reconstructionVerificationResultSchema = z
   });
 
 export type ReconstructionClaim = z.infer<typeof reconstructionClaimSchema>;
+export type ReconstructionSpecification = z.infer<
+  typeof reconstructionSpecificationSchema
+>;
 export type ReconstructionClaimResult = z.infer<
   typeof reconstructionClaimResultSchema
 >;
