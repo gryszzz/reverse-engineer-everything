@@ -6,6 +6,7 @@ import type {
   JavaScriptDomStateWriteFact,
   JavaScriptSourceRange,
 } from "./javascriptStaticAnalysisTypes.js";
+import { childNodes } from "./javascriptSemanticTraversal.js";
 
 const MAX_VISITED_NODES = 100_000;
 const MAX_QUERIES = 2_000;
@@ -481,14 +482,7 @@ const walk = (
     const node = pending.pop();
     if (node === undefined) continue;
     nodes.push(node);
-    const keys = t.VISITOR_KEYS[node.type] ?? [];
-    for (const key of keys.toReversed()) {
-      const value = Reflect.get(node, key) as unknown;
-      if (Array.isArray(value)) {
-        for (const child of value.toReversed())
-          if (t.isNode(child)) pending.push(child);
-      } else if (t.isNode(value)) pending.push(value);
-    }
+    for (const child of childNodes(node).toReversed()) pending.push(child);
   }
   return { nodes, exceeded: pending.length > 0 };
 };
@@ -500,19 +494,9 @@ const walkSkippingNestedFunctions = (root: t.Node): t.Node[] => {
     const node = pending.pop();
     if (node === undefined) continue;
     result.push(node);
-    const keys = t.VISITOR_KEYS[node.type] ?? [];
-    for (const key of keys.toReversed()) {
-      const value = Reflect.get(node, key) as unknown;
-      if (Array.isArray(value)) {
-        for (const child of value.toReversed()) {
-          if (!t.isNode(child)) continue;
-          if (child !== root && isFunction(child)) continue;
-          pending.push(child);
-        }
-      } else if (t.isNode(value)) {
-        if (value !== root && isFunction(value)) continue;
-        pending.push(value);
-      }
+    for (const child of childNodes(node).toReversed()) {
+      if (child !== root && isFunction(child)) continue;
+      pending.push(child);
     }
   }
   return result;
