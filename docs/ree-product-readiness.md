@@ -138,6 +138,32 @@ resumption, clean installation, and broader Windows/Linux/provider
 qualification remain unfinished. ZoCo is owner-maintained, so this is not an
 independent user test or runtime accessibility audit.
 
+### Static relationship accuracy follow-up
+
+The published tracing implementation is `d3605e3`, followed by the shared
+traversal correction in `675d054`. The latter passed hosted CI, the REE real
+analysis check, and the macOS smoke check. Follow-up validation now rejects
+DOM receivers that refer to a shadowed `document`, reassigned query binding,
+catch binding, or reassigned collection callback parameter. It reuses the
+existing semantic binding index. These cases retain unresolved target facts
+instead of joining an unrelated object to source HTML.
+
+CSS tracing also distinguishes JavaScript object properties from HTML
+attributes. Only the supported native `details.open` and `dialog.open`
+reflection supplies a possible boolean `open` attribute; setting `div.open`
+does not. Boolean reflection does not imply `[open=true]` or `[open=false]`.
+Literal `setAttribute` values remain distinct. Unsupported property reflection
+is reported as an unknown relationship while the source write stays retained.
+
+The pinned ZoCo source was analyzed again without modification or execution.
+Its complete normalized result matched the published baseline: 415 nodes,
+2,127 edges, six parsed JavaScript files, zero parse failures, and 473 semantic
+unknowns. The click registration, ARIA write, and responsive navigation style
+links remain source-supported. The [investigation follow-up](ree-zoco-static-investigation.md#relationship-accuracy-follow-up)
+records current Evidence, comparative costs, and verification limits.
+Persistent investigation sessions remain the next product stage; these saved
+reports do not implement session resumption.
+
 ## First usable release
 
 The first release should complete one investigation journey before expanding

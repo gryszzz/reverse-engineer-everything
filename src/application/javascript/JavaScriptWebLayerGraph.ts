@@ -384,6 +384,14 @@ export const addJavaScriptWebLayerGraph = (
           for (const target of targets.values) {
             const element = ensureElement(page, target);
             if (element === null) continue;
+            if (
+              write.kind === "property" &&
+              (write.name !== "open" ||
+                (target.tag_name !== "details" && target.tag_name !== "dialog"))
+            )
+              limitations.add(
+                `${javascriptPath}: property ${write.name} on ${target.tag_name} has no supported HTML attribute reflection; its CSS attribute relationship remains unknown.`,
+              );
             const existingWrites =
               dynamicWritesByElement.get(
                 elementKey(htmlPath, target.element_index),

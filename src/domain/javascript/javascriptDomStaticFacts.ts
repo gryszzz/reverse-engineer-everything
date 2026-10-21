@@ -7,6 +7,12 @@ import type {
   JavaScriptSourceRange,
 } from "./javascriptStaticAnalysisTypes.js";
 import { childNodes } from "./javascriptSemanticTraversal.js";
+import {
+  isUnshadowedGlobal,
+  resolveSemanticBindingState,
+  semanticStableInitializer,
+  type JavaScriptSemanticAnalysisState,
+} from "./javascriptSemanticState.js";
 
 const MAX_VISITED_NODES = 100_000;
 const MAX_QUERIES = 2_000;
@@ -18,6 +24,7 @@ const LIMITATION =
 type LocatedNode = t.Node & { readonly loc: t.SourceLocation | null };
 
 interface QueryBinding {
+  readonly bindingId: string;
   readonly selector: string;
   readonly selection: "one" | "many";
   readonly location: JavaScriptSourceRange;
@@ -48,6 +55,7 @@ const emptyFacts = (
 export const analyzeJavaScriptDomStaticFacts = (
   source: string,
   root: t.Node,
+  semanticState: JavaScriptSemanticAnalysisState,
 ): JavaScriptDomSourceFacts => {
   if (
     !source.includes("querySelector") &&
@@ -103,8 +111,24 @@ export const analyzeJavaScriptDomStaticFacts = (
       !isCall(declarator.init)
     )
       continue;
-    const query = querySelector(declarator.init, bindings);
+    const query = querySelector(declarator.init, bindings, semanticState);
     if (query === null) continue;
+    const binding = resolveSemanticBindingState(
+      semanticState,
+      declarator.id,
+      declarator.id.name,
+    );
+    const initializer = semanticStableInitializer(binding, semanticState);
+    if (
+      binding === undefined ||
+      initializer?.node !== declarator.init ||
+      initializer.projection.length !== 0
+    ) {
+      limitations.push(
+        "One or more DOM query bindings are reassigned or do not have a stable local initializer.",
+      );
+      continue;
+    }
     if (queries.length >= MAX_QUERIES) {
       limitations.push("DOM query fact limit was reached.");
       break;
@@ -112,6 +136,7 @@ export const analyzeJavaScriptDomStaticFacts = (
     const location = sourceRange(declarator.init);
     if (location === null) continue;
     bindings.set(declarator.id.name, {
+      bindingId: binding.bindingId,
       selector: query.selector,
       selection: query.selection,
       location,
@@ -130,7 +155,7 @@ export const analyzeJavaScriptDomStaticFacts = (
         isCall(node) &&
         (memberName(node.callee) === "querySelector" ||
           memberName(node.callee) === "querySelectorAll") &&
-        querySelector(node, bindings) === null,
+        querySelector(node, bindings, semanticState) === null,
     )
   )
     limitations.push(
@@ -148,10 +173,9 @@ export const analyzeJavaScriptDomStaticFacts = (
     const query =
       callee === null
         ? null
-        : (querySelector(callee.object, bindings) ??
-          (t.isIdentifier(callee.object)
-            ? (bindings.get(callee.object.name) ?? null)
-            : null));
+        : (querySelector(callee.object, bindings, semanticState) ??
+          queryBindingFor(callee.object, bindings, semanticState) ??
+          null);
     const callback = node.arguments[0];
     if (
       query === null ||
@@ -163,12 +187,23 @@ export const analyzeJavaScriptDomStaticFacts = (
       continue;
     const parameter = callback.params[0];
     if (!t.isIdentifier(parameter)) continue;
+    const parameterBinding = resolveSemanticBindingState(
+      semanticState,
+      parameter,
+      parameter.name,
+    );
+    if (
+      parameterBinding === undefined ||
+      parameterBinding.definitions.some(({ kind }) => kind !== "parameter")
+    )
+      continue;
     callbackParameterQueries.set(callback, {
       body: callback.body,
       selectors: new Map([
         [
           parameter.name,
           {
+            bindingId: parameterBinding.bindingId,
             selector: query.selector,
             selection: query.selection,
             location: sourceRange(node) ?? {
@@ -189,20 +224,18 @@ export const analyzeJavaScriptDomStaticFacts = (
     if (!isCall(node) || memberName(node.callee) !== "addEventListener")
       continue;
     const receiver = member(node.callee)?.object;
-    const receiverBinding = receiverIdentifier(receiver);
     const eventArgument = callArgument(node, 0);
     const callback = callArgument(node, 1);
-    const direct =
-      receiverBinding === null ? undefined : bindings.get(receiverBinding);
+    const direct = queryBindingFor(receiver, bindings, semanticState);
     const ownerForEach = [...callbackParameterQueries.entries()].find(
       ([, callbackFacts]) => containsNode(callbackFacts.body, node),
     );
     const forEachBinding =
-      receiverBinding === null
+      ownerForEach === undefined
         ? undefined
-        : ownerForEach?.[1].selectors.get(receiverBinding);
+        : queryBindingFor(receiver, ownerForEach[1].selectors, semanticState);
     const targetSelector = direct?.selector ?? forEachBinding?.selector ?? null;
-    const targetKind = receiverIsDocument(receiver)
+    const targetKind = receiverIsDocument(receiver, semanticState)
       ? "document"
       : targetSelector === null
         ? "unknown"
@@ -245,7 +278,13 @@ export const analyzeJavaScriptDomStaticFacts = (
       const callableNode = callableBody(callable);
       if (callableNode === null) return;
       for (const statement of walkSkippingNestedFunctions(callableNode)) {
-        const write = stateWrite(statement, bindings, scopedBindings, chain);
+        const write = stateWrite(
+          statement,
+          bindings,
+          scopedBindings,
+          chain,
+          semanticState,
+        );
         if (write !== null) {
           if (writes.length < MAX_WRITES_PER_LISTENER) writes.push(write);
           else limitations.push("DOM state-write fact limit was reached.");
@@ -320,6 +359,7 @@ export const analyzeJavaScriptDomStaticFacts = (
 const querySelector = (
   call: t.Node | null | undefined,
   bindings: ReadonlyMap<string, QueryBinding>,
+  semanticState: JavaScriptSemanticAnalysisState,
 ): { readonly selector: string; readonly selection: "one" | "many" } | null => {
   if (!isCall(call)) return null;
   const method = memberName(call.callee);
@@ -327,13 +367,12 @@ const querySelector = (
   const argument = callArgument(call, 0);
   if (!t.isStringLiteral(argument) || argument.value.trim() === "") return null;
   const receiver = member(call.callee)?.object;
-  if (receiverIsDocument(receiver))
+  if (receiverIsDocument(receiver, semanticState))
     return {
       selector: argument.value,
       selection: method === "querySelector" ? "one" : "many",
     };
-  const binding = receiverIdentifier(receiver);
-  const parent = binding === null ? undefined : bindings.get(binding);
+  const parent = queryBindingFor(receiver, bindings, semanticState);
   if (parent === undefined || argument.value.includes(",")) return null;
   return {
     selector: `${parent.selector} ${argument.value}`,
@@ -346,9 +385,11 @@ const stateWrite = (
   bindings: ReadonlyMap<string, QueryBinding>,
   scopedBindings: ReadonlyMap<string, QueryBinding>,
   callChain: readonly string[],
+  semanticState: JavaScriptSemanticAnalysisState,
 ): JavaScriptDomStateWriteFact | null => {
   let target: string | null = null;
   let targetBinding: string | null = null;
+  let targetQuery: QueryBinding | undefined;
   let kind: JavaScriptDomStateWriteFact["kind"] | null = null;
   let operation: JavaScriptDomStateWriteFact["operation"] | null = null;
   let name: string | null = null;
@@ -368,8 +409,17 @@ const stateWrite = (
     ) {
       const targetExpression = member(receiver)?.object;
       targetBinding = receiverIdentifier(targetExpression);
-      target = selectorFor(targetBinding, bindings, scopedBindings);
-      if (targetBinding === null && isDocumentBody(targetExpression))
+      targetQuery = selectorFor(
+        targetExpression,
+        bindings,
+        scopedBindings,
+        semanticState,
+      );
+      target = targetQuery?.selector ?? null;
+      if (
+        targetBinding === null &&
+        isDocumentBody(targetExpression, semanticState)
+      )
         target = "body";
       kind = "class";
       operation = method;
@@ -382,7 +432,13 @@ const stateWrite = (
       const attribute = callArgument(node, 0);
       if (!t.isStringLiteral(attribute)) return null;
       targetBinding = receiver.name;
-      target = selectorFor(targetBinding, bindings, scopedBindings);
+      targetQuery = selectorFor(
+        receiver,
+        bindings,
+        scopedBindings,
+        semanticState,
+      );
+      target = targetQuery?.selector ?? null;
       kind = "attribute";
       operation = "set";
       name = attribute.value.toLowerCase();
@@ -398,8 +454,17 @@ const stateWrite = (
     )
       return null;
     targetBinding = receiverIdentifier(node.left.object);
-    target = selectorFor(targetBinding, bindings, scopedBindings);
-    if (targetBinding === null && isDocumentBody(node.left.object))
+    targetQuery = selectorFor(
+      node.left.object,
+      bindings,
+      scopedBindings,
+      semanticState,
+    );
+    target = targetQuery?.selector ?? null;
+    if (
+      targetBinding === null &&
+      isDocumentBody(node.left.object, semanticState)
+    )
       target = "body";
     const property = memberName(node.left);
     if (property === null) return null;
@@ -427,9 +492,7 @@ const stateWrite = (
       ? target === "body"
         ? "one"
         : null
-      : (bindings.get(targetBinding)?.selection ??
-        scopedBindings.get(targetBinding)?.selection ??
-        null);
+      : (targetQuery?.selection ?? null);
   return {
     target_selector: target,
     target_binding: targetBinding,
@@ -460,16 +523,26 @@ const literalText = (
 };
 
 const selectorFor = (
-  binding: string | null,
+  receiver: t.Node | null | undefined,
   bindings: ReadonlyMap<string, QueryBinding>,
   scopedBindings: ReadonlyMap<string, QueryBinding>,
-): string | null => {
-  if (binding === null) return null;
-  return (
-    bindings.get(binding)?.selector ??
-    scopedBindings.get(binding)?.selector ??
-    null
-  );
+  semanticState: JavaScriptSemanticAnalysisState,
+): QueryBinding | undefined =>
+  queryBindingFor(receiver, bindings, semanticState) ??
+  queryBindingFor(receiver, scopedBindings, semanticState);
+
+const queryBindingFor = (
+  receiver: t.Node | null | undefined,
+  bindings: ReadonlyMap<string, QueryBinding>,
+  semanticState: JavaScriptSemanticAnalysisState,
+): QueryBinding | undefined => {
+  if (!t.isIdentifier(receiver)) return undefined;
+  const query = bindings.get(receiver.name);
+  return query !== undefined &&
+    resolveSemanticBindingState(semanticState, receiver, receiver.name)
+      ?.bindingId === query.bindingId
+    ? query
+    : undefined;
 };
 
 const walk = (
@@ -553,15 +626,21 @@ const callArgument = (
 const receiverIdentifier = (node: t.Node | null | undefined): string | null =>
   t.isIdentifier(node) ? node.name : null;
 
-const receiverIsDocument = (node: t.Node | null | undefined): boolean =>
-  t.isIdentifier(node, { name: "document" });
+const receiverIsDocument = (
+  node: t.Node | null | undefined,
+  semanticState: JavaScriptSemanticAnalysisState,
+): boolean =>
+  node != null && isUnshadowedGlobal(node, semanticState, "document");
 
-const isDocumentBody = (node: t.Node | null | undefined): boolean => {
+const isDocumentBody = (
+  node: t.Node | null | undefined,
+  semanticState: JavaScriptSemanticAnalysisState,
+): boolean => {
   const value = member(node);
   return (
     value !== null &&
     memberName(value) === "body" &&
-    receiverIsDocument(value.object)
+    receiverIsDocument(value.object, semanticState)
   );
 };
 

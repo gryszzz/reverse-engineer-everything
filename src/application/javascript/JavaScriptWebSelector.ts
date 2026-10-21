@@ -143,6 +143,7 @@ const matchCompound = (
     if (
       current === undefined &&
       requirement.name === "open" &&
+      (requirement.value === null || requirement.value === "") &&
       element.tag_name === "details"
     ) {
       conditions.push(
@@ -150,7 +151,11 @@ const matchCompound = (
       );
       continue;
     }
-    if (!writes.some((write) => canWriteAttribute(write, requirement)))
+    if (
+      !writes.some((write) =>
+        canWriteAttribute(write, requirement, element.tag_name),
+      )
+    )
       return null;
     conditions.push(
       requirement.value === null
@@ -202,6 +207,7 @@ const canWriteClass = (
 const canWriteAttribute = (
   write: JavaScriptDomStateWriteFact,
   requirement: AttributeRequirement,
+  tagName: string,
 ): boolean => {
   if (write.kind === "attribute" && write.name === requirement.name) {
     if (requirement.value === null) return true;
@@ -211,7 +217,10 @@ const canWriteAttribute = (
   }
   if (
     write.kind === "property" &&
-    write.name === requirement.name &&
+    write.name === "open" &&
+    requirement.name === "open" &&
+    (tagName === "details" || tagName === "dialog") &&
+    (requirement.value === null || requirement.value === "") &&
     (write.value_status === "dynamic" || write.value === "true")
   )
     return true;

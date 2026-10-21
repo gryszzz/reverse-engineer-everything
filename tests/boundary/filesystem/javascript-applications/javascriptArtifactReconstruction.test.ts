@@ -51,6 +51,52 @@ import {
 import { parseJavaScriptSemanticGraph } from "../../../../src/domain/javascript/javascriptSemanticGraphSerialization.js";
 import { writeJavaScriptArtifactFixture } from "../../../fixtures/javascriptArtifactApplication.js";
 
+it("keeps JavaScript expando properties separate from reflected CSS attributes", async () => {
+  const root = await createTestTempDirectory("ree-web-reflection-");
+  await Promise.all([
+    writeFile(
+      join(root, "index.html"),
+      '<!doctype html><div id="box"></div><dialog id="dialog"></dialog><script src="menu.js"></script><link rel="stylesheet" href="menu.css">',
+    ),
+    writeFile(
+      join(root, "menu.js"),
+      `
+const box = document.querySelector('#box');
+const dialog = document.querySelector('#dialog');
+box.addEventListener('click', () => { box.open = true; });
+dialog.addEventListener('click', () => { dialog.open = true; });
+`,
+    ),
+    writeFile(
+      join(root, "menu.css"),
+      "#box[open] {display:flex} dialog[open] {display:block} dialog[open=true] {opacity:1}",
+    ),
+  ]);
+  const result = await reconstructJavaScriptArtifact({
+    input_path: root,
+    format: "directory",
+  });
+  const styles = result.graph.edges.filter(
+    (edge) => edge.relation === "may_style",
+  );
+  expect(styles.map((edge) => edge.properties.selector)).toEqual([
+    "dialog[open]",
+  ]);
+  expect(styles[0]?.evidence.authority).toBe("cross-layer-reconciliation");
+  expect(result.graph.limitations.join(" ")).toContain(
+    "no supported HTML attribute reflection",
+  );
+  expect(
+    result.graph.nodes.some(
+      (node) =>
+        node.kind === "web-state-write" &&
+        node.observations.some(
+          (observation) => observation.properties.target_binding === "box",
+        ),
+    ),
+  ).toBe(true);
+});
+
 it("traces a bounded mobile-menu relationship through HTML, JavaScript, and CSS", async () => {
   const root = await createTestTempDirectory("ree-web-layer-trace-");
   await Promise.all([

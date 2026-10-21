@@ -113,3 +113,111 @@ describe("JavaScript DOM static facts", () => {
     expect(result.web_dom.status).toBe("partial");
   });
 });
+
+describe("JavaScript DOM static fact receiver guards", () => {
+  it("leaves document queries, listeners, and body writes unresolved when document is a parameter", () => {
+    const result = analyzeJavaScriptStaticSource(`
+      function register(document) {
+        const button = document.querySelector(".menu-btn");
+        button.addEventListener("click", () => {
+          document.body.classList.add("open");
+          document.body.className = "open";
+        });
+        document.addEventListener("keydown", onKeydown);
+      }
+    `);
+
+    expect(result.web_dom.queries).toEqual([]);
+    expect(result.web_dom.listeners).toEqual([
+      expect.objectContaining({
+        target_kind: "unknown",
+        target_selector: null,
+        writes: [
+          expect.objectContaining({ target_selector: null }),
+          expect.objectContaining({ target_selector: null }),
+        ],
+      }),
+      expect.objectContaining({
+        target_kind: "unknown",
+        target_selector: null,
+      }),
+    ]);
+    expect(result.web_dom.status).toBe("partial");
+    expect(result.web_dom.limitations.join(" ")).toMatch(
+      /unresolved|unsupported/u,
+    );
+  });
+
+  it("leaves reassigned query bindings and their descendant queries unresolved", () => {
+    const result = analyzeJavaScriptStaticSource(`
+      let button = document.querySelector(".menu-btn");
+      let menu = document.querySelector(".nav-links");
+      button = otherButton;
+      menu = otherMenu;
+      const child = button.querySelector(".child");
+      button.addEventListener("click", () => menu.classList.toggle("open"));
+      child.addEventListener("focus", onFocus);
+    `);
+
+    expect(result.web_dom.queries).toEqual([]);
+    expect(result.web_dom.listeners).toEqual([
+      expect.objectContaining({
+        target_kind: "unknown",
+        target_selector: null,
+        writes: [expect.objectContaining({ target_selector: null })],
+      }),
+      expect.objectContaining({
+        target_kind: "unknown",
+        target_selector: null,
+      }),
+    ]);
+    expect(result.web_dom.status).toBe("partial");
+  });
+
+  it("does not associate a catch binding with an outer query of the same name", () => {
+    const result = analyzeJavaScriptStaticSource(`
+      const button = document.querySelector(".menu-btn");
+      document.addEventListener("click", () => {
+        try {} catch (button) {
+          button.classList.add("open");
+        }
+      });
+      try {} catch (button) {
+        button.addEventListener("focus", onFocus);
+      }
+    `);
+
+    expect(result.web_dom.queries).toHaveLength(1);
+    expect(result.web_dom.listeners).toEqual([
+      expect.objectContaining({
+        target_kind: "document",
+        writes: [expect.objectContaining({ target_selector: null })],
+      }),
+      expect.objectContaining({
+        target_kind: "unknown",
+        target_selector: null,
+      }),
+    ]);
+    expect(result.web_dom.status).toBe("partial");
+  });
+
+  it("leaves reassigned forEach query parameters unresolved", () => {
+    const result = analyzeJavaScriptStaticSource(`
+      const cards = document.querySelectorAll(".card");
+      cards.forEach((card) => {
+        card = otherCard;
+        card.addEventListener("click", () => card.classList.add("active"));
+      });
+    `);
+
+    expect(result.web_dom.queries).toHaveLength(1);
+    expect(result.web_dom.listeners).toEqual([
+      expect.objectContaining({
+        target_kind: "unknown",
+        target_selector: null,
+        writes: [expect.objectContaining({ target_selector: null })],
+      }),
+    ]);
+    expect(result.web_dom.status).toBe("partial");
+  });
+});

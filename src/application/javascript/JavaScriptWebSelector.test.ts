@@ -87,6 +87,86 @@ describe("bounded web selector reconciliation", () => {
   });
 });
 
+describe("HTML property reflection in CSS selectors", () => {
+  it("does not turn expando properties into reflected HTML attributes", () => {
+    const target = element(0, null, "div", {});
+    for (const name of ["open", "customFlag"]) {
+      expect(
+        matchWebSelector(
+          `div[${name}]`,
+          [target],
+          target,
+          new Map([
+            [
+              0,
+              [
+                write({
+                  kind: "property",
+                  name,
+                  value: "true",
+                  value_status: "literal",
+                }),
+              ],
+            ],
+          ]),
+        ).status,
+      ).toBe("not-matched");
+    }
+  });
+
+  it("distinguishes native boolean open reflection from literal attribute values", () => {
+    for (const tag of ["details", "dialog"]) {
+      const target = element(0, null, tag, {});
+      const writes = new Map([
+        [
+          0,
+          [
+            write({
+              kind: "property",
+              name: "open",
+              value: "true",
+              value_status: "literal",
+            }),
+          ],
+        ],
+      ]);
+      expect(
+        matchWebSelector(`${tag}[open]`, [target], target, writes).status,
+      ).toBe("matched");
+      expect(
+        matchWebSelector(`${tag}[open=""]`, [target], target, writes).status,
+      ).toBe("matched");
+      expect(
+        matchWebSelector(`${tag}[open=true]`, [target], target, writes).status,
+      ).toBe("not-matched");
+      expect(
+        matchWebSelector(`${tag}[open=false]`, [target], target, writes).status,
+      ).toBe("not-matched");
+      expect(
+        matchWebSelector(
+          `${tag}[open=true]`,
+          [target],
+          target,
+          new Map([
+            [
+              0,
+              [
+                write({
+                  kind: "attribute",
+                  operation: "set",
+                  name: "open",
+                  value: "true",
+                  value_status: "literal",
+                }),
+              ],
+            ],
+          ]),
+        ).status,
+      ).toBe("matched");
+    }
+  });
+});
+
 describe("web selector state write semantics", () => {
   it("does not treat removals, false toggles, or unrelated attributes as class additions", () => {
     for (const operation of ["remove", "toggle"] as const) {

@@ -133,7 +133,7 @@ against the same target snapshot:
 
 These are one run per revision, not a benchmark. The latest run took about 1.3
 seconds longer and used about 54 MiB more maximum RSS than the older sample,
-while adding 208 graph nodes and 2,059 relationships. The added CSS parsing and
+while adding HTML, JavaScript state, and CSS relationships. The added CSS parsing and
 page-specific edges have measurable cost; token use and process-family memory
 were not measured. Further selector-based result selection or paging may be
 worth exploring for larger web projects.
@@ -141,6 +141,58 @@ worth exploring for larger web projects.
 The generated Evidence and reports remain under
 `/tmp/ree-zoco-cross-layer-final3-20261021`; they are not committed because they
 contain machine-specific target paths.
+
+## Relationship accuracy follow-up
+
+A Linux x64 follow-up compared published `675d054` with the bounded receiver
+and HTML property-reflection guards. Both versions read the same clean,
+pinned `79feacf` checkout; the target stayed clean before and after all six
+analyses. ZoCo was neither executed nor modified, and no website was fetched.
+
+The normalized results were identical, including the 415 nodes, 2,127 edges,
+six parsed JavaScript files, zero parse failures, and 473 semantic unknowns.
+The same Evidence ID was produced on both versions:
+`ev_2db786488f35e4104f21dd0ca955db39f7aa5b0b9f7fed6b40ac613982150063`.
+This follow-up artifact digest is
+`5f5ac20c40b93fd3f96e3e4db6f19f0936fa8ec7e391fe35d3dee1754201d68d`,
+and its application graph is
+`jag_a87a8de8b9a256872e4b87766572047324b22096bd035e44e083fc10f998881e`.
+These identify this retained run, separately from the earlier macOS snapshot.
+
+Source assertions confirmed the homepage click registration at controller
+line 23, its helper-linked `aria-expanded` write at line 18, and the nav's
+potential CSS rule at stylesheet line 182 with the 1100 px media condition.
+The ARIA write edge is
+`jag_edge_115af71f29d00a4767b70a5ed95a132c260b3a336275b2ff5f7569f2e7530c3a`;
+the responsive CSS edge is
+`jag_edge_c5942fad1ef974f54c2a72024ca409cd0bd00a219ed32b910118370b564902a0`.
+Neither assertion establishes that an event executed or the menu rendered.
+Owned regression fixtures establish rejection of misleading receiver and
+property/attribute relationships that are absent from this ZoCo snapshot.
+
+Node 24.19.0 and npm 11.9.0 were available, rather than the pinned release pair.
+Three runs per version alternated baseline/follow-up without cache eviction:
+
+| Version             | First measured wall / user + system CPU | Repeated wall range | Repeated CPU range |
+| ------------------- | --------------------------------------: | ------------------: | -----------------: |
+| Published `675d054` |                         5.82 s / 7.88 s |         5.32–5.98 s |        7.30–7.88 s |
+| Accuracy guards     |                         5.62 s / 7.71 s |         5.43–5.62 s |        7.43–7.60 s |
+
+These are cache-uncontrolled development measurements, not controlled cold/warm
+runs or evidence of a performance improvement. CPU is Bash's waited analyzer
+and descendant usage. Process-family RSS sampling could not inspect the full
+family, so peak family memory remains unmeasured. The full Evidence was
+12,318,145 bytes on both versions. A five-result JSON `aria-expanded` lookup
+was 56,562 bytes, estimated at 11,266 tokens by `tokenx`; this includes graph
+and coverage metadata. It is a text-token estimate, not actual model usage or
+a before/after token saving. The analyzer did not invoke a model; total agent
+and tool token costs were not measured.
+
+The Evidence, reports, source assertions, logs, and metrics remain locally in
+`/workspace/ree-static-validation/benchmark-2026-10-21T18-25-05-491Z` and
+`/workspace/ree-static-validation/hardening-verification.json`. Machine-specific
+Evidence files are not committed. Runtime and broader platform qualification
+remain unfinished.
 
 ## What remains unverified
 

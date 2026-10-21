@@ -116,7 +116,7 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
     electronIdentity,
   );
   addSourceMapDirectives(source, file.comments ?? [], accumulator);
-  return finalizeStaticAnalysis(source, file, accumulator);
+  return finalizeStaticAnalysis(source, file, accumulator, bindings);
 }
 
 function* traverseStaticSourceSteps(
@@ -137,6 +137,7 @@ const finalizeStaticAnalysis = (
   source: string,
   file: ParsedJavaScriptSource,
   accumulator: AnalysisAccumulator,
+  bindings: JavaScriptSemanticAnalysisState,
 ): JavaScriptStaticAnalysis => {
   const parserErrors = file.errors.length;
   const limitations = [
@@ -200,7 +201,7 @@ const finalizeStaticAnalysis = (
       accumulator.roles,
       accumulator.moduleRangeIndex,
     ),
-    web_dom: analyzeJavaScriptDomStaticFacts(source, file),
+    web_dom: analyzeJavaScriptDomStaticFacts(source, file, bindings),
     source_map_urls: accumulator.sourceMaps,
     vendors: detectVendors(source),
     electron: {
