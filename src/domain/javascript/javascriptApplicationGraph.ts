@@ -153,6 +153,7 @@ const checkEvidenceNormalization = (
   const staticAuthority = [
     "artifact-bytes",
     "ast-static-analysis",
+    "structured-source-analysis",
     "static-relationship-inference",
     "native-analysis-provider",
   ].includes(evidence.authority);

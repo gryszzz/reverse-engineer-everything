@@ -18,9 +18,9 @@ relevant source without claiming that static analysis proves browser behavior.
 - Authority: read-only source analysis. REE did not run ZoCo, fetch its deployed
   website, use a browser, or modify the target. The analyzer read source files
   as data; manual source review confirmed the reported leads.
-- REE baseline: `2f58bb238633edb8eb6b04e0c60203a8ea056983`. The semantic-search
-  refinements documented below were local changes under verification when this
-  investigation was run.
+- REE baseline: `47f3bf0aa48755f292f44604796ce10d2deb5a0b`. The analysis was
+  run from a working tree based on that commit with the cross-layer changes
+  applied locally. It did not modify ZoCo.
 
 ## Reproduce the workflow
 
@@ -40,13 +40,19 @@ OUT="$(mktemp -d)/zoco-navigation"
 node ree.mjs analyze "$TARGET" --authorized --out "$OUT" --question "$QUESTION"
 cat "$OUT/REE_EVIDENCE_REPORT.md"
 node rel/evidence-explorer.mjs "$OUT/evidence.json" --semantic --find menu --limit 20
+node rel/evidence-explorer.mjs "$OUT/evidence.json" --find 'aria-expanded' --limit 20
+node rel/evidence-explorer.mjs "$OUT/evidence.json" --find 'nav-links.open' --limit 20
 ```
 
 `inspect` classifies the target without analyzing it. `analyze --authorized`
 runs the existing JavaScript static-analysis route; it does not launch the
 website. The result retains the complete `evidence.json`, compact `summary.json`
 and `view-evidence.json`, and a readable Markdown report. Semantic queries are
-source-navigation leads. They do not answer the question automatically.
+source-navigation leads. They do not answer the question automatically. The
+application graph also links literal DOM queries and event handlers to retained
+HTML elements, bounded DOM state writes, and supported selectors in linked local
+stylesheets. The Evidence Explorer shows page, stylesheet, selector, event, and
+write context. These remain source-based relationships, not runtime behavior.
 
 ## What source review established
 
@@ -72,61 +78,69 @@ and [scroll-lock/backdrop rules](https://github.com/gryszzz/ZoCo-Web/blob/79feac
 
 ## What REE found, and where it fell short
 
-The final run parsed 6 JavaScript files with 0 parse failures and reported an
-application graph of 37 nodes and 68 relationships. Application-graph coverage
-was partial and not truncated. The separate semantic graph contained 1,382
-nodes and 1,141 relationships; its coverage status was unknown, with 473
-family-level unknowns. The report kept that uncertainty visible.
+The cross-layer run parsed 6 JavaScript files with 0 parse failures and reported
+415 application graph nodes and 2,127 relationships. The new graph contains 143
+HTML element nodes, 19 event-listener nodes, 37 state-write nodes, and 142
+stylesheet-rule nodes. Application-graph coverage remains partial and not
+truncated. The separate semantic graph contains 1,382 nodes and 1,141
+relationships; its coverage is unknown, with 473 family-level unknowns.
 
-| Question term | Application graph matches | Semantic graph matches | What the preview was useful for                                                                                                                            |
-| ------------- | ------------------------: | ---------------------: | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mobile`      |                        14 |                    234 | Located pages that load the shared controller and relations from its source file. The semantic count is broad because many relations share that file path. |
-| `navigation`  |                         0 |                      0 | No recorded relation matched this term. The page still contains navigation labels; empty graph search does not establish absence.                          |
-| `menu`        |                         0 |                     24 | Surfaced the `interiorMenu` binding and source locations in the shared controller.                                                                         |
-| `open`        |                         0 |                     97 | Surfaced `open` reads and state-related leads, but did not explain the full interaction on its own.                                                        |
-| `close`       |                         0 |                      0 | Correctly returned no exact term after the search fix; close behavior is expressed as state changes, not a `close` identifier.                             |
+The saved-Evidence query `--find aria-expanded` surfaces the homepage attribute
+write at `mobile-nav-glass-20261012.js:18`, its event-handler/helper relation,
+and CSS rules conditioned on `[aria-expanded=true]`. `--find nav-links.open`
+shows the homepage `<nav>` matched to rules in `theme.css`, `styles.css`,
+`mobile-nav-glass-20261012.css`, and `zoco-mobile-menu-polish-20261013.css`.
+The Explorer now includes HTML page and CSS selector context so repeated page
+templates can be distinguished. The CSS matches carry explicit media and
+dynamic-class conditions.
 
-The static semantic graph did not expose the literal `aria-expanded`, even
-though the homepage markup initializes it, the controller writes it, and CSS
-uses its true state. That forced a direct source check for the exact
-accessibility values. REE also did not join the HTML
-control, JavaScript state changes, and CSS visibility rule into one behavioral
-claim. The search leads were useful; a human still had to trace and reconcile
-those files.
+This closes the specific source-tracing gap found earlier: the homepage
+control, its event handler and state writes, and potentially matching CSS rules
+can be followed through the application graph. It is still not a complete
+explanation of all open/close paths. Document-level Escape, outside-pointer,
+and resize handlers remain listener facts; control flow is not evaluated. The
+native `<details>` path is represented through `open` writes and `[open]`
+selectors where supported. Functional selectors such as `:is()` and `:not()`
+remain explicit unknowns. Computed styles and cascade precedence are not
+evaluated.
 
-The review exposed two concrete issues in REE's question-led search. Substring
-matching treated `close` as a match for `closest`; semantic search now uses
-case-insensitive whole terms, complete identifiers, and camel-case segments.
-JSON search results also repeated opaque `unknown_ids` that were already
-available in the full Evidence file; the explorer now returns per-family
-unknown counts while preserving the complete IDs in `evidence.json`.
+The earlier question-guidance search defect and repeated opaque unknown IDs are
+also corrected: semantic search uses whole identifier terms and the Explorer
+returns per-family unknown counts while the complete Evidence retains the IDs.
 
 ## Reproducibility and resource measurements
 
-The final Evidence identity is `ev_d1ef0f4b52f136df0d7bba21dc448fcece032a72f10b896de83fa48a911885ba`.
-The analyzed artifact digest is
-`fd5bf9bb4395232d434d6adb8c990f53c8e11cfc21255619c651aacfa372cade`.
-Application and semantic graph IDs are `jag_c77be56b9518d610f7f6885c9f059fa31326a886437e4551f5607e655a1a768c`
-and `jsrg_d3a7952c72a0825a6584c95e7af3c38fc89bb6083ed6334af03d0a1abb96b57c`.
+The cross-layer run's Evidence identity is
+`ev_88c530266b07050230a481b0918624d114cdb6600ab5c9cb4e64a0ab734398d7`.
+The analyzed artifact digest remains
+`fd5bf9bb4395232d434d6adb8c990f53c8e11cfc21255619c651aacfa372cade` and the
+application graph ID is
+`jag_3a55848832d4617bbf94e5d567f930bd0c6d5589532da02d523713775730d9c6`.
 
-The full Evidence file was 2,441,941 bytes. A bounded JSON `close` search
-returned 2,773 bytes and preserved the 473 unknown count; the complete IDs
-remain in the Evidence file. That is a response-size comparison for this query,
-not an analysis-time or token benchmark.
+The full Evidence file is 12,318,153 bytes (11.7 MiB). A bounded
+`aria-expanded` search displayed 5 of 15 matching relationships;
+`nav-links.open` returned 6 relationships. Search results now include bounded
+page, stylesheet, selector, event, and state-write context, while the complete
+Evidence remains available in the saved file.
 
-One sequential comparison used Node `v24.19.0` and macOS `/usr/bin/time -l`
+The final sequential run used Node `v24.19.0` and macOS `/usr/bin/time -l`
 against the same target snapshot:
 
-| REE revision                     | Wall time | User + system CPU |          Reported maximum RSS |
-| -------------------------------- | --------: | ----------------: | ----------------------------: |
-| Baseline `2f58bb2`               |    2.69 s |            2.86 s | 408,076,288 bytes (389.2 MiB) |
-| Local semantic-search refinement |    2.40 s |            2.85 s | 404,389,888 bytes (385.6 MiB) |
+| REE revision                                  | Wall time | User + system CPU |          Reported maximum RSS |
+| --------------------------------------------- | --------: | ----------------: | ----------------------------: |
+| Earlier baseline `2f58bb2`                    |    2.69 s |            2.86 s | 408,076,288 bytes (389.2 MiB) |
+| Cross-layer working tree (based on `47f3bf0`) |    3.94 s |            5.09 s | 464,830,464 bytes (443.3 MiB) |
 
-This is one run per revision, so it does not establish a performance improvement.
-Cold/warm variation, process-family peak memory, and token use were not measured.
-Full Evidence and the generated reports remain in the local analysis directory
-`/tmp/ree-zoco-nav-20261020-ree`; they are not committed because they contain
-machine-specific target paths.
+These are one run per revision, not a benchmark. The latest run took about 1.3
+seconds longer and used about 54 MiB more maximum RSS than the older sample,
+while adding 208 graph nodes and 2,059 relationships. The added CSS parsing and
+page-specific edges have measurable cost; token use and process-family memory
+were not measured. Further selector-based result selection or paging may be
+worth exploring for larger web projects.
+
+The generated Evidence and reports remain under
+`/tmp/ree-zoco-cross-layer-final3-20261021`; they are not committed because they
+contain machine-specific target paths.
 
 ## What remains unverified
 
@@ -134,9 +148,13 @@ machine-specific target paths.
   test was performed, as requested.
 - The analysis demonstrates useful static source navigation on one current
   public application snapshot; it does not establish broad target or language
-  generalization.
+  generalization. This is an owner-maintained application, not an independent
+  third-party user test.
 - Semantic graph coverage remains unknown, and its 473 unknowns are unresolved.
-- Exact HTML attribute literals and cross-file HTML/JavaScript/CSS behavior are
-  not reliably surfaced by the current question preview.
+- Selector support is bounded. Dynamic DOM creation, ambiguous aliases, CSS
+  nesting and imports, functional selector syntax, unselected CSS properties,
+  cascade, and computed styles remain unresolved.
+- The cross-layer run increased graph and Evidence size and added measurable
+  analysis time; only one post-change run was measured.
 - A future investigation-resumption workflow is separate work; this report and
   Evidence bundle are retained files, not a resumable session manager.

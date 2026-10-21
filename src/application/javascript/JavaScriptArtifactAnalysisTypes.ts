@@ -45,6 +45,25 @@ export interface JavaScriptHtmlScriptObservation {
   readonly location: JavaScriptSourceRange;
 }
 
+/** One inert HTML element retained for selector matching and source tracing. */
+export interface JavaScriptHtmlElementObservation {
+  readonly html_path: string;
+  readonly element_index: number;
+  readonly parent_index: number | null;
+  readonly tag_name: string;
+  readonly attributes: Readonly<Record<string, string>>;
+  readonly location: JavaScriptSourceRange | null;
+}
+
+/** One local stylesheet reference declared by an HTML document. */
+export interface JavaScriptHtmlStylesheetObservation {
+  readonly html_path: string;
+  readonly stylesheet_path: string;
+  readonly base_href: string | null;
+  readonly media: string | null;
+  readonly location: JavaScriptSourceRange;
+}
+
 /** One original source declared by a local source map. */
 export interface JavaScriptSourceMapOriginal {
   /** Index within the leaf map's sources and sourcesContent arrays. */
@@ -128,6 +147,9 @@ export interface JavaScriptArtifactAnalysis<
   readonly packages: readonly JavaScriptPackageObservation[];
   readonly json_modules: readonly JavaScriptJsonModuleObservation[];
   readonly html_scripts: readonly JavaScriptHtmlScriptObservation[];
+  readonly html_stylesheets: readonly JavaScriptHtmlStylesheetObservation[];
+  readonly html_elements: readonly JavaScriptHtmlElementObservation[];
+  readonly html_element_omissions: number;
   readonly source_maps: readonly JavaScriptSourceMapObservation[];
   readonly visited_ast_nodes: number;
   readonly findings: number;

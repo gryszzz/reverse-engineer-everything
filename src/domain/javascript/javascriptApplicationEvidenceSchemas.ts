@@ -21,6 +21,7 @@ const relativePathSchema = z
 const applicationEvidenceAuthoritySchema = z.enum([
   "artifact-bytes",
   "ast-static-analysis",
+  "structured-source-analysis",
   "static-relationship-inference",
   "passive-cdp-runtime",
   "cross-layer-reconciliation",
@@ -284,6 +285,15 @@ const checkAuthorityState = (
   context: z.RefinementCtx,
 ): void => {
   if (
+    evidence.authority === "structured-source-analysis" &&
+    evidence.state !== "observed"
+  )
+    context.addIssue({
+      code: "custom",
+      path: ["state"],
+      message: "Structured source analysis must retain an observed source fact",
+    });
+  if (
     evidence.authority === "static-relationship-inference" &&
     evidence.state !== "inferred"
   )
@@ -391,6 +401,7 @@ const checkArtifactBacking = (
   const artifactBacked = [
     "artifact-bytes",
     "ast-static-analysis",
+    "structured-source-analysis",
     "controlled-replay",
     "native-analysis-provider",
     "managed-static-analysis",

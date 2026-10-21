@@ -67,6 +67,24 @@ export const astObservationEvidence = (
   };
 };
 
+/** Exact source location for inert HTML/CSS structures decoded by a parser. */
+export const structuredSourceObservationEvidence = (
+  input: EvidenceInput & { readonly range: JavaScriptSourceRange },
+): ApplicationGraphEvidence => ({
+  authority: "structured-source-analysis",
+  state: "observed",
+  confidence: "exact",
+  artifact: artifactReference(input.sha256),
+  location: {
+    available: true,
+    value: { kind: "source-range", source: input.path, ...input.range },
+  },
+  extractor: { ...EXTRACTOR, operation: input.operation },
+  coverage: input.coverage,
+  limitations: [...(input.limitations ?? [])],
+  evidence_ids: [],
+});
+
 /** Explicit static relationship inference; never promoted to observation. */
 export const staticInferenceEvidence = (
   input: EvidenceInput & {
@@ -88,6 +106,32 @@ export const staticInferenceEvidence = (
   coverage: input.coverage,
   limitations: [
     "Static syntax does not prove that this relationship executes at runtime.",
+    ...(input.limitations ?? []),
+  ],
+  evidence_ids: [],
+});
+
+/** Reconcile two or more source layers while preserving an inferred state. */
+export const crossLayerInferenceEvidence = (
+  input: EvidenceInput & {
+    readonly confidence?: "high" | "medium" | "low";
+  },
+): ApplicationGraphEvidence => ({
+  authority: "cross-layer-reconciliation",
+  state: "inferred",
+  confidence: input.confidence ?? "medium",
+  artifact: artifactReference(input.sha256),
+  location: {
+    available: true,
+    value:
+      input.range === undefined
+        ? { kind: "artifact-path", path: input.path }
+        : { kind: "source-range", source: input.path, ...input.range },
+  },
+  extractor: { ...EXTRACTOR, operation: input.operation },
+  coverage: input.coverage,
+  limitations: [
+    "Cross-layer source relationships do not prove execution, cascade, or computed rendering.",
     ...(input.limitations ?? []),
   ],
   evidence_ids: [],

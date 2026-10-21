@@ -106,6 +106,48 @@ export interface JavaScriptRolePath {
   readonly location: JavaScriptSourceRange;
 }
 
+/** A literal DOM query assigned to one unambiguous local binding. */
+export interface JavaScriptDomQueryFact {
+  readonly binding: string;
+  readonly selector: string;
+  readonly selection: "one" | "many";
+  readonly location: JavaScriptSourceRange;
+}
+
+/** One source-visible DOM state mutation reached from an event callback. */
+export interface JavaScriptDomStateWriteFact {
+  readonly target_selector: string | null;
+  readonly target_binding: string | null;
+  readonly target_selection: "one" | "many" | null;
+  readonly kind: "class" | "attribute" | "property" | "text";
+  readonly operation: "add" | "remove" | "toggle" | "set";
+  readonly name: string;
+  readonly value: string | null;
+  readonly value_status: "literal" | "dynamic";
+  readonly call_chain: readonly string[];
+  readonly location: JavaScriptSourceRange;
+}
+
+/** One literal DOM event registration and its statically recovered writes. */
+export interface JavaScriptDomEventListenerFact {
+  readonly event_name: string | null;
+  readonly target_selector: string | null;
+  readonly target_kind: "selector" | "document" | "unknown";
+  readonly target_selection: "one" | "many" | null;
+  readonly callback_name: string | null;
+  readonly location: JavaScriptSourceRange;
+  readonly writes: readonly JavaScriptDomStateWriteFact[];
+  readonly limitations: readonly string[];
+}
+
+/** Bounded DOM facts extracted from inert JavaScript syntax. */
+export interface JavaScriptDomSourceFacts {
+  readonly status: "complete" | "partial";
+  readonly queries: readonly JavaScriptDomQueryFact[];
+  readonly listeners: readonly JavaScriptDomEventListenerFact[];
+  readonly limitations: readonly string[];
+}
+
 /** Deterministic AST-only analysis of one JavaScript source file. */
 export interface JavaScriptStaticAnalysis {
   readonly parse_status: "complete" | "partial" | "failed";
@@ -116,6 +158,8 @@ export interface JavaScriptStaticAnalysis {
   readonly storage: readonly JavaScriptStaticStorage[];
   readonly bundler_registrations: readonly JavaScriptBundlerRegistration[];
   readonly role_paths: readonly JavaScriptRolePath[];
+  /** Bounded DOM facts extracted from the same inert source parse. */
+  readonly web_dom: JavaScriptDomSourceFacts;
   readonly source_map_urls: readonly {
     readonly declared_url: string;
     readonly location: JavaScriptSourceRange;

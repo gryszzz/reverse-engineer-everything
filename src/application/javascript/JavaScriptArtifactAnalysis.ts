@@ -33,6 +33,8 @@ import type {
   JavaScriptModuleArtifactAnalysis,
   JavaScriptModuleSemanticIr,
   JavaScriptHtmlScriptObservation,
+  JavaScriptHtmlStylesheetObservation,
+  JavaScriptHtmlElementObservation,
   JavaScriptJsonModuleObservation,
   JavaScriptPackageObservation,
   JavaScriptSourceMapObservation,
@@ -40,7 +42,7 @@ import type {
 } from "./JavaScriptArtifactAnalysisTypes.js";
 import { analyzeJavaScriptJsonModule } from "./JavaScriptJsonModules.js";
 import { completeJavaScriptAnalysisSteps } from "./JavaScriptAnalysisControl.js";
-import { htmlArtifactReferences } from "../../domain/javascript/htmlArtifactReferences.js";
+import { htmlArtifactWebReferences } from "../../domain/javascript/htmlArtifactReferences.js";
 import type { JavaScriptSourceAnalysisPort } from "../../domain/javascript/javascriptSourceAnalysis.js";
 import type { JavaScriptSemanticGraphProjection } from "./JavaScriptSemanticGraphBuilder.js";
 import { AnalysisError } from "../../domain/analysisErrorBase.js";
@@ -51,6 +53,8 @@ import {
   AnalysisTimeoutError,
 } from "../../domain/analysisErrorCore.js";
 
+const MAX_HTML_ELEMENTS = 20_000;
+
 interface MutableArtifactAnalysis<
   SemanticIr extends JavaScriptModuleSemanticIr,
 > {
@@ -58,6 +62,9 @@ interface MutableArtifactAnalysis<
   readonly packages: JavaScriptPackageObservation[];
   readonly jsonModules: JavaScriptJsonModuleObservation[];
   readonly htmlScripts: JavaScriptHtmlScriptObservation[];
+  readonly htmlStylesheets: JavaScriptHtmlStylesheetObservation[];
+  readonly htmlElements: JavaScriptHtmlElementObservation[];
+  htmlElementOmissions: number;
   readonly sourceMaps: JavaScriptSourceMapObservation[];
   visitedNodes: number;
   findings: number;
@@ -329,14 +336,26 @@ const finalizeArtifactAnalysis = <
     packages: state.packages,
     json_modules: state.jsonModules,
     html_scripts: state.htmlScripts,
+    html_stylesheets: state.htmlStylesheets,
+    html_elements: state.htmlElements,
+    html_element_omissions: state.htmlElementOmissions,
     source_maps: state.sourceMaps,
     visited_ast_nodes: state.visitedNodes,
-    findings: state.findings + state.htmlScripts.length,
+    findings:
+      state.findings +
+      state.htmlScripts.length +
+      state.htmlStylesheets.length +
+      state.htmlElements.length,
     modules: state.modules,
     parse_failures: state.parseFailures,
     limitations: [
       "JavaScript and HTML were parsed as inert text; bundle bootstrap code was never executed.",
       "Static paths and relationships may remain unresolved when expressions are dynamic or obfuscated.",
+      ...(state.htmlElementOmissions === 0
+        ? []
+        : [
+            `HTML element extraction retained the first ${String(MAX_HTML_ELEMENTS)} elements and omitted ${String(state.htmlElementOmissions)} additional elements; cross-layer matching through omitted elements is unknown.`,
+          ]),
       ...state.files.flatMap(
         ({ analysis_failure, application_projection_failure }) =>
           [analysis_failure, application_projection_failure].flatMap(
@@ -356,8 +375,17 @@ function* analyzeArtifactFileSteps<
   const { state } = context;
   if (classifyOutsideAnalysisScope(file, state)) return;
   addStructuredObservations(file, state);
-  if (file.kind === "html" && file.text.included)
-    state.htmlScripts.push(...parseHtmlScripts(file.path, file.text.value));
+  if (file.kind === "html" && file.text.included) {
+    const markup = parseHtmlReferences(
+      file.path,
+      file.text.value,
+      Math.max(0, MAX_HTML_ELEMENTS - state.htmlElements.length),
+    );
+    state.htmlScripts.push(...markup.scripts);
+    state.htmlStylesheets.push(...markup.stylesheets);
+    state.htmlElements.push(...markup.elements);
+    state.htmlElementOmissions += markup.omittedElements;
+  }
   if (file.kind === "source-map") addSourceMap(file, context);
   if (file.kind !== "javascript" || !file.text.included) {
     state.files.push({ file, javascript: null, semantic: null });
@@ -443,6 +471,9 @@ const emptyArtifactAnalysis = <
   packages: [],
   jsonModules: [],
   htmlScripts: [],
+  htmlStylesheets: [],
+  htmlElements: [],
+  htmlElementOmissions: 0,
   sourceMaps: [],
   visitedNodes: 0,
   findings: 0,
@@ -512,17 +543,48 @@ const unavailablePackage = (
   limitation,
 });
 
-const parseHtmlScripts = (
+const parseHtmlReferences = (
   path: string,
   text: string,
-): JavaScriptHtmlScriptObservation[] => {
-  const { scripts, baseHref } = htmlArtifactReferences(text);
-  return scripts.map(({ scriptPath, startOffset, endOffset }) => ({
-    html_path: path,
-    script_path: scriptPath,
-    base_href: baseHref,
-    location: rangeForOffsets(text, startOffset, endOffset),
-  }));
+  maximumElements: number,
+): {
+  readonly scripts: JavaScriptHtmlScriptObservation[];
+  readonly stylesheets: JavaScriptHtmlStylesheetObservation[];
+  readonly elements: JavaScriptHtmlElementObservation[];
+  readonly omittedElements: number;
+} => {
+  const references = htmlArtifactWebReferences(text, maximumElements);
+  return {
+    scripts: references.scripts.map(
+      ({ scriptPath, startOffset, endOffset }) => ({
+        html_path: path,
+        script_path: scriptPath,
+        base_href: references.baseHref,
+        location: rangeForOffsets(text, startOffset, endOffset),
+      }),
+    ),
+    stylesheets: references.stylesheets.map(
+      ({ stylesheetPath, media, startOffset, endOffset }) => ({
+        html_path: path,
+        stylesheet_path: stylesheetPath,
+        base_href: references.baseHref,
+        media,
+        location: rangeForOffsets(text, startOffset, endOffset),
+      }),
+    ),
+    elements: references.elements.map((element) => ({
+      html_path: path,
+      element_index: element.elementIndex,
+      parent_index: element.parentIndex,
+      tag_name: element.tagName,
+      attributes: element.attributes,
+      location:
+        element.startOffset === null || element.endOffset === null
+          ? null
+          : rangeForOffsets(text, element.startOffset, element.endOffset),
+    })),
+    omittedElements: references.omittedElements,
+  };
 };
 
 const parseSourceMap = (
@@ -636,7 +698,13 @@ const findingCount = (analysis: JavaScriptStaticAnalysis): number =>
   analysis.electron.ipc.length +
   analysis.electron.sender_validations.length +
   analysis.electron.utility_processes.length +
-  analysis.electron.native_addon_bindings.length;
+  analysis.electron.native_addon_bindings.length +
+  analysis.web_dom.queries.length +
+  analysis.web_dom.listeners.length +
+  analysis.web_dom.listeners.reduce(
+    (count, listener) => count + listener.writes.length,
+    0,
+  );
 
 const rangeForOffsets = (
   text: string,

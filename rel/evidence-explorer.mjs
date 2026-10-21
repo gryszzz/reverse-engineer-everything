@@ -30,6 +30,39 @@ const semanticNodeLabels = (node) =>
   [node.label, node.kind]
     .filter((label) => typeof label === "string" && label !== "")
     .filter((label, index, labels) => labels.indexOf(label) === index);
+const relationshipContext = (properties) => {
+  if (!isObject(properties)) return {};
+  const context = {};
+  for (const key of [
+    "html_path",
+    "css_path",
+    "selector",
+    "target_selector",
+    "event_name",
+    "selection",
+    "target_match",
+    "match",
+    "kind",
+    "operation",
+    "name",
+    "value",
+    "value_status",
+    "conditions",
+    "call_chain",
+  ]) {
+    const value = properties[key];
+    if (typeof value === "string") context[key] = value.slice(0, 240);
+    else if (typeof value === "boolean" || Number.isFinite(value))
+      context[key] = value;
+    else if (
+      Array.isArray(value) &&
+      value.length <= 12 &&
+      value.every((item) => typeof item === "string")
+    )
+      context[key] = value.map((item) => item.slice(0, 240));
+  }
+  return context;
+};
 const limitText = (v) =>
   String(v ?? "not provided")
     .replaceAll(/[\r\n|]/gu, " ")
@@ -140,6 +173,7 @@ export function exploreEvidence(record, { find = "", limit = 12 } = {}) {
       state: string(edge.evidence.state),
       confidence: string(edge.evidence.confidence),
       authority: string(edge.evidence.authority),
+      context: relationshipContext(edge.properties),
       coverage: edge.evidence.coverage ?? null,
       limitations: Array.isArray(edge.evidence.limitations)
         ? edge.evidence.limitations.filter((item) => typeof item === "string")
@@ -157,6 +191,7 @@ export function exploreEvidence(record, { find = "", limit = 12 } = {}) {
         entry.state,
         entry.confidence,
         entry.authority,
+        JSON.stringify(entry.context),
         entry.coverage === null ? null : JSON.stringify(entry.coverage),
         ...entry.limitations,
       ]
@@ -348,6 +383,8 @@ export function asText(result) {
       "   State / confidence / authority: " +
         [e.state, e.confidence, e.authority].map(limitText).join(" / "),
     );
+    if (Object.keys(e.context).length > 0)
+      out.push("   Context: " + limitText(JSON.stringify(e.context)));
   }
   if (!result.edges.length)
     out.push("No recorded relationships match the query.");

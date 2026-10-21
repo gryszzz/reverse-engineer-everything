@@ -32,6 +32,7 @@ import {
   semanticResourceLimitCoverage,
 } from "../../domain/javascript/javascriptSemanticCoverage.js";
 import { semanticResourceLimitReason } from "../../domain/javascript/javascriptSemanticResourceLimits.js";
+import { addJavaScriptWebLayerGraph } from "./JavaScriptWebLayerGraph.js";
 import {
   addJavaScriptArtifactContainers,
   addJavaScriptArtifactFiles,
@@ -134,6 +135,8 @@ function* buildJavaScriptArtifactGraphInputSteps(
   yield;
   addJavaScriptHtmlRoles(projectionContext);
   yield;
+  const webLayerLimitations = addJavaScriptWebLayerGraph(projectionContext);
+  yield;
   addJavaScriptSourceMapOriginals(projectionContext);
   yield;
   const coverage = graphCoverage(context);
@@ -149,6 +152,7 @@ function* buildJavaScriptArtifactGraphInputSteps(
     limitations: [
       ...bundlerLimitations,
       ...findingLimitations,
+      ...webLayerLimitations,
       ...graphLimitations(context, coverage.status, relationshipOmissions),
     ],
   };
@@ -165,7 +169,9 @@ const graphCoverage = (context: JavaScriptArtifactGraphContext) => {
     context.analysis.source_maps.some(({ status }) => status === "invalid");
   const partialJavaScript = context.analysis.files.some(
     ({ javascript }) =>
-      javascript !== null && javascript.parse_status === "partial",
+      javascript !== null &&
+      (javascript.parse_status === "partial" ||
+        javascript.web_dom.status === "partial"),
   );
   const unknownGap =
     (context.fileSet.source_selection?.unselected_files ?? 0) > 0 ||
@@ -176,6 +182,7 @@ const graphCoverage = (context: JavaScriptArtifactGraphContext) => {
     ) ||
     context.analysis.parse_failures > 0 ||
     context.fileSet.invalid_utf8_files > 0 ||
+    context.analysis.html_element_omissions > 0 ||
     sourceMapPolicyGap ||
     malformedStructuredData ||
     partialJavaScript;

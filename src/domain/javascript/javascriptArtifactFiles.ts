@@ -6,6 +6,7 @@ export type JavaScriptArtifactFileKind =
   | "json"
   | "javascript"
   | "html"
+  | "css"
   | "source-map"
   | "native-addon";
 

@@ -345,7 +345,8 @@ const readText = async (
         fatal: true,
         ignoreBOM:
           input.expected.kind === "javascript" ||
-          input.expected.kind === "html",
+          input.expected.kind === "html" ||
+          input.expected.kind === "css",
       }).decode(bytes),
     };
   } catch (cause: unknown) {
@@ -473,6 +474,7 @@ const relevantKind = (path: string): JavaScriptArtifactFileKind | undefined => {
   if (lower.endsWith(".json")) return "json";
   if (/\.(?:cjs|cts|mjs|mts|js|jsx|ts|tsx)$/u.test(lower)) return "javascript";
   if (/\.html?$/u.test(lower)) return "html";
+  if (lower.endsWith(".css")) return "css";
   if (lower.endsWith(".map")) return "source-map";
   if (lower.endsWith(".node")) return "native-addon";
   return undefined;

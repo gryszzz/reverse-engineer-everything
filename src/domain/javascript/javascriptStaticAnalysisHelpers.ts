@@ -34,6 +34,14 @@ export const failedJavaScriptStaticAnalysis = (): JavaScriptStaticAnalysis => ({
   storage: [],
   bundler_registrations: [],
   role_paths: [],
+  web_dom: {
+    status: "partial",
+    queries: [],
+    listeners: [],
+    limitations: [
+      "JavaScript parsing failed; DOM relationships remain unknown.",
+    ],
+  },
   source_map_urls: [],
   vendors: [],
   electron: {

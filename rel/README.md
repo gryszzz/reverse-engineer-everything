@@ -45,6 +45,14 @@ unknown IDs. For module pages and detailed module views, use the engine's
 `inspect-analysis-view` with an `evidence-file` source. Saved-file views
 validate the full record and remain subject to the engine's memory limits.
 
+For linked HTML/CSS/JavaScript applications, application-graph results also
+include bounded static cross-layer relationships. For example, search
+`aria-expanded` to follow a DOM attribute write into matching styles, or
+`nav-links.open` to find rules that may apply when JavaScript changes a class.
+The Explorer shows the page, stylesheet, selector, event, and state-write
+context. Selector matches are source-based possibilities; REE does not execute
+the event, resolve the CSS cascade, or claim rendered behavior.
+
 See [the fork's investigation architecture](../docs/fork-investigation-workflows.md)
 for the existing engine connections, measured refinements and unresolved limits.
 

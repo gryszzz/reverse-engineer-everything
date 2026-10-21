@@ -38,6 +38,7 @@ import {
   type JavaScriptFindingContext,
 } from "./javascriptStaticAnalysisState.js";
 import type { JavaScriptStaticAnalysis } from "./javascriptStaticAnalysisTypes.js";
+import { analyzeJavaScriptDomStaticFacts } from "./javascriptDomStaticFacts.js";
 import type { JavaScriptSemanticAnalysisState } from "./javascriptSemanticState.js";
 import {
   indexJavaScriptElectronIdentitySteps,
@@ -199,6 +200,7 @@ const finalizeStaticAnalysis = (
       accumulator.roles,
       accumulator.moduleRangeIndex,
     ),
+    web_dom: analyzeJavaScriptDomStaticFacts(source, file),
     source_map_urls: accumulator.sourceMaps,
     vendors: detectVendors(source),
     electron: {

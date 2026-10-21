@@ -47,6 +47,10 @@ export const JAVASCRIPT_APPLICATION_NODE_KINDS = [
   "managed-pinvoke-import",
   "managed-native-implementation",
   "runtime-script-instance",
+  "web-element",
+  "web-event-listener",
+  "web-state-write",
+  "web-style-rule",
   "unknown",
 ] as const;
 
@@ -67,6 +71,10 @@ export const JAVASCRIPT_APPLICATION_RELATIONS = [
   "persists_to",
   "observed_as",
   "changed_from",
+  "listens_on",
+  "updates_state",
+  "writes_state",
+  "may_style",
 ] as const;
 
 /** Provider-neutral relation categories. */

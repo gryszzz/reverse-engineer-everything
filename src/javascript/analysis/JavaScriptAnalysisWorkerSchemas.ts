@@ -378,6 +378,43 @@ export const javaScriptWorkerStaticAnalysisSchema = z
         mechanism: z.string(),
       }),
     ),
+    web_dom: z.strictObject({
+      status: z.enum(["complete", "partial"]),
+      queries: z.array(
+        z.strictObject({
+          binding: z.string(),
+          selector: z.string(),
+          selection: z.enum(["one", "many"]),
+          location: range,
+        }),
+      ),
+      listeners: z.array(
+        z.strictObject({
+          event_name: z.string().nullable(),
+          target_selector: z.string().nullable(),
+          target_kind: z.enum(["selector", "document", "unknown"]),
+          target_selection: z.enum(["one", "many"]).nullable(),
+          callback_name: z.string().nullable(),
+          location: range,
+          writes: z.array(
+            z.strictObject({
+              target_selector: z.string().nullable(),
+              target_binding: z.string().nullable(),
+              target_selection: z.enum(["one", "many"]).nullable(),
+              kind: z.enum(["class", "attribute", "property", "text"]),
+              operation: z.enum(["add", "remove", "toggle", "set"]),
+              name: z.string(),
+              value: z.string().nullable(),
+              value_status: z.enum(["literal", "dynamic"]),
+              call_chain: strings,
+              location: range,
+            }),
+          ),
+          limitations: strings,
+        }),
+      ),
+      limitations: strings,
+    }),
     source_map_urls: z.array(
       z.strictObject({ declared_url: z.string(), location: range }),
     ),

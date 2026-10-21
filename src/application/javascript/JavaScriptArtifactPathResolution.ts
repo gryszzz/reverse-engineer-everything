@@ -96,6 +96,7 @@ const EXTENSIONS = [
   ".tsx",
   ".json",
   ".html",
+  ".css",
   ".node",
 ];
 

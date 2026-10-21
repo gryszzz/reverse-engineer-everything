@@ -45,6 +45,7 @@ const saved = () => ({
           source_node_id: "cli",
           target_node_id: "search",
           relation: "imports",
+          properties: { html_path: "index.html", selector: ".menu-btn" },
           evidence: {
             location: {
               available: true,
@@ -119,8 +120,13 @@ test("shows recorded graph links without claiming observed execution", () => {
   assert.equal(result.edges[0].target.label, "search.mjs");
   assert.equal(JSON.parse(result.edges[0].location).start.line, 2);
   assert.equal(result.edges[0].confidence, "high");
+  assert.deepEqual(result.edges[0].context, {
+    html_path: "index.html",
+    selector: ".menu-btn",
+  });
   assert.equal(result.edges[1].location, null);
   assert.match(asText(result), /not runtime execution/);
+  assert.match(asText(result), /Context:.*index\.html/u);
   assert.match(asText(result), /not provided/);
 });
 
@@ -159,7 +165,11 @@ test("searches semantic relations separately and preserves their source Evidence
   assert.equal(result.relations[0].confidence, "high");
   assert.equal(result.relations[0].authority, "static-relationship-inference");
   assert.equal(JSON.parse(result.relations[0].location).source, "script.js");
-  assert.equal(exploreEvidence(saved(), { find: "menu" }).matching, 0);
+  assert.equal(exploreEvidence(saved(), { find: "menu" }).matching, 1);
+  assert.equal(
+    exploreEvidence(saved(), { find: "index.html" }).edges[0].context.html_path,
+    "index.html",
+  );
   assert.equal(search({ find: "menu" }).matching, 1);
   assert.equal(
     search({ find: "script.js" }).relations[0].relation_id,

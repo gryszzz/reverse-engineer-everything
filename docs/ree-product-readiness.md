@@ -12,15 +12,15 @@ part of the engine.
 
 ## Current position
 
-| Area                          | Present implementation                                                                                          | Remaining readiness work                                                                                         |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Beginner entry point          | `ree.mjs doctor`, `types`, `inspect`, optional teaching lab, and static JavaScript/Electron analysis            | Validate the first-use route on a permitted application and make route hand-offs easier to follow                |
-| Static application analysis   | Saved Evidence, compact views, readable reports, bounded question-term previews, feature traces and comparisons | Turn lexical leads into source-grounded findings without implying a question was answered automatically          |
-| Native and specialist formats | REA provider contracts, CLI/MCP tools, format-specific guides and verification lanes                            | Verify tool availability and selected provider operation on each claimed platform                                |
-| Runtime evidence              | Existing process capture and observation workflows with ownership and cleanup rules                             | Present target scope, prerequisites, capture results and remaining unknowns coherently                           |
-| Hypothesis testing            | Finite prediction-table planner, CLI/MCP selection and reassessment, and bounded process probe workflows        | Connect the user's selected question, capture outcome and next probe through a documented investigation flow     |
-| Reconstruction                | Finite claims, obligations, comparisons and bounded experimental synthesis                                      | Make scope and failed or unknown claims understandable in the investigation report                               |
-| Distribution                  | Source checkout and local build; inherited release workflow is gated to `morluto/rea`                           | Select distinct npm/MCP identities, isolate install/update ownership, and qualify a clean package before release |
+| Area                          | Present implementation                                                                                                                            | Remaining readiness work                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Beginner entry point          | `ree.mjs doctor`, `types`, `inspect`, optional teaching lab, and static JavaScript/Electron analysis                                              | Validate the first-use route on a permitted application and make route hand-offs easier to follow                |
+| Static application analysis   | Saved Evidence, compact views, readable reports, question-term previews, source-located JS relationships, and bounded HTML→JavaScript→CSS tracing | Broaden cross-layer fixtures and improve large-trace selection without implying runtime behavior                 |
+| Native and specialist formats | REA provider contracts, CLI/MCP tools, format-specific guides and verification lanes                                                              | Verify tool availability and selected provider operation on each claimed platform                                |
+| Runtime evidence              | Existing process capture and observation workflows with ownership and cleanup rules                                                               | Present target scope, prerequisites, capture results and remaining unknowns coherently                           |
+| Hypothesis testing            | Finite prediction-table planner, CLI/MCP selection and reassessment, and bounded process probe workflows                                          | Connect the user's selected question, capture outcome and next probe through a documented investigation flow     |
+| Reconstruction                | Finite claims, obligations, comparisons and bounded experimental synthesis                                                                        | Make scope and failed or unknown claims understandable in the investigation report                               |
+| Distribution                  | Source checkout and local build; inherited release workflow is gated to `morluto/rea`                                                             | Select distinct npm/MCP identities, isolate install/update ownership, and qualify a clean package before release |
 
 See [the engineering map](ree-engineering-map.md),
 [Simple Mode](../rel/README.md), and [testing guidance](testing.md) for the
@@ -99,10 +99,44 @@ for an external contributor's application.
   before/after comparison; process-family aggregation and agent token costs were
   not independently measured.
 
-These runs confirm the owned end-to-end path and a larger in-repository source
-tree. They do not satisfy the permitted external-application criterion, test a
-clean install, establish behavior on Windows/Linux, or replace the latest hosted
-CI result for this revision.
+These runs confirmed the owned end-to-end path and a larger in-repository source
+tree. The separate ZoCo check below subsequently exercised the route against an
+owner-maintained application. Neither check establishes a clean-install result,
+runtime behavior, Windows/Linux operation, or the latest hosted CI result for
+the cross-layer changes.
+
+## Cross-layer static trace check — 2026-10-21
+
+Starting from default-branch commit `47f3bf0`, the local implementation was
+exercised against the read-only ZoCo snapshot `79feacf`. For the mobile
+navigation question, the graph traces literal HTML control queries to event
+handlers and DOM state writes, then matches supported selectors from linked
+local stylesheets to those retained elements. The saved Evidence Explorer
+reports page, stylesheet, selector, event, write operation, and source context.
+
+- The end-to-end CLI analyzed 6 JavaScript files with 0 parse failures and
+  produced 415 graph nodes and 2,127 edges. The graph retained 143 HTML elements,
+  19 DOM event listeners, 37 state writes, and 142 stylesheet rules.
+- `--find aria-expanded` returns the homepage write at
+  `mobile-nav-glass-20261012.js:18`, its handler relation, and matching CSS
+  selectors; `--find nav-links.open` returns the homepage nav joined to rules
+  in four linked CSS files. Relationships across files are inferred and do not
+  claim execution.
+- The read-only run took 3.94 seconds wall time (5.09 seconds user plus system
+  CPU), with 464,830,464 bytes (about 443 MiB) maximum RSS and 143,097,600 bytes
+  peak memory footprint. Its full Evidence was 12,318,153 bytes. This is one run,
+  not a benchmark; token costs and process-family memory were not measured.
+- The `<details>` path can be traced through `open` writes and `[open]` CSS
+  conditions. Unsupported selector functions such as `:is()` and `:not()`, and
+  CSS declarations outside the traced property subset, remain explicit unknowns.
+  REE does not compute cascade, execute handlers, or verify keyboard/accessibility
+  behavior.
+
+The documented ZoCo app check is now complete for static analysis. A first
+external contributor application, browser/runtime validation, investigation
+resumption, clean installation, and broader Windows/Linux/provider
+qualification remain unfinished. ZoCo is owner-maintained, so this is not an
+independent user test or runtime accessibility audit.
 
 ## First usable release
 

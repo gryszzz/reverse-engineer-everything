@@ -51,6 +51,152 @@ import {
 import { parseJavaScriptSemanticGraph } from "../../../../src/domain/javascript/javascriptSemanticGraphSerialization.js";
 import { writeJavaScriptArtifactFixture } from "../../../fixtures/javascriptArtifactApplication.js";
 
+it("traces a bounded mobile-menu relationship through HTML, JavaScript, and CSS", async () => {
+  const root = await createTestTempDirectory("ree-web-layer-trace-");
+  await Promise.all([
+    writeFile(
+      join(root, "index.html"),
+      `<!doctype html>
+        <header class="site-header">
+          <button class="menu-btn" aria-expanded="false">Menu</button>
+          <nav class="nav-links"><a href="/">Home</a></nav>
+        </header>
+        <aside class="unrelated"><nav class="nav-links">Not the menu</nav></aside>
+        <script src="./menu.js"></script>
+        <link rel="stylesheet" href="./menu.css" media="screen">
+      `,
+    ),
+    writeFile(
+      join(root, "menu.js"),
+      `const button = document.querySelector(".site-header .menu-btn");
+       const menu = document.querySelector(".site-header .nav-links");
+       function setOpen(open) {
+         menu.classList.toggle("open", open);
+         button.setAttribute("aria-expanded", String(open));
+       }
+       button.addEventListener("click", () => setOpen(!menu.classList.contains("open")));
+       document.addEventListener("keydown", onKeydown);
+      `,
+    ),
+    writeFile(
+      join(root, "menu.css"),
+      `.site-header .nav-links { display: none; }
+       .site-header .nav-links.open {
+         display: block; visibility: visible; opacity: 1; position: fixed;
+         inset: 0; top: 0; right: 0; bottom: 0; left: 0; width: 100%;
+         max-width: 100%; height: 100%; max-height: 100%; overflow: auto;
+         overflow-x: auto; overflow-y: auto; pointer-events: auto; z-index: 1;
+         transform: translateX(0); background: black; color: white;
+       }
+       .site-header .menu-btn[aria-expanded=true] { color: red; }
+       .unrelated .nav-links.open { display: grid; }
+       @media (max-width: 40rem) { .site-header .nav-links.open { overflow: auto; } }
+      `,
+    ),
+  ]);
+
+  const snapshot = await scanCanonicalArtifactInventory(root, {});
+  const reader = createJavaScriptArtifactReader(root, "directory");
+  try {
+    const files = await readJavaScriptArtifactFiles(reader, snapshot);
+    const analysis = analyzeJavaScriptArtifactFiles(files);
+    const graph = buildJavaScriptArtifactGraph(snapshot, files, analysis);
+    const elements = graph.nodes.filter(({ kind }) => kind === "web-element");
+    const listeners = graph.nodes.filter(
+      ({ kind }) => kind === "web-event-listener",
+    );
+    const stateWrites = graph.nodes.filter(
+      ({ kind }) => kind === "web-state-write",
+    );
+    const styles = graph.nodes.filter(({ kind }) => kind === "web-style-rule");
+    const clickListener = listeners.find(({ observations }) =>
+      observations.some(({ properties }) => properties.event_name === "click"),
+    );
+    const menuElement = elements.find(({ observations }) =>
+      observations.some(({ properties }) =>
+        JSON.stringify(properties.attributes).includes("nav-links"),
+      ),
+    );
+
+    expect(clickListener).toBeDefined();
+    expect(menuElement).toBeDefined();
+    expect(
+      graph.edges.find(
+        ({ source_node_id, target_node_id, relation }) =>
+          source_node_id === clickListener?.node_id &&
+          target_node_id === menuElement?.node_id &&
+          relation === "listens_on",
+      ),
+    ).toBeUndefined();
+    expect(graph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source_node_id: clickListener?.node_id,
+          relation: "listens_on",
+          properties: expect.objectContaining({
+            selector: ".site-header .menu-btn",
+          }),
+          evidence: expect.objectContaining({
+            authority: "cross-layer-reconciliation",
+            state: "inferred",
+            location: expect.objectContaining({ available: true }),
+          }),
+        }),
+        expect.objectContaining({
+          relation: "updates_state",
+          evidence: expect.objectContaining({ state: "inferred" }),
+        }),
+        expect.objectContaining({
+          relation: "writes_state",
+          properties: expect.objectContaining({
+            name: "open",
+            value_status: "dynamic",
+          }),
+          evidence: expect.objectContaining({ state: "inferred" }),
+        }),
+        expect.objectContaining({
+          relation: "may_style",
+          properties: expect.objectContaining({
+            selector: ".site-header .nav-links.open",
+            match: "conditional-selector-match",
+            conditions: expect.arrayContaining([
+              "class .open depends on a matching JavaScript state write",
+              "link media: screen",
+              "@media (max-width: 40rem)",
+            ]),
+          }),
+          evidence: expect.objectContaining({
+            authority: "cross-layer-reconciliation",
+            state: "inferred",
+          }),
+        }),
+      ]),
+    );
+    expect(styles.length).toBeGreaterThan(0);
+    expect(stateWrites.length).toBeGreaterThanOrEqual(2);
+    const styleEdge = graph.edges.find(
+      ({ relation, properties }) =>
+        relation === "may_style" &&
+        properties.selector === ".site-header .nav-links.open",
+    );
+    expect(styleEdge?.evidence.limitations).toContain(
+      "Cross-layer source relationships do not prove execution, cascade, or computed rendering.",
+    );
+    expect(graph.limitations).toContain(
+      "menu.css omitted 5 selected CSS declarations beyond the per-rule retention limit; those declaration values remain unknown.",
+    );
+    expect(
+      graph.nodes
+        .filter(({ kind }) => kind === "web-element")
+        .every(({ observations }) =>
+          observations.every(({ evidence }) => evidence.state === "observed"),
+        ),
+    ).toBe(true);
+  } finally {
+    await reader.close();
+  }
+});
+
 it("reports file progress and honors cancellation before the next source", async () => {
   const root = await fixtureDirectory();
   const controller = new AbortController();
