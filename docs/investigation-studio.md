@@ -99,6 +99,10 @@ Click **Explain this** on a finding, a theater module, or a graph node. The text
 
 The first visit shows a three-step tour. `?` opens shortcuts. `1` through `4` jump to the front door, theater, rebuild, and findings when focus is not in a field. After a drop or a saved project with artifacts, **What can I do with this?** lists the ready routes and says which views restate Evidence. Simple Mode, the first ready route, research off, and authorization off are the defaults.
 
+## Trace Lab
+
+Trace Lab runs `capture-process` for `experiments/rel-first-lab/cli.mjs` with the query `bridge` after you check the box. The record stays on the project trace, not in `evidence.json`. Filesystem rows are checkpoint effects for that directory. Network and IPC stay not-recorded. A matching path is the same name in the static record and the checkpoint, which does not show that the module ran. Linux and macOS need a native PTY. Windows capture is unavailable. A missing runtime refuses the launch.
+
 ## Diff Lab
 
 Drop two versions into one project, then open Diff Lab and press Compare versions. The structural section is a directory listing. Evidence file identities and dependency edge ids appear only when both versions have a completed Evidence file under 8 MiB. Functions, strings, and behavior stay unknown when the records do not store those identities. Unknown is not shown as zero changes.

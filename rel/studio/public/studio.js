@@ -58,6 +58,7 @@ function visibleViews() {
     ["findings", "Findings"],
     ["lessons", "Lessons"],
     ["diff-lab", "Diff Lab"],
+    ["trace-lab", "Trace Lab"],
   ];
   if (mode() !== "advanced") return headline;
   return [...headline, ...views];
@@ -146,7 +147,9 @@ async function refreshProject() {
   const busy =
     [...state.project.runs, ...state.project.experiments].some(
       (item) => item.status === "running",
-    ) || state.project.native_probe?.status === "running";
+    ) ||
+    state.project.native_probe?.status === "running" ||
+    state.project.trace?.status === "running";
   if (!busy && state.phase === "running") state.phase = "idle";
   const watched =
     state.project.runs.find((run) => run.status === "running") ?? latestRun();
@@ -245,6 +248,7 @@ function panel() {
   if (state.view === "findings") return findingsPanel();
   if (state.view === "lessons") return lessonsPanel();
   if (state.view === "diff-lab") return diffLabPanel();
+  if (state.view === "trace-lab") return traceLabPanel();
   if (state.view === "intake") return intakePanel();
   if (state.view === "evidence") return evidencePanel();
   if (state.view === "graph") return graphPanel();
@@ -885,6 +889,85 @@ function palette() {
       ]),
     ],
   );
+}
+
+function traceLabPanel() {
+  const trace = state.project?.trace;
+  const view = trace?.projection;
+  const approved = el("input", { type: "checkbox", id: "trace-approved" });
+  return el("section", { class: "panel" }, [
+    el("p", { class: "eyebrow" }, "Trace Lab"),
+    el("h2", {}, "Owned process observation"),
+    el(
+      "p",
+      {},
+      "This runs capture-process on experiments/rel-first-lab/cli.mjs with the query bridge. The capture is stored apart from static Evidence. Network and IPC events are not recorded by that contract.",
+    ),
+    el("label", { class: "check" }, [
+      approved,
+      "I approve this owned capture. It runs with my user permissions and is not a sandbox.",
+    ]),
+    button("Run owned trace", () => runOwnedTrace(approved.checked), {
+      class: "primary",
+    }),
+    !trace
+      ? el(
+          "p",
+          { class: "empty" },
+          "No capture yet. Nothing is launched until you check the box and press Run owned trace.",
+        )
+      : el("article", { class: "card" }, [
+          el("h3", {}, `Trace ${trace.status}`),
+          trace.error ? el("p", { class: "bad" }, trace.error) : null,
+          view
+            ? el("div", {}, [
+                el(
+                  "p",
+                  { class: "note" },
+                  `Separate from static Evidence. Capture id ${view.evidence_id || "none"}.`,
+                ),
+                el(
+                  "p",
+                  {},
+                  `Terminal frames: ${view.terminal?.frames ?? "unknown"}.`,
+                ),
+                el("h3", {}, "Filesystem checkpoints"),
+                el(
+                  "p",
+                  { class: "note" },
+                  view.filesystem?.note || view.filesystem?.reason,
+                ),
+                el(
+                  "ul",
+                  {},
+                  (view.filesystem?.effects ?? [])
+                    .slice(0, 12)
+                    .map((effect) =>
+                      el("li", {}, `${effect.status}: ${effect.path}`),
+                    ),
+                ),
+                el("h3", {}, "Network"),
+                el("p", {}, view.network.reason),
+                el("h3", {}, "IPC"),
+                el("p", {}, view.ipc.reason),
+                el("h3", {}, "Static path correlation"),
+                (view.correlated ?? []).length
+                  ? el(
+                      "ul",
+                      {},
+                      view.correlated.map((item) =>
+                        el("li", {}, `${item.static_label}: ${item.note}`),
+                      ),
+                    )
+                  : el(
+                      "p",
+                      { class: "note" },
+                      "No checkpoint path matched a stored static label.",
+                    ),
+              ])
+            : null,
+        ]),
+  ]);
 }
 
 function diffLines(prefix, items) {
@@ -2006,6 +2089,18 @@ function draw() {
   } catch (error) {
     document.querySelector("#app").textContent = error.message;
   }
+}
+
+async function runOwnedTrace(approved) {
+  if (!state.project) throw new Error("Open a project before running a trace.");
+  state.project = await api(`/api/projects/${state.project.id}/trace`, {
+    method: "POST",
+    body: { approved },
+  });
+  state.notice = "Owned trace started. It is not part of static Evidence.";
+  draw();
+  await refreshProject();
+  draw();
 }
 
 async function runDiffLab(leftId, rightId) {
