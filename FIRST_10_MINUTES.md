@@ -5,7 +5,7 @@ This optional lesson is a safe way to learn what genuine evidence means before a
 ## Start the first lesson
 
 1. Install a supported Node.js version if you haven't already. This project currently pins Node 24.18.0 for the full analyzer; see [Mac setup](rel/MAC_SETUP.md). No REA build or API key is required for the beginner browser lab.
-2. In Finder, open your cloned REE folder and **double-click `Start-REE.command`**. If macOS blocks the unsigned script, open Terminal in this folder and run `zsh ./Start-REE.command` or `node ree.mjs lab --open`. Don't disable system security protections.
+2. In Finder, open your cloned REE folder and **double-click `Start-REE.command`** for the lesson. For the investigation workspace, double-click **`Start-REE-Studio.command`** or run `node ree.mjs studio --open`. If macOS blocks an unsigned script, open Terminal in this folder and run `zsh ./Start-REE.command` or `zsh ./Start-REE-Studio.command`. Don't disable system security protections.
 3. Keep the Terminal window open while using the browser. Press **Control+C** in Terminal to shut down the local server.
 
 If Node is missing, the launcher gives instructions without installing anything. This launcher starts only the sample lesson; it doesn't analyze any other repository or upload data. The tiny local HTTP server binds to **127.0.0.1**, not the public internet.

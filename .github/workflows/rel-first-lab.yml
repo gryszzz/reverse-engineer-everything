@@ -58,6 +58,10 @@ jobs:
         run: node --test rel/analyze-static.test.mjs
       - name: Verify report fail-closed behavior
         run: node --test experiments/rel-first-lab/report.test.mjs
+      - name: Verify Investigation Studio boundaries and real engine analysis
+        run: |
+          node --test rel/studio/graph.test.mjs rel/studio/studio.test.mjs
+          node --test rel/studio/studio-engine.test.mjs
       - name: Run real REE/REA JavaScript analyzer
         run: node ree.mjs demo --run --out "$RUNNER_TEMP/rel-first-lab"
       - name: Analyze an explicitly authorized extracted JavaScript target

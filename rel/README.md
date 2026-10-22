@@ -87,7 +87,7 @@ Short human report: how it works / evidence / limitations / next experiment
 Advanced drill-down or reconstruction when verified
 ```
 
-Future friendly actions could include **Understand**, **Map**, **Compare versions**, and **Recreate feature**. Those are design directions, **not implemented modes** today. REA already implements many deeper analysis workflows; REE should reuse them rather than invent weaker duplicates.
+The [Investigation Studio](../docs/investigation-studio.md) is the local workspace for this route: projects, intake, readiness, static analysis, Evidence, a bounded graph, an owned-fixture probe, and a report. It does not add Understand, Map, Compare, or Recreate as general modes. REA already implements many deeper workflows; REE reuses them rather than inventing weaker copies.
 
 No other user projects, remote sites or accounts are in scope for our present development. No global REA setup, provider installs, deployment, uncontrolled execution, or modifications to any repository besides this REE fork.
 

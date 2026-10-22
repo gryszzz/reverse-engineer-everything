@@ -6,8 +6,8 @@
 
 **Preserve the intelligence. Expand the possibilities.**
 
-A local investigation workbench for software structure, runtime behavior, and evidence.
-Built on the REA engine, with a simpler entry point and its full analysis foundation retained.
+A local-first investigation studio for software structure, evidence, and bounded experiments.
+Built on the REA engine, with a Mac-first front door and the full analysis foundation retained.
 
 [![CI](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/ci.yml)
 [![macOS smoke](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/rel-macos-smoke.yml/badge.svg?branch=main)](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/rel-macos-smoke.yml)
@@ -21,9 +21,29 @@ Built on the REA engine, with a simpler entry point and its full analysis founda
 
 </div>
 
+## What works today
+
+REE is two layers. **REE** is this project's studio, beginner commands, and onboarding. **REA** is the inherited analysis engine and MCP server. The studio does not replace the engine, and a route listed for the engine is not a route the studio runs.
+
+| Today                    | What you can do                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Investigation Studio** | On this machine, create a project, resume it later, classify an artifact, see an honest readiness report, and—after a local build—run static JavaScript/Electron analysis. Browse the saved Evidence, open a bounded relationship graph, compare two run summaries, export a report, and optionally run one approved probe of the repository-owned notes fixture. |
+| **Beginner CLI**         | `doctor`, `inspect`, `analyze`, and `demo --run` do the same static JavaScript/Electron route without the browser.                                                                                                                                                                                                                                                |
+| **REA CLI and MCP**      | The full engine remains available through `node scripts/rea.mjs` and the project MCP server, including providers this studio does not launch.                                                                                                                                                                                                                     |
+
+The studio binds to `127.0.0.1` only. It has no account, does not upload Evidence, and does not call a remote model. Research stages, when you turn them on, restate retained tool results. Remote model commentary is unsupported.
+
+## What does not work from the studio
+
+- Ghidra, IDA, Hopper, JADX, Apktool, and JEB are not launched here. Readiness only reports whether a command name was found on `PATH`. That is not a license check, a Mac app-bundle check, or a successful decompilation.
+- The studio does not capture arbitrary processes, open browsers, extract firmware, or analyze Android, native, WASM, or packet-capture targets. Those routes stay on the REA CLI/MCP and their own guides.
+- A graph edge from static analysis is an inference or derivation recorded by the engine. It is not an observed execution.
+- The owned-fixture probe is the only runtime action in the studio. It runs `experiments/rel-first-lab` after you approve the exact command. It does not mint REA Evidence IDs, so the result is not sent back through `discriminate-finite-hypotheses`.
+- There is no separate published REE package. `npx rea-agents setup` installs upstream REA, not this checkout.
+
 ## What REE gives you
 
-REE brings a broad reverse-engineering engine into an evidence-centered investigation workflow. Start with an artifact and a question, select an appropriate analysis route, inspect the findings, and retain what supports each conclusion.
+REE brings the reverse-engineering engine into an evidence-centered investigation you can resume. Start with an artifact and a question, select a route the tools actually support, inspect the findings, and retain what supports each conclusion.
 
 | You want to…                     | REE / REA provides                                                                                                   |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -45,7 +65,7 @@ The current beginner `analyze` command runs static JavaScript/Electron analysis.
 > rea-agents setup` installs the upstream REA package, not this fork; the
 > inherited [REA setup guide](docs/installation.md) documents that package.
 
-### 1. Open the workbench
+### 1. Open the Investigation Studio on a Mac
 
 Clone this repository, then use the pinned toolchain: **Node 24.18.0** and **npm 11.16.0**. The commands below assume those versions are already available; `nvm use` selects the repository's Node version when using nvm. The quick-start shell examples use macOS/Linux syntax; Windows workflows are documented in the matching provider guides.
 
@@ -53,14 +73,20 @@ Clone this repository, then use the pinned toolchain: **Node 24.18.0** and **npm
 git clone https://github.com/gryszzz/reverse-engineer-everything.git
 cd reverse-engineer-everything
 nvm use
-
 node ree.mjs doctor
-node ree.mjs lab --open
 ```
 
-`doctor` reports selected host and toolchain facts without installing software. `lab` opens a fictional, local teaching exercise; it needs no REA build. It explains analysis relationships and is separate from live target analysis.
+`doctor` reports selected host and toolchain facts without installing software. To open the studio, which can classify artifacts and save projects before a build:
 
-On macOS, [`Start-REE.command`](Start-REE.command) also opens the lesson from Finder. Keep its Terminal window open while the lesson runs. If macOS blocks the unsigned launcher, use `zsh ./Start-REE.command` from the checkout.
+```sh
+node ree.mjs studio --open
+```
+
+On macOS, [`Start-REE-Studio.command`](Start-REE-Studio.command) does the same from Finder. Keep its Terminal window open. If macOS blocks the unsigned launcher, use `zsh ./Start-REE-Studio.command` from the checkout. Projects and Evidence are stored outside the checkout, under `~/Library/Application Support/REE/studio` on a Mac.
+
+The studio page is only `http://127.0.0.1:<port>/`. In the browser: create a project, choose **Use the owned JavaScript fixture**, confirm authorization, and run static analysis. Until you build, that run is recorded as a failure because the REA runtime is missing. The lesson launcher [`Start-REE.command`](Start-REE.command) still opens the separate visual lab and does not analyze a target.
+
+The guide is [Investigation Studio](docs/investigation-studio.md).
 
 ### 2. Build and run the owned example
 
@@ -73,7 +99,7 @@ node ree.mjs demo --run --out "$OUT"
 cat "$OUT/REE_EVIDENCE_REPORT.md"
 ```
 
-This analyzes the repository's own JavaScript example and runs its owned lesson checks. It retains the complete analysis plus a smaller summary and a readable report. The separate [C investigation example](#from-a-hypothesis-to-an-experiment) explores bounded behavioral reconstruction.
+This analyzes the repository's own JavaScript example and runs its owned lesson checks. It retains the complete analysis plus a smaller summary and a readable report. After this build, run `node ree.mjs studio --open` again and repeat the owned-fixture analysis; that run should keep an Evidence id. The separate [C investigation example](#from-a-hypothesis-to-an-experiment) explores bounded behavioral reconstruction.
 
 ### 3. Inspect your application
 
@@ -163,7 +189,7 @@ The system separates user entry points, shared investigation workflows, provider
 
 ```mermaid
 flowchart TB
-    REE["REE front door<br/>preview · readiness · static JS/Electron"]
+    REE["REE front door<br/>studio · readiness · static JS/Electron"]
     CLI["REA CLI<br/>one-shot investigation commands"]
     MCP["REA MCP server<br/>agent tools · sessions"]
     WORK["Shared application workflows<br/>analysis · tracing · comparison · verification"]
@@ -283,7 +309,7 @@ The status command checks local configuration and compiled files; it does not pr
 
 ## Status and readiness
 
-REE currently provides a bounded, question-guided static JavaScript/Electron entry point over a larger engine with route-specific requirements. Its application graph can now connect literal HTML DOM queries, JavaScript event handlers and state writes, and supported selectors in linked local CSS, with exact source locations and explicit inferred status. A person or agent still interprets these relationships; arbitrary question answering, computed cascade, direct runtime verification, and dependable resumption remain future work. See the [verified ZoCo mobile-navigation investigation](docs/ree-zoco-static-investigation.md), [product-readiness plan](docs/ree-product-readiness.md), [reconstruction report contract](docs/reconstruction-reports.md), [independent distribution readiness assessment](docs/independent-distribution.md), and [contributor opportunities](docs/contributor-opportunities.md).
+REE currently provides a local Investigation Studio and a bounded, question-guided static JavaScript/Electron entry point over a larger engine with route-specific requirements. Studio projects resume saved runs from the local data directory. The application graph can connect literal HTML DOM queries, JavaScript event handlers and state writes, and supported selectors in linked local CSS, with exact source locations and explicit inferred status. A person still interprets these relationships. Arbitrary question answering, computed CSS cascade, and runtime verification of an arbitrary application are not implemented. See the [studio guide](docs/investigation-studio.md), [verified ZoCo mobile-navigation investigation](docs/ree-zoco-static-investigation.md), [product-readiness plan](docs/ree-product-readiness.md), [reconstruction report contract](docs/reconstruction-reports.md), [independent distribution readiness assessment](docs/independent-distribution.md), and [contributor opportunities](docs/contributor-opportunities.md).
 
 | Check                        | What it establishes                                              |
 | ---------------------------- | ---------------------------------------------------------------- |
@@ -299,18 +325,18 @@ The badges above reflect GitHub's live results. A passed local test or one green
 
 ## Explore the repository
 
-| Path                                                                                 | What lives here                                                                            |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| [`ree.mjs`](ree.mjs), [`rel/`](rel/)                                                 | REE entry point, intake, readiness checks, static reports, local lesson, Evidence Explorer |
-| [`src/`](src/)                                                                       | REA domain, contracts, workflows, composition, and provider implementations                |
-| [`bridge/`](bridge/), [`native/`](native/)                                           | Engine bridges and platform-specific native components                                     |
-| [`tests/`](tests/)                                                                   | Boundary, acceptance, conformance, platform, and provider verification fixtures            |
-| [`experiments/rel-first-lab/`](experiments/rel-first-lab/)                           | Owned JavaScript analysis example and recorded verification                                |
-| [`experiments/ree-investigation-boundary/`](experiments/ree-investigation-boundary/) | Bounded process comparison and reconstruction experiment                                   |
-| [`experiments/analysis-efficiency/`](experiments/analysis-efficiency/)               | Analysis-cost measurements and technical investigation records                             |
-| [`docs/`](docs/)                                                                     | Architecture, provider guides, CLI/MCP contracts, engineering map, and readiness plan      |
-| [`.agents/skills/`](.agents/skills/), [`.codex/`](.codex/)                           | Repository workflows and project-scoped Codex configuration                                |
-| [`UPSTREAM_REA_README.md`](UPSTREAM_REA_README.md)                                   | Preserved upstream documentation and technical entry points                                |
+| Path                                                                                         | What lives here                                                                        |
+| -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [`ree.mjs`](ree.mjs), [`rel/`](rel/), [`Start-REE-Studio.command`](Start-REE-Studio.command) | REE entry point, Investigation Studio, intake, readiness, static reports, local lesson |
+| [`src/`](src/)                                                                               | REA domain, contracts, workflows, composition, and provider implementations            |
+| [`bridge/`](bridge/), [`native/`](native/)                                                   | Engine bridges and platform-specific native components                                 |
+| [`tests/`](tests/)                                                                           | Boundary, acceptance, conformance, platform, and provider verification fixtures        |
+| [`experiments/rel-first-lab/`](experiments/rel-first-lab/)                                   | Owned JavaScript analysis example and recorded verification                            |
+| [`experiments/ree-investigation-boundary/`](experiments/ree-investigation-boundary/)         | Bounded process comparison and reconstruction experiment                               |
+| [`experiments/analysis-efficiency/`](experiments/analysis-efficiency/)                       | Analysis-cost measurements and technical investigation records                         |
+| [`docs/`](docs/)                                                                             | Architecture, provider guides, CLI/MCP contracts, engineering map, and readiness plan  |
+| [`.agents/skills/`](.agents/skills/), [`.codex/`](.codex/)                                   | Repository workflows and project-scoped Codex configuration                            |
+| [`UPSTREAM_REA_README.md`](UPSTREAM_REA_README.md)                                           | Preserved upstream documentation and technical entry points                            |
 
 The `rel/` paths remain for compatibility; REE is the current project identity.
 

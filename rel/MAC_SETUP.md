@@ -4,7 +4,7 @@ The **same REE fork** retains upstream REA's broad reverse-engineering toolset. 
 
 ## Easiest start: the Finder launcher
 
-After cloning this fork and installing Node.js, double-click **`Start-REE.command`** from Finder. It runs the read-only Mac readiness check and opens the local visual lab. If macOS blocks the unsigned shell script, run `zsh ./Start-REE.command` from Terminal in the repo instead. Don't disable macOS security protections. Keep the window open while learning; Control+C stops the local server. For your first experiment, see [your first ten minutes](../FIRST_10_MINUTES.md).
+After cloning this fork and installing Node.js, double-click **`Start-REE-Studio.command`** to open the Investigation Studio, or **`Start-REE.command`** for the visual lesson. Both run the read-only Mac readiness check and listen on loopback. If macOS blocks an unsigned shell script, run `zsh ./Start-REE-Studio.command` from Terminal in the repo instead. Don't disable macOS security protections. Keep the window open; Control+C stops the local server. For the lesson, see [your first ten minutes](../FIRST_10_MINUTES.md). For analysis, build first and follow [Investigation Studio](../docs/investigation-studio.md).
 
 ## First: let REE look at your actual Mac
 
