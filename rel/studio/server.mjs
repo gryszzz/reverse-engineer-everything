@@ -64,6 +64,7 @@ import {
   countStudioVerifications,
 } from "./readiness.mjs";
 import { renderStudioReport } from "./report.mjs";
+import { diffArtifactPair } from "./diff-lab.mjs";
 import { lessonCatalog, renderLesson } from "./lessons.mjs";
 import { runLocalResearch } from "./research.mjs";
 import { readRecordedSource } from "./source.mjs";
@@ -366,6 +367,44 @@ function summaryOf(run) {
   const stat = statSync(path);
   if (stat.size > 2_000_000) return null;
   return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function completedRun(project, artifactId) {
+  return [...project.runs]
+    .reverse()
+    .find(
+      (run) => run.artifact_id === artifactId && run.status === "completed",
+    );
+}
+
+function evidenceFor(run) {
+  if (!run?.output_dir) return null;
+  const path = join(run.output_dir, "evidence.json");
+  if (!existsSync(path) || statSync(path).size > 8_000_000) return null;
+  try {
+    return loadEvidence(path);
+  } catch {
+    return null;
+  }
+}
+
+function diffLab(project, body) {
+  const left = project.artifacts.find(
+    (artifact) => artifact.id === body.left_artifact_id,
+  );
+  const right = project.artifacts.find(
+    (artifact) => artifact.id === body.right_artifact_id,
+  );
+  if (!left || !right)
+    throw studioError("Choose two artifacts in this project.", 404);
+  if (left.id === right.id)
+    throw studioError("Choose two different artifacts.", 409);
+  return diffArtifactPair({
+    left: { path: left.path, label: left.intake?.label ?? left.path },
+    right: { path: right.path, label: right.intake?.label ?? right.path },
+    leftRecord: evidenceFor(completedRun(project, left.id)),
+    rightRecord: evidenceFor(completedRun(project, right.id)),
+  });
 }
 
 function projectDiff(project, leftId, rightId) {
@@ -757,6 +796,8 @@ async function handleApi(context) {
       readRecordedSource(record, query.get("edge_id") ?? "", artifact.path),
     );
   }
+  if (method === "POST" && rest === "/diff-lab")
+    return diffLab(store.read(projectId), body);
   if (method === "GET" && rest === "/diff")
     return projectDiff(
       store.read(projectId),
