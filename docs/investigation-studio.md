@@ -1,6 +1,6 @@
 # Investigation Studio
 
-The Investigation Studio is a local workspace on top of the REA engine. It runs in this checkout. It is not a published app and it does not install Ghidra, IDA, Hopper, or other providers.
+The Investigation Studio is a local workspace on top of the REA engine. It runs in this checkout. `REE.app` is an unsigned bundle you build from this checkout; it is not a published or notarized app, and it does not install Ghidra, IDA, Hopper, or other providers.
 
 ## Launch on a Mac
 
@@ -17,6 +17,23 @@ Or double-click `Start-REE-Studio.command`. If macOS blocks the unsigned file, r
 The page address is `http://127.0.0.1:<port>/`. The server refuses other hosts and other origins. Projects are stored in `~/Library/Application Support/REE/studio` unless you pass `--data DIR`. That directory must be outside the checkout. On Linux the default is `$XDG_DATA_HOME/ree/studio` or `~/.local/share/ree/studio`.
 
 `doctor` and the studio page do not need a build. Static analysis does.
+
+## Build REE.app
+
+On a Mac, from the checkout, after `nvm use`:
+
+```sh
+node ree.mjs app build
+node ree.mjs app install
+```
+
+`app build` writes `build/REE.app`. It compiles a WebKit window with `swiftc` (Xcode Command Line Tools) and tries both Apple Silicon and Intel. `app install` copies that bundle to `~/Applications/REE.app` and puts an alias named `REE` on the Desktop. Finder creates the alias when it can; otherwise the command leaves a symlink and says so.
+
+Opening the app starts `node ree.mjs studio` from the checkout recorded at build time and shows it in the REE window. Closing the window stops the server. Opening it again while it is running focuses the existing window. If the recorded Node.js binary is gone, the app shows an alert that names `.nvmrc` and `node ree.mjs app build` instead of a blank window. Rebuild after you move the checkout or change Node versions.
+
+The bundle is unsigned and not notarized. If macOS blocks the first open, right-click `REE.app`, choose Open, then Open. That does not disable Gatekeeper.
+
+`node ree.mjs app build --layout-only` assembles the bundle without the WebKit window. Tests and non-mac hosts use that form. It is not the install path on a Mac.
 
 ## Build, then analyze the owned fixture
 

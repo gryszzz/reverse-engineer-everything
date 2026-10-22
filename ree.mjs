@@ -16,6 +16,8 @@ import {
   openStudioInBrowser,
   startStudio,
 } from "./rel/studio/server.mjs";
+import { buildMacApp } from "./rel/app/build-mac-app.mjs";
+import { installMacApp } from "./rel/app/install-mac-app.mjs";
 
 const repo = dirname(fileURLToPath(import.meta.url));
 const help = [
@@ -27,6 +29,9 @@ const help = [
   "node ree.mjs lab [--open]                       Open visual learning lab locally",
   "node ree.mjs studio [--open] [--port N] [--data DIR]",
   "                                                Open the local Investigation Studio",
+  "node ree.mjs app build [--out REE.app]         Build a local unsigned REE.app",
+  "node ree.mjs app install [--app REE.app] [--home DIR]",
+  "                                                Copy REE.app to ~/Applications",
   "node ree.mjs demo --run --out DIR                Run our verified lab",
   "node ree.mjs analyze TARGET --authorized --out DIR [--question TEXT]",
   "                                                Static JavaScript/Electron folder or ASAR",
@@ -47,6 +52,9 @@ function options(args) {
     question: null,
     port: null,
     data: null,
+    app: null,
+    home: null,
+    layoutOnly: false,
     positional: [],
   };
   for (let i = 0; i < args.length; i++) {
@@ -64,7 +72,12 @@ function options(args) {
       if (!args[i + 1] || args[i + 1].startsWith("--"))
         throw new Error("--data requires a directory.");
       values.data = args[++i];
-    } else if (["--out", "--question", "-q"].includes(arg)) {
+    } else if (arg === "--app" || arg === "--home") {
+      if (!args[i + 1] || args[i + 1].startsWith("--"))
+        throw new Error(arg + " requires a path.");
+      values[arg === "--app" ? "app" : "home"] = args[++i];
+    } else if (arg === "--layout-only") values.layoutOnly = true;
+    else if (["--out", "--question", "-q"].includes(arg)) {
       if (!args[i + 1] || args[i + 1].startsWith("--"))
         throw new Error(arg + " requires a value.");
       values[arg === "--out" ? "out" : "question"] = args[++i];
@@ -72,6 +85,67 @@ function options(args) {
     else values.positional.push(arg);
   }
   return values;
+}
+
+async function runAppCommand(settings) {
+  const subcommand = settings.positional[1];
+  if (
+    settings.run ||
+    settings.authorized ||
+    settings.open ||
+    settings.question ||
+    settings.port !== null ||
+    settings.data
+  ) {
+    throw new Error(
+      "Use node ree.mjs app build [--out REE.app] or node ree.mjs app install [--app REE.app] [--home DIR].",
+    );
+  }
+  if (subcommand === "build" && settings.positional.length === 2) {
+    if (settings.app || settings.home) {
+      throw new Error("app build accepts --out and --layout-only.");
+    }
+    const built = buildMacApp({
+      out: settings.out ?? undefined,
+      layoutOnly: settings.layoutOnly,
+    });
+    if (settings.json) console.log(JSON.stringify(built));
+    else {
+      console.log("Built " + built.app);
+      console.log(
+        built.window === "built"
+          ? "WebKit window architectures: " + built.architectures.join(", ")
+          : "WebKit window: " + built.window_reason,
+      );
+      console.log("Checkout: " + built.checkout);
+      console.log("Node: " + built.node);
+    }
+    return;
+  }
+  if (subcommand === "install" && settings.positional.length === 2) {
+    if (settings.out || settings.layoutOnly) {
+      throw new Error("app install accepts --app and --home.");
+    }
+    const installed = installMacApp({
+      app: settings.app ?? undefined,
+      home: settings.home ?? undefined,
+    });
+    if (settings.json) console.log(JSON.stringify(installed));
+    else {
+      console.log("Installed " + installed.app);
+      console.log(
+        "Desktop " + installed.alias_kind + " alias: " + installed.alias,
+      );
+      console.log("Window: " + installed.window);
+      console.log(
+        "The bundle is unsigned. If macOS blocks the first open, right-click REE.app, choose Open, then Open.",
+      );
+    }
+    return;
+  }
+  throw new Error(
+    "Use node ree.mjs app build [--out REE.app] or node ree.mjs app install [--app REE.app] [--home DIR].",
+  );
 }
 
 try {
@@ -85,6 +159,13 @@ try {
       throw new Error("--open is available only for the local lab or studio.");
     if ((settings.port !== null || settings.data) && mode !== "studio")
       throw new Error("--port and --data are only available for the studio.");
+    if (
+      (settings.app || settings.home || settings.layoutOnly) &&
+      mode !== "app"
+    )
+      throw new Error(
+        "--app, --home, and --layout-only are only available for the app command.",
+      );
     if (mode === "doctor" && settings.positional.length === 1) {
       if (
         settings.run ||
@@ -179,6 +260,8 @@ try {
         console.log("Press Ctrl+C to stop.");
       }
       if (settings.open) openStudioInBrowser(started.url);
+    } else if (mode === "app") {
+      await runAppCommand(settings);
     } else if (mode === "demo" && settings.positional.length === 1) {
       const lab = resolve(repo, "experiments/rel-first-lab");
       if (settings.run) {

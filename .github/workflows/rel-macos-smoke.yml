@@ -59,6 +59,7 @@ jobs:
           node --test rel/mac-doctor.test.mjs
           node --test rel/lab-server.test.mjs
           node --test rel/studio/graph.test.mjs rel/studio/studio.test.mjs
+          node --test rel/app/mac-app.test.mjs
       - run: npm ci
       - name: Build native-host REA runtime on macOS
         run: npm run build:cached
@@ -83,6 +84,27 @@ jobs:
         run: node --test rel/analyze-static.test.mjs
       - name: Verify Investigation Studio UI-to-engine analysis
         run: node --test rel/studio/studio-engine.test.mjs
+      - name: Build and smoke-test the unsigned REE.app bundle
+        run: |
+          app="$RUNNER_TEMP/REE.app"
+          node ree.mjs app build --out "$app" --json > "$RUNNER_TEMP/ree-app-build.json"
+          test -x "$app/Contents/MacOS/REE"
+          test -x "$app/Contents/MacOS/REEWindow"
+          file "$app/Contents/MacOS/REEWindow" | grep -E 'Mach-O|universal'
+          plutil -lint "$app/Contents/Info.plist"
+          iconutil -c iconset -o "$RUNNER_TEMP/AppIcon.iconset" "$app/Contents/Resources/AppIcon.icns"
+          test -f "$RUNNER_TEMP/AppIcon.iconset/icon_512x512@2x.png"
+          /bin/bash -n "$app/Contents/MacOS/REE"
+          "$app/Contents/MacOS/REEWindow" --check
+          REE_APP_SMOKE=1 REE_APP_DATA="$RUNNER_TEMP/ree-app-data" \
+            REE_APP_INSTANCE="$RUNNER_TEMP/ree-app-instance.json" \
+            "$app/Contents/MacOS/REE"
+          home="$RUNNER_TEMP/ree-home"
+          mkdir -p "$home"
+          HOME="$home" node ree.mjs app install --app "$app" --home "$home" --json
+          test -d "$home/Applications/REE.app"
+          test -e "$home/Desktop/REE"
+          test -f "$app/Contents/Resources/AppIcon.icns" || test -f "$app/Contents/Resources/AppIcon.png" || test -f "$app/Contents/Resources/AppIcon.svg"
       - name: Run real source-owned REA analysis
         run: node ree.mjs demo --run --out "$RUNNER_TEMP/rel-mac-evidence"
       - name: Verify evidence exploration on Mac
