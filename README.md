@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/ree-banner.svg" alt="REE banner. Graphite field, cyan and violet instrument marks, and the line Preserve the intelligence. Expand the possibilities." width="1200" />
+
 # REE
 
 ### Reverse Engineering Everything
@@ -7,10 +9,11 @@
 **Preserve the intelligence. Expand the possibilities.**
 
 A local-first, Mac-first investigation studio on top of the REA analysis engine.
-Projects, evidence, and experiments stay on your machine.
+Projects, evidence, and fetches stay on your machine.
 
 [![CI](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/ci.yml)
 [![macOS smoke](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/rel-macos-smoke.yml/badge.svg?branch=main)](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/rel-macos-smoke.yml)
+[![Platform](https://img.shields.io/badge/platform-macOS%20first%20%C2%B7%20local-5ce1ff?style=flat-square)](rel/MAC_SETUP.md)
 [![Node.js pinned version](https://img.shields.io/badge/Node.js-24.18.0-339933?style=flat-square&logo=nodedotjs&logoColor=white)](.nvmrc)
 [![License: MIT](https://img.shields.io/badge/license-MIT-56e0bd?style=flat-square)](LICENSE)
 
@@ -40,17 +43,38 @@ The picture is a live studio session in this checkout. It analyzed the owned fix
 | Run the same static route and the owned demo from the terminal                         | `ree.mjs`                                                      |
 | Use the full engine, including providers the studio does not launch                    | `node scripts/rea.mjs` and the project MCP server              |
 
-The studio binds to `127.0.0.1` only. It has no account and does not upload Evidence. Research stages, when you turn them on, restate retained tool results. Remote model calls are refused.
+The studio binds to `127.0.0.1` only. It has no account and does not upload Evidence. A link is fetched only after you approve the URLs, the size limit, and the destination. Research stages, when you turn them on, restate retained tool results. Remote model calls are refused.
+
+The front door says **Drop a file, folder, or paste a link**.
+
+| Front door            | What you do             | What the studio does                                                                                                                   |
+| --------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Drop a file or folder | Drop it on the page     | Copies it into the studio data directory, classifies it, and picks a ready route                                                       |
+| Paste a link          | Approve the listed URLs | Shallow-clones a public GitHub or GitLab repo, downloads an https file, or fetches an npm tarball or a page and its referenced scripts |
+| Authorize             | Tick the box            | Runs that ready route. The download is not executed                                                                                    |
+| Findings              | Read the summary        | Every sentence points at saved Evidence. The graph shows stored relationships only                                                     |
+
+<img src="docs/assets/studio/front-door.gif" alt="Live front door. The empty drop zone, then a GitHub fetch plan that has not used the network, then carrier.hex classified as EVM bytecode, then Findings quoting the saved Evidence id and the unknown that the bytecode was not executed." width="1000" />
+
+That animation is the live page on this checkout. The plan frame lists `https://github.com/gryszzz/reverse-engineer-everything` and does not fetch it. The drop is the owned file `experiments/ree-fixtures/carrier.hex`. The findings frame is the EVM route after the authorization tick. The bytecode was not executed.
+
+Simple Mode is that front door and the findings. Advanced Mode keeps readiness, the exact command, Evidence search, research, the owned probe, and the report.
 
 ## Investigation Studio
 
 The studio is a loopback page served from this checkout. Simple Mode is plain language. Advanced Mode adds Evidence ids, readiness fields, and the exact analyzer command.
 
-These shots are from one live session against `experiments/rel-first-lab` after an authorized static run. The Evidence id in the pictures is `ev_45d365f3b6f0be5b8831504b9bf5f268826bf0973e47a11ad01e1bd65587d58b`. That run recorded 49 graph nodes and 67 edges. Nothing in the pictures was drawn in by hand.
+The front door, fetch plan, drop, findings, and readiness shots are a later live session on this Linux host. The plan did not fetch. The drop and findings used `experiments/ree-fixtures/carrier.hex`. Overview, intake, Evidence, the graph, experiment, research, and report are an earlier live session against `experiments/rel-first-lab`. That run's Evidence id is `ev_45d365f3b6f0be5b8831504b9bf5f268826bf0973e47a11ad01e1bd65587d58b`, with 49 graph nodes and 67 edges. Nothing in the pictures was drawn in by hand.
 
-### Welcome
+### Front door
 
-<img src="docs/assets/studio/welcome.png" alt="Empty Investigation Studio asking for a project name and the question Which files import which, before any analysis." width="1200" />
+<img src="docs/assets/studio/door.png" alt="Investigation Studio front door. The heading is Drop a file, folder, or paste a link. Status is idle. No fetch and no analysis is running." width="1200" />
+
+<img src="docs/assets/studio/plan.png" alt="Fetch plan for https://github.com/gryszzz/reverse-engineer-everything. It lists a shallow git clone, a 33554432 byte limit, a 60000 ms limit, and says no network request has been made." width="1200" />
+
+<img src="docs/assets/studio/drop.png" alt="Owned carrier.hex dropped on the front door and classified as EVM bytecode, with EVM bytecode interface ready. No analysis has run." width="1200" />
+
+<img src="docs/assets/studio/findings.png" alt="Findings after the authorized EVM route on carrier.hex. The summary quotes the saved Evidence id and says the bytecode was not executed." width="1200" />
 
 ### Overview
 
@@ -64,9 +88,9 @@ Classification reads a directory listing or the first bytes of a file. It does n
 
 ### Readiness
 
-<img src="docs/assets/studio/readiness.png" alt="Readiness view. JavaScript static analysis is implemented in the studio and recorded-in-this-studio. SQLite and Ghidra are not-supported in the studio and not-recorded." width="1200" />
+<img src="docs/assets/studio/readiness.png" alt="Top of readiness on this Linux host. JavaScript static analysis, PE resources, EVM bytecode, and objdump file headers are ready and not-recorded. WebAssembly is not-configured. apktool is missing-tool. No route is recorded-in-this-studio." width="1200" />
 
-`recorded-in-this-studio` means a completed action in this data directory. It is not a CI result and not a statement about another Mac. A command on `PATH` is not treated as configured or verified. The full route list is the [support matrix](#support-matrix).
+`recorded-in-this-studio` means a completed action in this data directory. It is not a CI result and not a statement about another Mac. A command on `PATH` is not treated as configured or verified. The picture is the top of the page. The full route list, including Mach-O, Ghidra, Rizin, and radare2, is the [support matrix](#support-matrix).
 
 ### Evidence
 
@@ -180,21 +204,28 @@ Status words mean only this:
 | **Needs external tool** | The engine has the route. You supply the tool and use the REA CLI or MCP. The studio does not launch it. |
 | **Unsupported**         | The studio refuses it, or it has no such action.                                                         |
 
-| Route                                                          | Engine              | Studio                                 | Status                  |
-| -------------------------------------------------------------- | ------------------- | -------------------------------------- | ----------------------- |
-| JavaScript / Electron static analysis                          | Implemented         | Runs it after a local build            | **Implemented**         |
-| Evidence search and bounded relationship graph                 | Implemented         | Uses saved Evidence                    | **Implemented**         |
-| Project save / resume, intake, readiness, report, summary diff | REE product         | Implemented                            | **Implemented**         |
-| Owned `experiments/rel-first-lab` probe                        | Not an engine route | One approved command, query `bridge`   | **Experimental**        |
-| Finite hypothesis planner                                      | Implemented         | Preview with no observations           | **Experimental**        |
-| Local research stages                                          | Not an engine route | Off by default; restates saved results | **Experimental**        |
-| Remote model commentary                                        | None                | Refused, even if a key is stored       | **Unsupported**         |
-| SQLite snapshots                                               | Implemented         | Not invoked                            | **Needs external tool** |
-| Ghidra, IDA, Hopper                                            | Implemented         | Not invoked                            | **Needs external tool** |
-| JADX, Apktool, JEB                                             | Implemented         | Not invoked                            | **Needs external tool** |
-| Firmware, WebAssembly, packet capture                          | Implemented         | Not invoked                            | **Needs external tool** |
-| Browser / Electron runtime observation                         | Implemented         | Not invoked                            | **Needs external tool** |
-| REA process capture                                            | Implemented         | Not invoked                            | **Unsupported**         |
+| Route                                                                                      | Engine                                                                        | Studio                                                                                                                                | Status                  |
+| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| JavaScript / Electron / ASAR static analysis                                               | Implemented                                                                   | Runs the existing analyze route when it is ready                                                                                      | **Implemented**         |
+| Drop a file or folder                                                                      | REE product                                                                   | Local copy, then the ready route                                                                                                      | **Implemented**         |
+| Approved https link, shallow GitHub/GitLab clone, npm tarball, page and referenced scripts | REE product                                                                   | Opt-in. Size and time limits. URL and sha256 kept. Not executed                                                                       | **Implemented**         |
+| PE resource inventory                                                                      | Implemented                                                                   | `inspect-pe-resources` when the file is a PE                                                                                          | **Implemented**         |
+| EVM bytecode interface                                                                     | Implemented                                                                   | `evmole` in this checkout                                                                                                             | **Implemented**         |
+| objdump file headers                                                                       | Implemented                                                                   | Runs when `objdump` is on `PATH`                                                                                                      | **Implemented**         |
+| Evidence search and bounded relationship graph                                             | Implemented                                                                   | Uses saved Evidence                                                                                                                   | **Implemented**         |
+| Project save / resume, intake, readiness, report, summary diff                             | REE product                                                                   | Implemented                                                                                                                           | **Implemented**         |
+| WebAssembly                                                                                | Implemented                                                                   | Needs absolute `REA_WABT_BIN_DIRECTORY` for WABT 1.0.42. A `wabt` binary on `PATH` is not configured                                  | **Needs configuration** |
+| ELF layout                                                                                 | Implemented                                                                   | Needs absolute `REA_PWNTOOLS_PYTHON`. REE does not install Python                                                                     | **Needs configuration** |
+| Android JADX                                                                               | Implemented                                                                   | Needs absolute `REA_JADX_MCP_JAR`. A Homebrew `jadx` is not that jar                                                                  | **Needs configuration** |
+| Apktool                                                                                    | Implemented                                                                   | `apktool` on `PATH` or `REA_APKTOOL_COMMAND`. On macOS the studio can run `brew install apktool` only after the exact argv and digest | **Needs external tool** |
+| Mach-O overview                                                                            | Implemented                                                                   | `otool` and `lipo` on macOS                                                                                                           | **Needs macOS**         |
+| Ghidra overview                                                                            | Implemented                                                                   | `inspect --provider ghidra` only when `GHIDRA_INSTALL_DIR` is set. It does not modify the file                                        | **Needs configuration** |
+| Owned `experiments/rel-first-lab` probe                                                    | Not an engine route                                                           | One approved command, query `bridge`                                                                                                  | **Experimental**        |
+| Finite hypothesis planner                                                                  | Implemented                                                                   | Preview with no observations                                                                                                          | **Experimental**        |
+| Local research stages                                                                      | Not an engine route                                                           | Off by default; restates saved results                                                                                                | **Experimental**        |
+| Remote model commentary                                                                    | None                                                                          | Refused, even if a key is stored                                                                                                      | **Unsupported**         |
+| IDA, Hopper, Rizin, radare2, JEB                                                           | IDA, Hopper, and Rizin exist as engine adapters. There is no radare2 provider | The studio does not launch them                                                                                                       | **Unsupported**         |
+| SQLite, firmware, packet capture, browser runtime, process capture                         | Implemented                                                                   | Not invoked                                                                                                                           | **Needs external tool** |
 
 SQLite inspection wants Node 24.15+ or 26+. A missing `ghidra` or `hopper` command does not prove the Mac app is absent, and a command on `PATH` does not prove a decompilation. Process capture is an engine workflow with its own host and authority rules. The studio experiment does not call it.
 
@@ -210,7 +241,8 @@ REE does not silently substitute one native engine for another.
 
 ## Safety and authorization
 
-- The studio and `REE.app` listen on `127.0.0.1` only. Other hosts and other origins are refused. There is no account and no upload.
+- The studio and `REE.app` listen on `127.0.0.1` only. Other hosts and other origins are refused. There is no account and no remote upload.
+- A pasted link shows the URL, byte limit, time limit, and destination before anything is fetched. `approved` must be boolean true and the digest must match. `http`, credentials, and non-public addresses are refused. The bytes are stored and hashed. They are not executed.
 - Static analysis starts only after you set authorization. The child process is the public `node ree.mjs analyze --authorized` command. One run at a time, three-minute timeout, then SIGTERM and SIGKILL.
 - The owned probe lists its argv, timeout, and file hashes. A digest mismatch is rejected. `approved` must be boolean true. Any other directory is refused. Analysis authorization does not approve the probe.
 - Runtime capture stays on the experiment record. It is not merged into static Evidence.
@@ -258,7 +290,8 @@ The finite planner ranks caller-supplied predictions. It does not invent hypothe
 ## Limitations
 
 - There is no separate published REE package, updater, or notarized app.
-- The studio does not launch Ghidra, IDA, Hopper, JADX, Apktool, JEB, firmware tools, browser debuggers, packet capture, SQLite, or `capture-process`.
+- Ghidra runs only as `inspect --provider ghidra` when `GHIDRA_INSTALL_DIR` is already set. IDA, Hopper, Rizin, radare2, and JEB are not launched. Firmware tools, browser debuggers, packet capture, SQLite, and `capture-process` are not launched.
+- WebAssembly, ELF layout, and JADX stay not-configured until the documented absolute tool path is set. The studio does not install WABT, Python, JADX, or Ghidra.
 - A static graph edge is not an observed execution.
 - The probe cannot target anything except `experiments/rel-first-lab`, and the command it runs is the `bridge` query.
 - Research has no model cost because no model is called.
