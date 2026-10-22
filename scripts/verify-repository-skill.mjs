@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, readdir } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 
 import { exec, pathExists } from "./lib/verify-package-core.mjs";
@@ -34,38 +34,7 @@ export async function verifyRepositorySkill({ root, workspace }) {
   await mkdir(consumer, { recursive: true });
   await mkdir(home, { recursive: true });
   const skillsVersion = "1.7.2";
-  await exec(
-    "npm",
-    [
-      "exec",
-      "--yes",
-      "--package",
-      `skills@${skillsVersion}`,
-      "--",
-      "skills",
-      "add",
-      snapshot,
-      "--skill",
-      "reverse-engineer-anything",
-      "--agent",
-      "codex",
-      "--yes",
-    ],
-    {
-      cwd: consumer,
-      env: {
-        ...process.env,
-        HOME: home,
-        USERPROFILE: home,
-        XDG_CONFIG_HOME: join(home, ".config"),
-        CODEX_HOME: join(home, ".codex"),
-        DO_NOT_TRACK: "1",
-        SKILLS_NO_TELEMETRY: "1",
-        CI: "1",
-      },
-      timeout: 120_000,
-    },
-  );
+  await execSkillAdd({ snapshot, consumer, home, skillsVersion });
   const authoredRoot = join(
     snapshot,
     ".agents/skills/reverse-engineer-anything",
@@ -87,6 +56,72 @@ export async function verifyRepositorySkill({ root, workspace }) {
       throw new Error(`Skills changed authored skill content: ${path}`);
   }
   return { skillsVersion, files };
+}
+
+async function execSkillAdd({ snapshot, consumer, home, skillsVersion }) {
+  const args = [
+    "exec",
+    "--yes",
+    "--package",
+    `skills@${skillsVersion}`,
+    "--",
+    "skills",
+    "add",
+    snapshot,
+    "--skill",
+    "reverse-engineer-anything",
+    "--agent",
+    "codex",
+    "--yes",
+  ];
+  // CI=1 hides npm's progress bar, so a slow registry read produces no
+  // output until this timeout. Darwin runners have exceeded the old 120s
+  // budget once while Linux finished the same commit; retry that stall once.
+  const options = {
+    cwd: consumer,
+    env: {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      XDG_CONFIG_HOME: join(home, ".config"),
+      CODEX_HOME: join(home, ".codex"),
+      DO_NOT_TRACK: "1",
+      SKILLS_NO_TELEMETRY: "1",
+      CI: "1",
+      GIT_TERMINAL_PROMPT: "0",
+      npm_config_fund: "false",
+      npm_config_audit: "false",
+      npm_config_update_notifier: "false",
+    },
+    timeout: 180_000,
+    killSignal: "SIGKILL",
+  };
+  try {
+    await exec("npm", args, options);
+  } catch (cause) {
+    if (!commandTimedOut(cause)) throw cause;
+    // The killed attempt may still hold the shared npm cache. Retry against
+    // a private cache and a clean consumer tree.
+    await rm(join(consumer, ".agents"), { recursive: true, force: true });
+    await exec("npm", args, {
+      ...options,
+      env: {
+        ...options.env,
+        npm_config_cache: join(home, "npm-cache-retry"),
+      },
+    });
+  }
+}
+
+function commandTimedOut(cause) {
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    (cause.killed === true ||
+      cause.signal === "SIGTERM" ||
+      cause.signal === "SIGKILL" ||
+      cause.code === "ETIMEDOUT")
+  );
 }
 
 async function filePaths(root) {
