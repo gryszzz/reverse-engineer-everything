@@ -1,6 +1,13 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
+import { beginStreamingAnalysis } from "../analyze-static.mjs";
 import {
   bestReadyRoute,
   commandArgv,
@@ -14,6 +21,11 @@ import { narrateEvidence, narrateJavascriptSummary } from "./narrative.mjs";
 import { repositoryRoot } from "./paths.mjs";
 import { newId } from "./projects.mjs";
 import { engineChildEnv } from "./tool-env.mjs";
+import {
+  appendTimeline,
+  evidenceTimeline,
+  parseProgressLine,
+} from "./theater.mjs";
 
 const active = new Map();
 const children = new Map();
@@ -168,7 +180,7 @@ export function startStaticAnalysis({
       mkdirSync(runsDir, { recursive: true });
     else mkdirSync(output, { recursive: true });
     const savedQuestion = question ?? project.question;
-    const argv = commandArgv({
+    let argv = commandArgv({
       id: chosen.id,
       target: artifact.path,
       output,
@@ -206,12 +218,45 @@ export function startStaticAnalysis({
     });
     active.set(store.root, runId);
     let child;
+    let streaming = null;
     try {
-      child = spawn(argv[0], argv.slice(1), {
-        cwd: repositoryRoot,
-        env: engineChildEnv(),
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
+      if (chosen.id === "javascript-static") {
+        streaming = beginStreamingAnalysis({
+          target: artifact.path,
+          out: output,
+          authorized: true,
+          question: savedQuestion,
+          env: engineChildEnv(),
+          onProgress: (line) => {
+            const event = parseProgressLine(line);
+            if (event)
+              appendTimeline(output, {
+                ...event,
+                provider: chosen.provider,
+              });
+          },
+        });
+        child = streaming.child;
+        argv = streaming.argv;
+        run.command = { argv, stdout_log_level: "silent" };
+        store.update(projectId, (current) => {
+          const saved = current.runs.find((item) => item.id === runId);
+          if (saved) saved.command = run.command;
+          return current;
+        });
+      } else {
+        child = spawn(argv[0], argv.slice(1), {
+          cwd: repositoryRoot,
+          env: engineChildEnv(),
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
+        });
+      }
+      appendTimeline(output, {
+        source: "process",
+        phase: "start",
+        provider: chosen.provider,
+        message: `Started ${chosen.provider}.`,
       });
     } catch (error) {
       active.delete(store.root);
@@ -243,8 +288,21 @@ export function startStaticAnalysis({
         });
       }
     });
+    let stderrPending = "";
     child.stderr.on("data", (chunk) => {
-      if (stderr.length < 16000) stderr += chunk.toString("utf8");
+      const text = chunk.toString("utf8");
+      if (stderr.length < 16000) stderr += text;
+      if (streaming) return;
+      stderrPending += text;
+      let newline = stderrPending.indexOf("\n");
+      while (newline >= 0) {
+        const line = stderrPending.slice(0, newline);
+        stderrPending = stderrPending.slice(newline + 1);
+        newline = stderrPending.indexOf("\n");
+        const event = parseProgressLine(line);
+        if (event)
+          appendTimeline(output, { ...event, provider: chosen.provider });
+      }
     });
     child.on("close", (code, signal) => {
       clearTimeout(timer);
@@ -305,6 +363,18 @@ function finishJavascript(
     code === 0 &&
     typeof evidenceId === "string" &&
     EVIDENCE_ID.test(evidenceId);
+  if (completed) {
+    try {
+      const evidencePath = join(output, "evidence.json");
+      if (statSync(evidencePath).size <= 8_000_000) {
+        const record = JSON.parse(readFileSync(evidencePath, "utf8"));
+        for (const event of evidenceTimeline(record))
+          appendTimeline(output, event);
+      }
+    } catch {
+      // A timeline gap stays visible as a missing Evidence event.
+    }
+  }
   const narrative = completed
     ? narrateJavascriptSummary(summary, evidenceId)
     : null;

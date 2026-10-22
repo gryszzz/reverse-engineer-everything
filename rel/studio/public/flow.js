@@ -7,6 +7,7 @@ export const primaryFlow = [
 ];
 
 export const advancedLabs = [
+  ["rebuild", "Evidence rebuild"],
   ["overview", "Overview"],
   ["intake", "Intake"],
   ["readiness", "Readiness"],
