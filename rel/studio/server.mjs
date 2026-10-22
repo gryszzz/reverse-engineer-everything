@@ -92,6 +92,7 @@ const FILES = new Map([
   ["/format.js", ["format.js", "text/javascript; charset=utf-8"]],
   ["/flow.js", ["flow.js", "text/javascript; charset=utf-8"]],
   ["/explain.js", ["explain.js", "text/javascript; charset=utf-8"]],
+  ["/theme.js", ["theme.js", "text/javascript; charset=utf-8"]],
 ]);
 const REMOTE_REASON =
   "Remote model calls are refused. No Evidence, source, or project text is uploaded.";

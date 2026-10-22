@@ -88,14 +88,14 @@ function svg(modules, imports) {
   const lines = [
     `<svg xmlns="http://www.w3.org/2000/svg" width="760" height="${height}" viewBox="0 0 760 ${height}">`,
     `<rect width="100%" height="100%" fill="#101318"/>`,
-    `<text x="24" y="28" fill="#b9a6ff" font-size="14">Reconstructed module map. Edges are inferred imports from Evidence.</text>`,
+    `<text x="24" y="28" fill="#8eb0ff" font-size="14">Reconstructed module map. Edges are inferred imports from Evidence.</text>`,
   ];
   const y = new Map();
   modules.forEach((module, index) => {
     const top = 48 + index * 48;
     y.set(module.file, top);
     lines.push(
-      `<rect x="24" y="${top}" width="240" height="36" rx="8" fill="#1e2531" stroke="#5ce1ff"/>`,
+      `<rect x="24" y="${top}" width="240" height="36" rx="8" fill="#1e2531" stroke="#8eb0ff"/>`,
       `<text x="36" y="${top + 23}" fill="#e8eef6" font-size="13">${escapeXml(module.file)}</text>`,
     );
   });
@@ -104,7 +104,7 @@ function svg(modules, imports) {
     const from = y.get(edge.from) + 18;
     const to = y.get(edge.to) + 18;
     lines.push(
-      `<path d="M 264 ${from} C 320 ${from}, 320 ${to}, 400 ${to}" fill="none" stroke="#b9a6ff"/>`,
+      `<path d="M 264 ${from} C 320 ${from}, 320 ${to}, 400 ${to}" fill="none" stroke="#8eb0ff"/>`,
     );
   }
   lines.push("</svg>");

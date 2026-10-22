@@ -125,23 +125,18 @@ function spec() {
 test("simple navigation keeps labs behind advanced", () => {
   assert.deepEqual(
     navigation("simple").map(([, label]) => label),
-    [
-      "Front door",
-      "Analyze",
-      "Findings",
-      "Board",
-      "Build",
-      "Lessons",
-      "Diff Lab",
-      "Trace Lab",
-    ],
+    ["Front door", "Analyze", "Findings", "Build"],
   );
   assert.equal(
     navigation("advanced").some(([id]) => id === "graph"),
     true,
   );
   assert.equal(
-    primaryFlow.some(([id]) => id === "graph"),
+    navigation("advanced").some(([id]) => id === "board"),
+    true,
+  );
+  assert.equal(
+    primaryFlow.some(([id]) => id === "graph" || id === "lessons"),
     false,
   );
 });

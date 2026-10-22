@@ -85,6 +85,18 @@ function field(label, child) {
   return el("label", { class: "field" }, [label, child]);
 }
 
+function nextStep(text) {
+  return el("p", { class: "next" }, text);
+}
+
+function emptyState(title, body, actionLabel, action) {
+  return el("div", { class: "empty-state" }, [
+    el("h3", {}, title),
+    el("p", {}, body),
+    actionLabel ? button(actionLabel, action, { class: "primary" }) : null,
+  ]);
+}
+
 function button(label, onclick, attrs = {}) {
   return el(
     "button",
@@ -145,6 +157,12 @@ async function refreshProject() {
 }
 
 function openView(id) {
+  if (!visibleViews().some(([viewId]) => viewId === id)) {
+    state.notice = "That screen is under Advanced.";
+    state.palette = false;
+    draw();
+    return;
+  }
   state.view = id;
   state.palette = false;
   if (id === "board")
@@ -175,16 +193,28 @@ function shell() {
       el("div", { class: "brand" }, [
         el("p", { class: "mark" }, "REE"),
         el("div", {}, [
-          el("h1", {}, "Investigation Studio"),
-          el(
-            "p",
-            { class: "tag" },
-            "Local evidence. No account. No remote upload.",
-          ),
+          el("h1", {}, "Studio"),
+          el("p", { class: "tag" }, "On this machine. Nothing is uploaded."),
         ]),
       ]),
       el("div", { class: "top-actions" }, [
         el("span", { class: "pill" }, "127.0.0.1"),
+        button(
+          document.documentElement.dataset.theme === "light" ? "Dark" : "Light",
+          () => {
+            const next =
+              document.documentElement.dataset.theme === "light"
+                ? "dark"
+                : "light";
+            document.documentElement.dataset.theme = next;
+            try {
+              localStorage.setItem("ree-studio-theme", next);
+            } catch {
+              /* the toggle still applies for this page */
+            }
+            draw();
+          },
+        ),
         button("Commands", () => {
           state.palette = true;
           state.paletteQuery = "";
@@ -206,7 +236,7 @@ function shell() {
     ]),
     el("div", { class: "layout" }, [
       el("nav", { class: "rail", "aria-label": "Studio" }, [
-        el("p", { class: "rail-label" }, "Workspace"),
+        el("p", { class: "rail-label" }, "Path"),
         ...primaryFlow.map(([id, label]) =>
           button(label, () => openView(id), {
             class: state.view === id ? "nav current" : "nav",
@@ -265,9 +295,9 @@ function panel() {
     return theaterPanel();
   if (state.view === "board") return boardPanel();
   if (state.view === "build") return buildPanel();
+  if (state.view === "findings") return findingsPanel();
   if (state.view === "door" || !state.project) return doorPanel();
   if (state.view === "rebuild") return rebuildPanel();
-  if (state.view === "findings") return findingsPanel();
   if (state.view === "lessons") return lessonsPanel();
   if (state.view === "diff-lab") return diffLabPanel();
   if (state.view === "trace-lab") return traceLabPanel();
@@ -337,17 +367,12 @@ function doorPanel() {
     (route) => route.status === "ready",
   );
   return el("section", { class: "panel door" }, [
-    el("p", { class: "eyebrow" }, "Investigation Studio"),
+    el("p", { class: "eyebrow" }, "Start"),
     el("h2", {}, "Drop a file, folder, or paste a link"),
     el(
       "p",
       {},
-      "A local drop is copied into this studio and classified. A link is fetched only after you approve the URLs below. REE then picks a ready route and waits for the authorization tick. Nothing is executed.",
-    ),
-    el(
-      "p",
-      { class: "note" },
-      "Simple Mode is the default. The first ready route is selected for you. Authorization stays off until you tick it. Research stays off.",
+      "A drop is copied here and classified. A link is fetched only after you approve the plan. The route reads the target. It does not launch it.",
     ),
     el(
       "p",
@@ -394,6 +419,9 @@ function doorPanel() {
       state.linkPlan ? "Fetch and analyze" : "Analyze",
       () => frontDoorRun(),
       { class: "primary" },
+    ),
+    nextStep(
+      "Next: tick authorization, then Analyze. The live timeline is the next screen.",
     ),
     mode() === "advanced"
       ? button("Use the owned JavaScript fixture", () => addOwned())
@@ -527,7 +555,7 @@ function onboardingCard() {
     el(
       "p",
       {},
-      "Drop a file or paste a link you are allowed to fetch. Analyze shows the engine progress that route actually emits. Findings quote saved Evidence. Board lists Scout records and behavior specs you ingest. Build writes a clean-room folder and a dry-run handoff.",
+      "Drop a file or paste a link you are allowed to fetch. Analyze shows only the engine events that route records. Findings lists saved Evidence. Build writes a new folder from a behavior spec.",
     ),
     button("Hide this introduction", async () => {
       await api("/api/onboarding", { method: "POST", body: {} });
@@ -592,6 +620,9 @@ function boardPanel() {
       state.notice = "Ingested. Scores were not invented.";
       draw();
     }),
+    nextStep(
+      "Next: open Build and scaffold from a behavior spec you already have.",
+    ),
   ]);
 }
 
@@ -611,13 +642,14 @@ function buildPanel() {
     el(
       "p",
       {},
-      "Writes a new folder in the studio data directory. Source is a feature registry. Quotes are not copied. The handoff is a dry run: Blast is not notified, Guard is not called, and Vault is not copied.",
+      "Writes a new folder from a behavior spec. Quotes are not copied. The handoff is a dry run: Blast is not notified, Guard is not called, and Vault is not copied.",
     ),
     !result
-      ? el(
-          "p",
-          { class: "empty" },
-          "No scaffold yet. A declaration match is not a running product.",
+      ? emptyState(
+          "No scaffold yet",
+          "Paste a spec and a product name that is not the spec target. A declaration match is not a running product. The opportunity list is Board, under Advanced.",
+          null,
+          null,
         )
       : el("article", { class: "card" }, [
           el("p", {}, `Build ${result.build_id}`),
@@ -650,6 +682,9 @@ function buildPanel() {
         "Scaffold written. Features are declared, not implemented.";
       draw();
     }),
+    nextStep(
+      "Next: paste the spec, name the new product, then Scaffold and verify.",
+    ),
   ]);
 }
 
@@ -680,25 +715,33 @@ function theaterPanel() {
   const run = watchedRun();
   const processEvents = run?.events ?? [];
   return el("section", { class: "panel theater" }, [
-    el("p", { class: "eyebrow" }, "Investigation Theater"),
+    el("p", { class: "eyebrow" }, "Live analysis"),
     el("h2", {}, "Analyze"),
     el(
       "p",
       {},
-      "Each line is an engine progress event or a fact read from written Evidence. Process lines are start, the first output chunk, and exit. Nothing here is simulated.",
+      "Each line is an engine progress event or a fact read from written Evidence. Process lines are start, the first output chunk, and exit.",
     ),
     !state.project
-      ? el(
-          "p",
-          { class: "empty" },
-          "No project yet. Drop a file on the front door.",
+      ? emptyState(
+          "Nothing to watch yet",
+          "Drop a file on the front door. A line appears only when the engine emits it.",
+          "Go to the front door",
+          () => {
+            state.view = "door";
+            draw();
+          },
         )
       : null,
     state.project && !run
-      ? el(
-          "p",
-          { class: "empty" },
-          "No analysis has started. Choose Analyze on the front door after you authorize the target.",
+      ? emptyState(
+          "No analysis has started",
+          "Authorize the target on the front door, then press Analyze.",
+          "Go to the front door",
+          () => {
+            state.view = "door";
+            draw();
+          },
         )
       : null,
     el("div", { class: "stats" }, [
@@ -746,13 +789,7 @@ function theaterPanel() {
             { class: "empty" },
             "This run has no recorded engine progress lines.",
           )
-        : state.project
-          ? el(
-              "p",
-              { class: "empty" },
-              "The theater is empty because no analysis has written progress yet. Use the front door: drop a target, tick authorization, and press Analyze. A line appears only when the engine emits it.",
-            )
-          : null,
+        : null,
     processEvents.length
       ? el(
           "ol",
@@ -762,9 +799,16 @@ function theaterPanel() {
       : run && events.length === 0
         ? el("p", { class: "empty" }, "This run has no recorded engine events.")
         : null,
-    button("Replay recorded timeline", () => replayTimeline(), {
-      class: "primary",
-    }),
+    events.length
+      ? button("Replay recorded timeline", () => replayTimeline(), {
+          class: "primary",
+        })
+      : null,
+    nextStep(
+      events.length
+        ? "Next: open Findings and read the sentences that name an Evidence id."
+        : "Next: start from the front door. This screen stays empty until the engine writes a line.",
+    ),
   ]);
 }
 
@@ -773,6 +817,7 @@ function stat(label, value) {
 }
 
 function stageRow() {
+  if (!state.phase || state.phase === "idle") return null;
   const stages = [
     ["copying", "Copy"],
     ["planning", "Plan"],
@@ -802,7 +847,7 @@ function theaterSvg(graph) {
   const title = document.createElementNS("http://www.w3.org/2000/svg", "text");
   title.setAttribute("x", "16");
   title.setAttribute("y", "20");
-  title.setAttribute("fill", "#b9a6ff");
+  title.setAttribute("fill", "currentColor");
   title.textContent =
     graph.files.length === 0
       ? "No parsed file has been reported yet."
@@ -1404,20 +1449,14 @@ function findingsPanel() {
     ),
     run
       ? runCard(run)
-      : el(
-          "p",
-          { class: "empty" },
-          "No completed analysis yet. Drop a target on the front door, authorize it, and press Analyze. A finding appears only after Evidence is saved.",
-        ),
-    run
-      ? null
-      : button(
+      : emptyState(
+          "No findings yet",
+          "A finding appears only after Evidence is saved. Drop a target, authorize it, and press Analyze.",
           "Go to the front door",
           () => {
             state.view = "door";
             draw();
           },
-          { class: "primary" },
         ),
     holder,
     state.edge ? edgeDetail() : null,
@@ -1427,8 +1466,13 @@ function findingsPanel() {
       : el(
           "p",
           { class: "note" },
-          "Advanced mode opens readiness, the exact command, and the rest of the workspace.",
+          "Advanced opens readiness, the exact command, and the rest of the workspace.",
         ),
+    nextStep(
+      run
+        ? "Next: open Build to scaffold a new folder from a behavior spec. Build does not copy this target."
+        : "Next: finish an analysis. Build is for a behavior spec, not for copying this target.",
+    ),
   ]);
 }
 
@@ -2331,6 +2375,10 @@ async function saveReport() {
 function draw() {
   try {
     shell();
+    if (state.view === "analyze") {
+      for (const list of document.querySelectorAll("#main .timeline"))
+        list.scrollTop = list.scrollHeight;
+    }
   } catch (error) {
     document.querySelector("#app").textContent = error.message;
   }
@@ -2419,7 +2467,7 @@ const TOUR = [
   },
   {
     title: "Read what was saved",
-    body: "Analyze, Findings, and Explain this restate engine progress and Evidence. Board and Build turn a behavior spec into a clean-room folder. A local explanation does not call a model and does not fill an unknown.",
+    body: "Analyze shows recorded engine lines. Findings lists saved Evidence. Build writes a new folder from a behavior spec and does not copy the target. A local explanation does not call a model.",
   },
 ];
 
@@ -2481,11 +2529,10 @@ function shortcutSheet() {
     ["1", "Front door"],
     ["2", "Analyze"],
     ["3", "Findings"],
-    ["4", "Board"],
-    ["5", "Build"],
-    ["L", "Lessons"],
-    ["D", "Diff Lab"],
-    ["T", "Trace Lab"],
+    ["4", "Build"],
+    ["L", "Lessons, under Advanced"],
+    ["D", "Diff Lab, under Advanced"],
+    ["T", "Trace Lab, under Advanced"],
   ];
   return el(
     "div",
@@ -2543,8 +2590,7 @@ async function boot() {
       1: "door",
       2: "analyze",
       3: "findings",
-      4: "board",
-      5: "build",
+      4: "build",
     };
     if (event.key.toLowerCase() === "l") {
       openView("lessons");
