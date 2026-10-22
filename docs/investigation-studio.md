@@ -43,17 +43,14 @@ npm run build:cached
 node ree.mjs studio --open
 ```
 
-In the studio:
+In the studio, Simple Mode opens on one front door: **Drop a file, folder, or paste a link**.
 
-1. Create a project and keep the question, for example `Which files import which?`
-2. Choose **Use the owned JavaScript fixture**. This classifies `experiments/rel-first-lab` and does not analyze it yet.
-3. Check the authorization box. The run reads source files and does not launch the fixture.
-4. Choose **Run static analysis**.
-5. Open **Evidence** and search `search.mjs` or `cli.mjs`.
-6. Open **Graph**. Inferred edges are static relationships. They are not captured executions. Select one and open the recorded source line.
-7. Open **Report** to export a Markdown projection of the saved project.
+1. Drop a file or folder. The studio copies it into the data directory and classifies it. Nothing is analyzed yet.
+2. Or paste a link and choose **Show what will be fetched**. That lists the URL, byte limit, time limit, and destination. It does not use the network. **Fetch and analyze** runs only after you tick authorization and the digest still matches. The saved bytes are not executed.
+3. Tick the authorization box. The studio picks a ready route. If none is ready, it says so and does not invent a run.
+4. When the run finishes, Findings shows one plain-English sentence per saved fact. Each sentence names the Evidence id and path. Unknowns stay listed. The map shows stored relationships only.
 
-Simple Mode uses plain language. Advanced Mode shows Evidence ids, readiness fields, and the exact `node ree.mjs analyze` command.
+Advanced Mode keeps intake, readiness, the exact command, Evidence search, the graph, research, the owned probe, and the report. From there, **Use the owned JavaScript fixture** classifies `experiments/rel-first-lab` without analyzing it. A static run reads source and does not launch the fixture. Search Evidence for `search.mjs` or `cli.mjs`. Inferred graph edges are static relationships, not captured executions.
 
 The same analysis from the terminal:
 
@@ -77,6 +74,8 @@ The Readiness view separates four facts for each route:
 | Verified on this host | `recorded-in-this-studio` only after a completed studio action in this data directory |
 
 A missing Ghidra command does not prove the Mac app is absent. A present command does not prove a decompilation succeeded. `not-recorded` is the honest default.
+
+The studio can run the existing engine commands for JavaScript and ASAR, PE resources, EVM bytecode, objdump file headers, WebAssembly, ELF layout, Android JADX, apktool, Mach-O, and a Ghidra overview. A route that is missing its tool is `missing-tool` or `not-configured`. It is not reported as ready. The only install the page can run is `brew install apktool`, and only after the exact argv and digest are approved. WABT, JADX, Python, and Ghidra stay bring-your-own. IDA, Hopper, Rizin, and radare2 are not launched.
 
 ## Experiment, diff, and research
 
