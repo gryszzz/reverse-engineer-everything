@@ -1,6 +1,6 @@
 name: Publish REE landing page
 
-# Publishes docs/site to GitHub Pages on main.
+# Publishes docs/site to https://gryszzz.github.io/reverse-engineer-everything/
 # Settings → Pages → Source must already be GitHub Actions. This workflow
 # does not enable Pages itself (configure-pages enablement stays false).
 # website-pages.yml is the manual publisher for the REA website and also
