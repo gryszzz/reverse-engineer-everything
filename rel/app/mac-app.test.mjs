@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -227,14 +233,8 @@ test("install copies the bundle and links it from the Desktop home", () => {
     statSync(join(installed.app, "Contents", "MacOS", "REE")).mode & 0o111,
     0o111,
   );
-  if (installed.alias_kind === "symlink") {
-    assert.equal(
-      spawnSync("readlink", [installed.alias], {
-        encoding: "utf8",
-      }).stdout.trim(),
-      installed.app,
-    );
-  }
+  if (installed.alias_kind === "symlink")
+    assert.equal(readlinkSync(installed.alias), installed.app);
   rmSync(directory, { recursive: true, force: true });
 });
 
