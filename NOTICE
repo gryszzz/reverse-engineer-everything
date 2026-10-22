@@ -1,0 +1,18 @@
+REE — Reverse Engineering Everything
+
+This program is built on REA (Reverse Engineering Anything).
+
+Copyright (c) 2026 morluto
+
+Permission is granted under the MIT License in the file LICENSE. That license
+allows use, copying, modification, merging, publishing, distribution,
+sublicensing, and selling copies, provided the copyright notice and the
+permission notice are included in all copies or substantial portions of the
+Software.
+
+This fork does not add a further restriction. It does not add a license key
+or payment check. A draft product split between the local studio and the
+pipeline commands is described by `node ree.mjs edition`. Both are present in
+this checkout.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.

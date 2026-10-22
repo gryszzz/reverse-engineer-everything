@@ -34,6 +34,8 @@ The picture is a live studio session in this checkout on Linux, Node 24.18.0. It
 
 The public landing page is [https://gryszzz.github.io/reverse-engineer-everything/](https://gryszzz.github.io/reverse-engineer-everything/). It is a static copy of this introduction. Analysis still runs only from a checkout.
 
+This checkout is MIT, copyright (c) 2026 morluto. The license allows selling copies when [LICENSE](LICENSE) and [NOTICE](NOTICE) travel with them. `node ree.mjs edition` prints the draft split between the local studio and the pipeline commands. Both are in this checkout. There is no payment code and no license key. The pricing section on the landing page is a draft.
+
 ## What works today
 
 | You can                                                                   | From                                                              |
@@ -339,12 +341,12 @@ The finite planner ranks caller-supplied predictions. It does not invent hypothe
 
 These items are planned. They are not commands, views, or routes in this checkout.
 
-| Planned                        | What exists instead                                                                                                                         |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Live Investigation Theater** | The experiment lab runs one approved command and stores the capture on the experiment record. The studio does not present a live execution. |
-| **Rebuild Studio**             | `verify-reconstruction` remains an engine CLI command and an MCP tool. The studio does not rebuild a target.                                |
-| **Actions and exports**        | The report view can save its Markdown beside the project. There is no general action or export palette.                                     |
-| **Headless `ree serve`**       | The loopback server command is `node ree.mjs studio`. There is no `ree serve` command.                                                      |
+| Planned                        | What exists instead                                                                                                                                                              |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Live Investigation Theater** | The experiment lab runs one approved command and stores the capture on the experiment record. The studio does not present a live execution.                                      |
+| **Rebuild Studio**             | `verify-reconstruction` remains an engine CLI command and an MCP tool. Studio Build scaffolds a clean-room folder from a behavior spec. It does not rebuild the analyzed target. |
+| **Actions and exports**        | The report view can save its Markdown beside the project. There is no general action or export palette.                                                                          |
+| **Headless `ree serve`**       | The loopback server command is `node ree.mjs studio`. There is no `ree serve` command.                                                                                           |
 
 ## Limitations
 

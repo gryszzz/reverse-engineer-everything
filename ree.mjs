@@ -42,6 +42,7 @@ const help = [
   "node ree.mjs rebuild --spec FILE --name NAME --out DIR",
   "node ree.mjs verify --project DIR",
   "node ree.mjs handoff --project DIR [--blast-dir DIR] [--scout FILE]",
+  "node ree.mjs edition [--json]                   License and edition boundary",
   "node ree.mjs codex                              Check Codex project setup",
   "node ree.mjs doctor [--json]                    Read-only Mac readiness check",
   "",
@@ -160,6 +161,9 @@ try {
   if (args[0] === "outside-in") {
     const { runOutsideInCommand } = await import("./rel/outside-in/cli.mjs");
     process.exitCode = await runOutsideInCommand(args.slice(1));
+  } else if (args[0] === "edition") {
+    const { formatEdition } = await import("./rel/edition.mjs");
+    console.log(formatEdition(args.includes("--json")));
   } else if (
     ["opportunities", "rebuild", "verify", "handoff"].includes(args[0])
   ) {
