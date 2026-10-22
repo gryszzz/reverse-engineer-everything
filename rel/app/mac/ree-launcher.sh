@@ -232,7 +232,7 @@ fi
 
 printf 'REE Investigation Studio\n'
 printf 'Open this local address: %s\n' "$url"
-printf 'Loopback only. No account and no upload.\n'
+printf 'Loopback only. No account and no remote upload.\n'
 
 if [ "${REE_APP_OPEN:-1}" = "0" ]; then
   wait "$server_pid" || true

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">REE</title>
+  <desc id="desc">Graphite banner for Reverse Engineering Everything, with cyan and violet instrument marks.</desc>
+  <rect width="1200" height="360" fill="#101318"/>
+  <radialGradient id="glow" cx="18%" cy="0%" r="55%">
+    <stop offset="0%" stop-color="#1a2740"/>
+    <stop offset="100%" stop-color="#101318" stop-opacity="0"/>
+  </radialGradient>
+  <rect width="1200" height="360" fill="url(#glow)"/>
+  <g fill="none" stroke-linecap="round">
+    <path d="M80 250c120-140 220-140 340 0" stroke="#5ce1ff" stroke-width="3" opacity="0.9"/>
+    <path d="M140 270c90-110 180-110 270 0" stroke="#b9a6ff" stroke-width="2" opacity="0.85"/>
+    <circle cx="250" cy="168" r="7" fill="#5ce1ff" stroke="none"/>
+    <circle cx="430" cy="214" r="5" fill="#b9a6ff" stroke="none"/>
+    <path d="M760 70h280M760 70v180M1040 70v180M760 250h280" stroke="#313b4c" stroke-width="1.5"/>
+    <path d="M790 210l70-80 50 40 90-70" stroke="#7dcea0" stroke-width="2"/>
+  </g>
+  <text x="80" y="150" fill="#e8eef6" font-family="Palatino, Georgia, serif" font-size="92" letter-spacing="10">REE</text>
+  <text x="84" y="196" fill="#5ce1ff" font-family="Avenir Next, Segoe UI, sans-serif" font-size="22">Reverse Engineering Everything</text>
+  <text x="84" y="228" fill="#b7c3d1" font-family="Avenir Next, Segoe UI, sans-serif" font-size="18">Preserve the intelligence. Expand the possibilities.</text>
+</svg>

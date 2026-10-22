@@ -11,6 +11,16 @@ import {
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { routesForTarget } from "./engine-routes.mjs";
+import {
+  hasApplicationGraph,
+  projectEngineEvidence,
+  projectEngineGraph,
+} from "./engine-window.mjs";
+import { approveSetup } from "./setup-offers.mjs";
+import { engineChildEnv } from "./tool-env.mjs";
+import { writeUpload } from "./uploads.mjs";
+import { approveLink, performLink, planLink } from "./links.mjs";
 import { fileURLToPath } from "node:url";
 import { classifyTarget } from "../intake.mjs";
 import {
@@ -88,6 +98,58 @@ function send(
 
 function sendJson(res, status, value) {
   send(res, status, JSON.stringify(value));
+}
+
+function readRaw(req, maxBytes) {
+  return new Promise((resolveBody, rejectBody) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        rejectBody(studioError("A dropped file exceeds 8 MiB.", 413));
+        req.destroy();
+      } else chunks.push(chunk);
+    });
+    req.on("end", () => resolveBody(Buffer.concat(chunks)));
+    req.on("error", () =>
+      rejectBody(studioError("Could not read the request.")),
+    );
+  });
+}
+
+function runSetupCommand(argv) {
+  return new Promise((resolveCommand) => {
+    const child = spawn(argv[0], argv.slice(1), {
+      env: engineChildEnv(),
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+    }, 120000);
+    child.stdout.on("data", (chunk) => {
+      if (stdout.length < 16000) stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk) => {
+      if (stderr.length < 16000) stderr += chunk.toString("utf8");
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      resolveCommand({
+        exit_code: null,
+        signal: null,
+        stdout,
+        stderr: error.message,
+      });
+    });
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
+      resolveCommand({ exit_code: code, signal, stdout, stderr });
+    });
+  });
 }
 
 function readBody(req) {
@@ -173,6 +235,18 @@ function asStudio(fn) {
   }
 }
 
+function publicRoutes(path, kind) {
+  return routesForTarget({ path, kind }).map((route) => ({
+    id: route.id,
+    label: route.label,
+    status: route.status,
+    detail: route.detail,
+    provider: route.provider,
+    command: route.command,
+    family: route.family,
+  }));
+}
+
 function intakeSnapshot(path) {
   const detected = asStudio(() => classifyTarget(path));
   return {
@@ -189,6 +263,7 @@ function intakeSnapshot(path) {
       needs: detected.needs,
       input_type: detected.input_type ?? null,
       exists: detected.exists,
+      routes: publicRoutes(detected.target, detected.kind),
       note: "Intake classification only. No analysis has run.",
     },
   };
@@ -309,7 +384,8 @@ async function handleApi(context) {
       token,
       bind: "127.0.0.1",
       owned_fixture: "experiments/rel-first-lab",
-      uploads: "disabled",
+      uploads: "local-copy",
+      links: "approved-fetch",
       accounts: "none",
     };
   if (context.headerToken !== token)
@@ -322,6 +398,25 @@ async function handleApi(context) {
     return readResearchConfig(store.root);
   if (method === "PUT" && pathname === "/api/research")
     return writeResearchEnabled(store.root, body.enabled);
+  if (method === "POST" && pathname === "/api/setup") {
+    const readiness = assessStudioReadiness({
+      verifiedCounts: countStudioVerifications(store),
+    });
+    const argv = approveSetup({
+      offerId: body.offer_id,
+      approved: body.approved,
+      commandDigest: body.command_digest,
+      catalog: readiness.setup,
+    });
+    const result = await runSetupCommand(argv);
+    return {
+      argv,
+      ...result,
+      readiness: assessStudioReadiness({
+        verifiedCounts: countStudioVerifications(store),
+      }),
+    };
+  }
   if (method === "GET" && pathname === "/api/projects")
     return { projects: store.list() };
   if (method === "POST" && pathname === "/api/projects")
@@ -356,6 +451,34 @@ async function handleApi(context) {
       return project;
     });
   }
+  if (method === "POST" && rest === "/links/plan") return planLink(body.input);
+  if (method === "POST" && rest === "/links") {
+    const plan = approveLink({
+      input: body.input,
+      approved: body.approved,
+      planDigest: body.plan_digest,
+    });
+    const destination = join(
+      store.directory(projectId),
+      "links",
+      newId("lnk_"),
+    );
+    const saved = await performLink(plan, { destination });
+    const artifact = intakeSnapshot(saved.path);
+    artifact.provenance = {
+      input: plan.input,
+      kind: saved.kind,
+      executes: false,
+      fetches: saved.fetches,
+      destination: saved.path,
+    };
+    artifact.intake.note =
+      "Fetched after an approved plan. The bytes were not executed.";
+    return store.update(projectId, (project) => {
+      project.artifacts.push(artifact);
+      return project;
+    });
+  }
   if (method === "POST" && rest === "/artifacts/owned-fixture") {
     const artifact = intakeSnapshot(
       realpathSync(
@@ -370,6 +493,20 @@ async function handleApi(context) {
       return project;
     });
   }
+  const refreshRoutes = rest.match(
+    /^\/artifacts\/(art_[a-f0-9]{16})\/routes$/u,
+  );
+  if (method === "POST" && refreshRoutes) {
+    return store.update(projectId, (project) => {
+      const artifact = project.artifacts.find(
+        (item) => item.id === refreshRoutes[1],
+      );
+      if (!artifact) throw studioError("Unknown artifact.", 404);
+      const detected = asStudio(() => classifyTarget(artifact.path));
+      artifact.intake.routes = publicRoutes(detected.target, detected.kind);
+      return project;
+    });
+  }
   if (method === "POST" && rest === "/runs")
     return startStaticAnalysis({
       store,
@@ -377,6 +514,7 @@ async function handleApi(context) {
       artifactId: body.artifact_id,
       question: body.question ?? null,
       authorized: body.authorized,
+      routeId: typeof body.route_id === "string" ? body.route_id : null,
     });
   const cancelRun = rest.match(/^\/runs\/(run_[a-f0-9]{16})\/cancel$/u);
   if (method === "POST" && cancelRun) {
@@ -391,8 +529,16 @@ async function handleApi(context) {
     const limit = integerParam(query.get("limit"), 12, 40);
     if (limit < 1) throw studioError("Limit must be at least 1.");
     const find = query.get("find") ?? "";
-    if (query.get("graph") === "semantic")
+    if (query.get("graph") === "semantic") {
+      if (!hasApplicationGraph(record))
+        throw studioError(
+          "This Evidence record has no semantic application graph.",
+          409,
+        );
       return asStudio(() => exploreSemanticEvidence(record, { find, limit }));
+    }
+    if (!hasApplicationGraph(record))
+      return projectEngineEvidence(record, { find, limit });
     return asStudio(() => exploreEvidence(record, { find, limit }));
   }
   const graph = rest.match(/^\/runs\/(run_[a-f0-9]{16})\/graph$/u);
@@ -400,6 +546,13 @@ async function handleApi(context) {
     const run = requireRun(store.read(projectId), graph[1]);
     const record = evidenceRecord(run);
     const find = query.get("find") ?? "";
+    if (!hasApplicationGraph(record)) {
+      const requested = integerParam(query.get("limit"), 80, 200);
+      return projectEngineGraph(record, {
+        find,
+        limit: Math.max(1, requested),
+      });
+    }
     if (query.get("graph") === "semantic") {
       const requested = integerParam(query.get("limit"), 40, 200);
       return asStudio(() =>
@@ -425,12 +578,16 @@ async function handleApi(context) {
       .artifacts.find((item) => item.id === run.artifact_id);
     if (!artifact)
       throw studioError("The run's artifact is no longer in the project.", 404);
+    const record = evidenceRecord(run);
+    if (!hasApplicationGraph(record))
+      return {
+        available: false,
+        evidence_id: record.evidence_id,
+        reason:
+          "This route does not record a JavaScript source location. Use the statement path on the Evidence.",
+      };
     return asStudio(() =>
-      readRecordedSource(
-        evidenceRecord(run),
-        query.get("edge_id") ?? "",
-        artifact.path,
-      ),
+      readRecordedSource(record, query.get("edge_id") ?? "", artifact.path),
     );
   }
   if (method === "GET" && rest === "/diff")
@@ -693,6 +850,43 @@ export async function startStudio({
       }
       if (!["GET", "POST", "PUT", "PATCH"].includes(req.method)) {
         sendJson(res, 405, { error: "Method not allowed." });
+        return;
+      }
+      const upload = url.pathname.match(
+        /^\/api\/projects\/(prj_[a-f0-9]{32})\/artifacts\/bytes$/u,
+      );
+      if (req.method === "POST" && upload) {
+        if (req.headers["x-ree-studio-token"] !== token)
+          throw studioError("Missing studio token.", 401);
+        const bytes = await readRaw(req, 8 * 1024 * 1024);
+        const saved = writeUpload({
+          directory: store.directory(upload[1]),
+          batchId:
+            typeof req.headers["x-ree-upload-batch"] === "string"
+              ? req.headers["x-ree-upload-batch"]
+              : null,
+          name: req.headers["x-ree-artifact-name"],
+          relative:
+            typeof req.headers["x-ree-artifact-relative"] === "string"
+              ? req.headers["x-ree-artifact-relative"]
+              : null,
+          bytes,
+        });
+        let project = null;
+        if (req.headers["x-ree-classify"] === "true") {
+          const artifact = intakeSnapshot(saved.classifyPath);
+          project = store.update(upload[1], (current) => {
+            if (current.artifacts.some((item) => item.path === artifact.path))
+              throw studioError("That artifact is already in the project.");
+            current.artifacts.push(artifact);
+            return current;
+          });
+        }
+        sendJson(res, 201, {
+          batch_id: saved.batchId,
+          path: saved.path,
+          project,
+        });
         return;
       }
       const hasBody = req.method !== "GET";

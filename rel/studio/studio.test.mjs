@@ -166,7 +166,11 @@ test("owned-fixture intake does not analyze, and readiness stays honest", async 
     (route) => route.id === "javascript-static",
   );
   const remote = readiness.routes.find((route) => route.id === "remote-model");
-  assert.equal(ghidra.studio, "not-supported");
+  assert.equal(ghidra.studio, "implemented");
+  if (!process.env.GHIDRA_INSTALL_DIR) {
+    assert.equal(ghidra.status, "not-configured");
+    assert.match(ghidra.notes, /does not install Ghidra/);
+  }
   assert.equal(ghidra.verified_on_host, "not-recorded");
   assert.equal(javascript.studio, "implemented");
   assert.equal(javascript.verified_on_host, "not-recorded");
@@ -200,15 +204,14 @@ test("analysis without authorization is refused and a missing runtime is recorde
     new URL("../../dist/cli-runtime/cli.js", import.meta.url),
   );
   if (existsSync(runtime)) return;
-  const started = await api(`/api/projects/${project.id}/runs`, {
-    method: "POST",
-    body: { artifact_id: withArtifact.artifacts[0].id, authorized: true },
-  });
-  const finished = await settle(started.id);
-  const run = finished.runs.at(-1);
-  assert.equal(run.status, "failed");
-  assert.match(run.error, /runtime missing|Built REA/);
-  assert.equal(run.evidence_id, null);
+  await assert.rejects(
+    api(`/api/projects/${project.id}/runs`, {
+      method: "POST",
+      body: { artifact_id: withArtifact.artifacts[0].id, authorized: true },
+    }),
+    /missing-tool/,
+  );
+  assert.equal((await api(`/api/projects/${project.id}`)).runs.length, 0);
 });
 
 test("research is off by default and local stages do not claim a model ran", async () => {
