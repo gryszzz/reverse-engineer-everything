@@ -51,8 +51,11 @@ for asset notes and the source of case-study claims.
 - Check setup and support statements against the current installation/provider
   guides and released package. Preserve historical case-study checkpoints and
   versions unless a new investigation supplies replacement evidence.
-- Keep `website-pages.yml` as the sole, manual production publisher for
-  Cloudflare and Pages. Default to `both`: both hosts receive the same verified
+- Keep exactly two GitHub Pages publishers. `website-pages.yml` is the manual
+  publisher for the REA website on Cloudflare and Pages. `ree-pages.yml` publishes
+  the REE landing page on pushes to `main`. They share one GitHub Pages site, so a
+  manual REA website publish replaces the landing page until the next REE pages
+  run. Default `website-pages.yml` to `both`: both hosts receive the same verified
   artifact and pass the published-commit check. Use `pages` only when explicitly
   requested while Cloudflare credentials are being configured. Follow the
   website README.

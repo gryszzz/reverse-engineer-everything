@@ -510,9 +510,17 @@ Local Wrangler commands above publish only the separate preview Worker.
 ## Synchronized production publishing
 
 `.github/workflows/website-pages.yml` prepares `website/_site` once and deploys
-the same artifact to Cloudflare (`rea.tools`) and GitHub Pages. It is the sole
-production publisher, manually triggered and restricted to `main`;
-ordinary pushes and pull requests do not publish the site.
+the same artifact to Cloudflare (`rea.tools`) and GitHub Pages. It is the manual
+publisher for that REA website, restricted to `main`. Ordinary pushes and pull
+requests do not publish the REA website.
+
+This fork also publishes the REE landing page with
+`.github/workflows/ree-pages.yml` when a push to `main` changes that page or
+its screenshots. Both workflows call `actions/deploy-pages`, so they share one
+GitHub Pages site. A manual REA website publish replaces
+`https://gryszzz.github.io/reverse-engineer-everything/` until the next REE
+pages run. Website checks allow those two publishers and reject any other
+`deploy-pages` workflow.
 
 Configure these repository **Actions secrets** before publishing:
 

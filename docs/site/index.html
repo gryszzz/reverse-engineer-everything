@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>REE — Reverse Engineering Everything</title>
+    <meta
+      name="description"
+      content="REE is a local investigation studio on the REA analysis engine. Projects, fetches, and Evidence stay on your machine."
+    />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <link
+      rel="canonical"
+      href="https://gryszzz.github.io/reverse-engineer-everything/"
+    />
+  </head>
+  <body>
+    <a class="skip" href="#content">Skip to content</a>
+    <header class="wrap nav">
+      <a class="brand" href="#content"
+        ><strong>REE</strong><span>Reverse Engineering Everything</span></a
+      >
+      <nav class="links" aria-label="Page">
+        <a href="#studio">Studio</a>
+        <a href="#formats">Formats</a>
+        <a href="#start">Start</a>
+        <a href="#outside-in">Outside-in</a>
+        <a href="#roadmap">Roadmap</a>
+        <a href="https://github.com/gryszzz/reverse-engineer-everything"
+          >GitHub</a
+        >
+      </nav>
+    </header>
+    <main id="content">
+      <section class="hero wrap">
+        <p class="eyebrow">Local investigation studio</p>
+        <h1>Preserve the intelligence.</h1>
+        <p class="lede">
+          REE is a Mac-first studio on the REA analysis engine. Drop a file,
+          paste a link you are allowed to fetch, or open a path. A ready route
+          reads the artifact. Evidence stays on your machine.
+        </p>
+        <div class="actions">
+          <a class="button primary" href="#start">Quick start</a>
+          <a
+            class="button"
+            href="https://github.com/gryszzz/reverse-engineer-everything/blob/main/README.md"
+            >Read the README</a
+          >
+        </div>
+        <img
+          class="banner"
+          src="assets/ree-banner.svg"
+          alt="REE banner. Graphite field, cyan and violet instrument marks, and the line Preserve the intelligence. Expand the possibilities."
+          width="1200"
+          height="360"
+        />
+      </section>
+
+      <section class="wrap" id="does">
+        <h2>What REE does</h2>
+        <div class="grid">
+          <article class="card">
+            <p class="pill live">Studio</p>
+            <h3>One front door</h3>
+            <p>
+              Drop a file or folder, or paste a link. The fetch plan is shown
+              before any request. The download is not executed.
+            </p>
+          </article>
+          <article class="card">
+            <p class="pill live">Evidence</p>
+            <h3>Saved records</h3>
+            <p>
+              Findings point at Evidence ids. The architecture graph copies
+              stored relationships. A static edge is not an observed execution.
+            </p>
+          </article>
+          <article class="card">
+            <p class="pill live">Mac app</p>
+            <h3>Unsigned REE.app</h3>
+            <p>
+              Build it from this checkout with
+              <code>node ree.mjs app build</code>. It listens on 127.0.0.1. It
+              does not install Ghidra, IDA, or Hopper.
+            </p>
+          </article>
+          <article class="card">
+            <p class="pill live">Engine</p>
+            <h3>REA underneath</h3>
+            <p>
+              The CLI and MCP contracts stay the inherited REA engine from
+              morluto/rea. REE does not replace them and is not the
+              <code>rea-agents</code> package.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="wrap" id="studio">
+        <h2>Investigation Studio</h2>
+        <p class="lede">
+          The page labels are Front door, Findings, Overview, Intake, Readiness,
+          Evidence, Graph, Research, Experiment, and Report. Projects sit in the
+          rail. Summary diff is an API and a research stage, not a separate
+          navigation item.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Surface</th>
+                <th>What you get</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Projects</td>
+                <td>
+                  A local project is created when you drop a file or plan a
+                  link, then resumed from the rail.
+                </td>
+              </tr>
+              <tr>
+                <td>Front door</td>
+                <td>
+                  Copy and classify a drop. A link lists URLs, byte limit, time
+                  limit, and destination before the fetch.
+                </td>
+              </tr>
+              <tr>
+                <td>Artifact intake</td>
+                <td>
+                  Choose a ready route. Classification reads a directory listing
+                  or the first bytes. It does not launch the target.
+                </td>
+              </tr>
+              <tr>
+                <td>Architecture graph</td>
+                <td>
+                  Stored edges only. Open recorded source when the path stays
+                  inside a directory target.
+                </td>
+              </tr>
+              <tr>
+                <td>Evidence</td>
+                <td>
+                  Search the saved application graph. A hit is a recorded
+                  relationship.
+                </td>
+              </tr>
+              <tr>
+                <td>Experiment lab</td>
+                <td>
+                  One approved probe of <code>experiments/rel-first-lab</code>,
+                  query <code>bridge</code>. The capture is not merged into
+                  static Evidence.
+                </td>
+              </tr>
+              <tr>
+                <td>Summary diff</td>
+                <td>
+                  Compare two run summaries and application-graph edge ids. It
+                  is not an REA version comparison.
+                </td>
+              </tr>
+              <tr>
+                <td>Report</td>
+                <td>
+                  Markdown that restates saved records. Save writes
+                  <code>REE_STUDIO_REPORT.md</code> beside the project.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>From intake to report</h3>
+        <svg
+          class="flow"
+          viewBox="0 0 1000 150"
+          role="img"
+          aria-labelledby="flow-title"
+        >
+          <title id="flow-title">
+            Intake, classify, the REA engine, Evidence, then the report
+          </title>
+          <rect
+            x="12"
+            y="36"
+            width="160"
+            height="72"
+            rx="14"
+            fill="#1e2531"
+            stroke="#5ce1ff"
+          />
+          <rect
+            x="214"
+            y="36"
+            width="160"
+            height="72"
+            rx="14"
+            fill="#1e2531"
+            stroke="#313b4c"
+          />
+          <rect
+            x="416"
+            y="36"
+            width="160"
+            height="72"
+            rx="14"
+            fill="#1e2531"
+            stroke="#b9a6ff"
+          />
+          <rect
+            x="618"
+            y="36"
+            width="160"
+            height="72"
+            rx="14"
+            fill="#1e2531"
+            stroke="#7dcea0"
+          />
+          <rect
+            x="820"
+            y="36"
+            width="160"
+            height="72"
+            rx="14"
+            fill="#1e2531"
+            stroke="#5ce1ff"
+          />
+          <text x="92" y="68" text-anchor="middle">Intake</text>
+          <text x="92" y="88" text-anchor="middle">drop or link</text>
+          <text x="294" y="68" text-anchor="middle">Classify</text>
+          <text x="294" y="88" text-anchor="middle">ready route</text>
+          <text x="496" y="68" text-anchor="middle">REA engine</text>
+          <text x="496" y="88" text-anchor="middle">one command</text>
+          <text x="698" y="68" text-anchor="middle">Evidence</text>
+          <text x="698" y="88" text-anchor="middle">provenance</text>
+          <text x="900" y="68" text-anchor="middle">Report</text>
+          <text x="900" y="88" text-anchor="middle">saved records</text>
+          <path
+            d="M172 72h42M374 72h42M576 72h42M778 72h42"
+            stroke="#5ce1ff"
+            stroke-width="1.5"
+          />
+        </svg>
+        <p class="caption">
+          <code>outside-in</code> does not enter this path. It writes a behavior
+          spec from public documents and does not mint Evidence ids.
+        </p>
+      </section>
+
+      <section class="wrap" id="session">
+        <h2>A live session</h2>
+        <p class="lede">
+          These frames are the studio on this checkout, Linux, Node 24.18.0. The
+          owned fixture
+          <code>experiments/rel-first-lab</code> produced Evidence
+          <code
+            >ev_45d365f3b6f0be5b8831504b9bf5f268826bf0973e47a11ad01e1bd65587d58b</code
+          >: 49 nodes, 67 edges, 7 files parsed, 0 parse failures.
+          <code>experiments/ree-fixtures/carrier.hex</code> was read by the EVM
+          route and was not executed.
+        </p>
+        <img
+          class="shot"
+          src="assets/studio/graph.png"
+          alt="Architecture graph. The selected edge is cli.mjs imports search.mjs, inferred, confidence high, authority static-relationship-inference. The source line is import searchNotes from search.mjs."
+          width="1280"
+          height="1746"
+        />
+        <p class="caption">
+          Selected edge: <code>cli.mjs</code> imports <code>search.mjs</code>,
+          state inferred, confidence high, authority
+          <code>static-relationship-inference</code>. Recorded line
+          <code>cli.mjs:2</code>.
+        </p>
+        <p>
+          <img
+            class="shot"
+            src="assets/studio/front-door.gif"
+            alt="Four live frames: idle front door, a GitHub fetch plan with no request made, carrier.hex classified with the EVM route ready, and Findings quoting the Evidence id."
+            width="1000"
+            height="760"
+          />
+        </p>
+        <div class="shots">
+          <figure>
+            <img
+              class="shot"
+              src="assets/studio/plan.png"
+              alt="Fetch plan for the REE GitHub repository. Shallow clone, 33554432 byte limit, 60000 ms limit. Nothing has been fetched."
+              width="1280"
+              height="1204"
+            />
+            <figcaption class="caption">
+              The plan did not use the network.
+            </figcaption>
+          </figure>
+          <figure>
+            <img
+              class="shot"
+              src="assets/studio/findings.png"
+              alt="EVM findings for carrier.hex. Evidence ev_c4c8cd75597d5b49c5bae3cfa6389293cf545d2fdcca8950cdf002f5d2967a5a. The bytecode was not executed."
+              width="1280"
+              height="1275"
+            />
+            <figcaption class="caption">
+              EVM findings. The bytecode was not executed.
+            </figcaption>
+          </figure>
+          <figure>
+            <img
+              class="shot"
+              src="assets/studio/readiness.png"
+              alt="Top of readiness on Linux. JavaScript and EVM are recorded-in-this-studio. PE is ready and not-recorded. WebAssembly is not-configured."
+              width="1280"
+              height="1900"
+            />
+            <figcaption class="caption">
+              Top of readiness after this session. The rest of the routes are in
+              the matrix.
+            </figcaption>
+          </figure>
+          <figure>
+            <img
+              class="shot"
+              src="assets/studio/experiment.png"
+              alt="Experiment lab after the owned probe. Captured ids N-102, N-101, and N-104. title-weighted matched. tag-first did not."
+              width="1280"
+              height="905"
+            />
+            <figcaption class="caption">
+              Owned probe. The capture is not written into static Evidence.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="wrap" id="formats">
+        <h2>Format matrix</h2>
+        <p class="lede">
+          The studio runs a route only when that route is ready on this machine.
+          A tool on
+          <code>PATH</code> is not the same as a configured absolute path.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Route</th>
+                <th>Studio</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>JavaScript / Electron / ASAR</td>
+                <td>
+                  Static analyze route after <code>npm run build:cached</code>
+                </td>
+                <td>Implemented</td>
+              </tr>
+              <tr>
+                <td>PE resources</td>
+                <td><code>inspect-pe-resources</code>. No decompilation</td>
+                <td>Implemented</td>
+              </tr>
+              <tr>
+                <td>EVM bytecode</td>
+                <td>Pinned evmole 0.9.3. Not executed</td>
+                <td>Implemented</td>
+              </tr>
+              <tr>
+                <td>objdump headers</td>
+                <td>When <code>objdump</code> is on <code>PATH</code></td>
+                <td>Implemented</td>
+              </tr>
+              <tr>
+                <td>WebAssembly</td>
+                <td>
+                  Absolute <code>REA_WABT_BIN_DIRECTORY</code> for WABT 1.0.42
+                </td>
+                <td>Needs configuration</td>
+              </tr>
+              <tr>
+                <td>ELF layout</td>
+                <td>Absolute <code>REA_PWNTOOLS_PYTHON</code> on Linux x64</td>
+                <td>Needs configuration</td>
+              </tr>
+              <tr>
+                <td>Android JADX</td>
+                <td>
+                  Absolute <code>REA_JADX_MCP_JAR</code> and <code>java</code>
+                </td>
+                <td>Needs configuration</td>
+              </tr>
+              <tr>
+                <td>apktool</td>
+                <td>
+                  On <code>PATH</code>, or an approved
+                  <code>brew install apktool</code> on macOS
+                </td>
+                <td>Needs external tool</td>
+              </tr>
+              <tr>
+                <td>Mach-O</td>
+                <td>
+                  <code>otool</code> and <code>lipo</code>. Unsupported on Linux
+                </td>
+                <td>Needs macOS</td>
+              </tr>
+              <tr>
+                <td>Ghidra overview</td>
+                <td>
+                  <code>GHIDRA_INSTALL_DIR</code>. The file is not modified
+                </td>
+                <td>Needs configuration</td>
+              </tr>
+              <tr>
+                <td>IDA, Hopper, Rizin, radare2, JEB</td>
+                <td>Not launched by the studio</td>
+                <td>Unsupported in the studio</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="wrap" id="start">
+        <h2>Quick start</h2>
+        <div class="split">
+          <div>
+            <p>
+              Node 24 is required for the pinned toolchain.
+              <code>.nvmrc</code> is 24.18.0.
+            </p>
+            <pre><code>git clone https://github.com/gryszzz/reverse-engineer-everything.git
+cd reverse-engineer-everything
+nvm use 24
+npm ci
+npm run build:cached
+node ree.mjs doctor
+node ree.mjs studio --open</code></pre>
+            <p class="caption">
+              <code>doctor</code> and an empty studio also run on the engine
+              range <code>^22.19.0 || ^24.11.0 || &gt;=26.0.0</code>. The
+              analyzer is pinned to Node 24.
+            </p>
+          </div>
+          <article class="plan">
+            <h3>Mac app</h3>
+            <p>
+              <code>node ree.mjs app build</code> then
+              <code>node ree.mjs app install</code>.
+            </p>
+            <p>
+              The build sets <code>SDKROOT</code> from
+              <code>xcrun --sdk macosx --show-sdk-path</code> and passes that
+              SDK to <code>swiftc</code>. Without it, a compiler on
+              <code>PATH</code> can fail to load the standard library for
+              <code>arm64-apple-macos12.0</code>.
+            </p>
+            <p>
+              The bundle is unsigned. If macOS blocks the first open,
+              right-click
+              <code>REE.app</code>, choose Open, then Open. Gatekeeper stays on.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="wrap" id="outside-in">
+        <h2>Outside-in</h2>
+        <p class="lede">
+          Opt-in. When you do not have the code, name the public https documents
+          and REE writes a behavior spec. It is not part of the studio, and it
+          does not call REA.
+        </p>
+        <pre><code>node ree.mjs outside-in \
+  --name "Widget Cloud" \
+  --url https://widgets.example/ \
+  --docs https://widgets.example/openapi.yaml \
+  --out /tmp/widgets-spec \
+  --json</code></pre>
+        <div class="grid">
+          <article class="card">
+            <h3>Public documents only</h3>
+            <p>
+              No cookies, no Authorization header, no login, no headless
+              browser. <code>robots.txt</code> is obeyed. Redirects are not
+              followed.
+            </p>
+          </article>
+          <article class="card">
+            <h3>Clean-room spec</h3>
+            <p>
+              Quotes are at most 160 characters. A similarity guard redacts
+              longer unmarked verbatim runs. Remote summarizers are refused.
+            </p>
+          </article>
+          <article class="card">
+            <h3>Not Evidence</h3>
+            <p>
+              The spec does not create Evidence ids. Source and binary filenames
+              are not fetched and are not decompiled.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="wrap" id="roadmap">
+        <h2>Roadmap</h2>
+        <p class="lede">
+          Planned. These are not views or commands in the current checkout.
+        </p>
+        <div class="grid">
+          <article class="card">
+            <p class="pill planned">Planned</p>
+            <h3>Live Investigation Theater</h3>
+            <p>
+              The experiment lab stores one approved capture. It does not
+              present a live execution.
+            </p>
+          </article>
+          <article class="card">
+            <p class="pill planned">Planned</p>
+            <h3>Rebuild Studio</h3>
+            <p>
+              <code>verify-reconstruction</code> stays an engine CLI and MCP
+              tool. The studio does not rebuild a target.
+            </p>
+          </article>
+          <article class="card">
+            <p class="pill planned">Planned</p>
+            <h3>Actions and exports</h3>
+            <p>
+              The report can be saved as Markdown beside the project. There is
+              no general export palette.
+            </p>
+          </article>
+          <article class="card">
+            <p class="pill planned">Planned</p>
+            <h3>Headless <code>ree serve</code></h3>
+            <p>
+              The loopback server is <code>node ree.mjs studio</code>. There is
+              no <code>ree serve</code> command.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="wrap" id="attribution">
+        <h2>REA attribution and license</h2>
+        <p>
+          REE builds on
+          <a href="https://github.com/morluto/rea">morluto/rea</a>. The
+          inherited engine, providers, guides, upstream README, and MIT license
+          are preserved. This repository does not claim authorship of that
+          foundation.
+        </p>
+        <p>
+          Engine contracts:
+          <a
+            href="https://github.com/gryszzz/reverse-engineer-everything/blob/main/docs/cli.md"
+            >CLI</a
+          >
+          and
+          <a
+            href="https://github.com/gryszzz/reverse-engineer-everything/blob/main/docs/mcp-contracts.md"
+            >MCP</a
+          >. Use a target only when you are authorized to inspect it. The studio
+          refuses other hosts, does not upload Evidence, and does not execute a
+          downloaded link.
+        </p>
+        <p>
+          <a
+            href="https://github.com/gryszzz/reverse-engineer-everything/blob/main/LICENSE"
+            >MIT license</a
+          >
+        </p>
+      </section>
+    </main>
+    <footer class="wrap footer">
+      <p>
+        REE · Reverse Engineering Everything · local studio on the REA engine.
+      </p>
+    </footer>
+  </body>
+</html>
