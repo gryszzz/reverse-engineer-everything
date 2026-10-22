@@ -1,19 +1,71 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { emitHandoff } from "../handoff/emit.mjs";
+import { randomBytes } from "node:crypto";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { join, relative, resolve } from "node:path";
+import { planStaticAnalysis, runStaticAnalysis } from "../analyze-static.mjs";
+import {
+  blastDirectory,
+  BOX_SHARED,
+  buildGuardSubmission,
+  emitHandoff,
+} from "../handoff/emit.mjs";
 import { ingestSpec } from "../opportunities/board.mjs";
 import { analyzeOutsideIn } from "../outside-in/analyze.mjs";
-import { scaffoldRebuild } from "../rebuild/scaffold.mjs";
+import { planProduct, scaffoldRebuild } from "../rebuild/scaffold.mjs";
 import { verifyRebuild } from "../rebuild/verify.mjs";
 
-const SOURCE_ONLY =
-  "This target has no request.json. Source-only targets are not a product spec yet, so pipeline did not invent one.";
+const RUN_SCHEMA = "ree.pipeline.run.v1";
+const CHECKPOINT_SCHEMA = "ree.pipeline.checkpoint.v1";
+const ACCURACY_SCHEMA = "ree.pipeline.accuracy.v1";
+const FINDINGS_SCHEMA = "ree.pipeline.findings.v1";
+const STAGES = [
+  "scope",
+  "investigate",
+  "findings",
+  "spec",
+  "rebuild",
+  "verify",
+  "package",
+  "guard",
+  "handoff",
+];
+
+const ARTIFACT_SCOPE =
+  "Artifact investigation needs --authorized. This directory has no request.json, so pipeline did not invent a product spec.";
+const LIVE_SCOPE =
+  "Live document fetch needs --authorized. This run stopped before any request.";
+const NOT_A_SPEC =
+  "Static analysis produced evidence. It is not a product behavior spec, so rebuild did not invent features.";
+
+function readJson(path) {
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function writeJson(path, value) {
+  writeFileSync(path, JSON.stringify(value, null, 2) + "\n");
+}
+
+function approvalsOf(value = {}) {
+  return {
+    launch: value.launch === true,
+    guard: value.guard === true,
+    blast: value.blast === true,
+    scale: value.scale === true,
+    vault: value.vault === true,
+  };
+}
 
 function publicVerify(verify) {
   return {
     schema_version: verify.schema_version,
     exit_code: verify.exit_code,
-    signal: verify.signal,
+    signal: verify.signal ?? null,
     features: verify.features,
     implemented: verify.implemented,
     unimplemented: verify.unimplemented,
@@ -25,76 +77,670 @@ function publicVerify(verify) {
   };
 }
 
+function checkpointPath(outDir, stage) {
+  return join(outDir, "checkpoints", stage + ".json");
+}
+
+function sameApprovals(left, right) {
+  return (
+    JSON.stringify(approvalsOf(left)) === JSON.stringify(approvalsOf(right))
+  );
+}
+
+function reusable(ctx, stage) {
+  if (stage.status !== "passed") return false;
+  const path = checkpointPath(ctx.outDir, stage.id);
+  if (!existsSync(path)) return false;
+  const checkpoint = readJson(path);
+  if (checkpoint.status !== "passed" || checkpoint.run_id !== ctx.run.run_id)
+    return false;
+  const outputs = checkpoint.outputs ?? [];
+  if (!outputs.every((item) => existsSync(join(ctx.outDir, item))))
+    return false;
+  if (stage.id === "guard" || stage.id === "handoff") {
+    if (!sameApprovals(checkpoint.provenance?.approvals, ctx.run.approvals))
+      return false;
+  }
+  return true;
+}
+
+function hydrate(ctx, stageId) {
+  const checkpoint = readJson(checkpointPath(ctx.outDir, stageId));
+  const provenance = checkpoint.provenance ?? {};
+  if (stageId === "scope") ctx.mode = provenance.mode;
+  if (provenance.spec_path) {
+    ctx.spec = readJson(join(ctx.outDir, provenance.spec_path));
+    ctx.analysisDir = join(ctx.outDir, "analysis");
+  }
+  if (stageId === "rebuild") {
+    ctx.productDir = join(ctx.outDir, "product");
+    ctx.buildId = provenance.build_id;
+  }
+  if (stageId === "verify" && existsSync(join(ctx.outDir, "verify.json")))
+    ctx.verify = readJson(join(ctx.outDir, "verify.json"));
+  if (stageId === "handoff") ctx.handoffDir = provenance.handoff_dir ?? null;
+}
+
+async function tick(pace) {
+  if (pace) await pace();
+  else await new Promise((resolveTick) => setImmediate(resolveTick));
+}
+
+function citationsOf(value) {
+  const citations = Array.isArray(value?.citations) ? value.citations : [];
+  return citations
+    .filter((item) => item && typeof item.url === "string")
+    .map((item) => ({
+      url: item.url,
+      fetched_at: item.fetched_at ?? null,
+    }));
+}
+
+function accuracyReport(spec, verify) {
+  const plan = planProduct(spec);
+  const expected = plan.behaviors
+    .filter((item) => item.status === "implemented")
+    .map((item) => item.id);
+  const observed = verify.features
+    .filter((feature) => feature.match === "pass")
+    .map((feature) => feature.id);
+  const expectedSet = new Set(expected);
+  const falseClaims = observed.filter((id) => !expectedSet.has(id));
+  const missed = expected.filter((id) => !observed.includes(id));
+  let precision = null;
+  let recall = null;
+  if (expected.length === 0 && observed.length === 0) {
+    precision = null;
+    recall = null;
+  } else if (observed.length === 0) {
+    precision = 1;
+    recall = 0;
+  } else if (expected.length === 0) {
+    precision = 0;
+    recall = null;
+  } else {
+    const hits = observed.filter((id) => expectedSet.has(id)).length;
+    precision = hits / observed.length;
+    recall = hits / expected.length;
+  }
+  return {
+    schema_version: ACCURACY_SCHEMA,
+    kind: "endpoint-name-rule",
+    not_the_corpus_bench: true,
+    note: "This is not node ree.mjs bench. The route tests are the execution check. The oracle is the endpoint-name rule.",
+    expected_implemented_ids: expected,
+    observed_pass_ids: observed,
+    false_claims: falseClaims,
+    missed,
+    precision,
+    recall,
+    quote_test_passed: verify.quote_test_passed === true,
+    failed: verify.failed,
+  };
+}
+
+function blankRun({ runId, fixture, productName, approvals }) {
+  return {
+    schema_version: RUN_SCHEMA,
+    run_id: runId,
+    target: fixture,
+    product_name: productName,
+    dry_run: true,
+    approvals,
+    stages: STAGES.map((id) => ({
+      id,
+      status: "pending",
+      checkpoint: `checkpoints/${id}.json`,
+    })),
+    stopped_at: null,
+    finished: false,
+    code: null,
+    message: null,
+    current_stage: null,
+    spec_status: null,
+    build_id: null,
+    product_dir: null,
+    package_path: null,
+    board_dir: null,
+    handoff_dir: null,
+    implemented: null,
+    unimplemented: null,
+    failed: null,
+    verify: null,
+    notified_blast: false,
+    notified_scale: false,
+    guard_sign_off: "not-submitted",
+    approved_for_vault_copy: false,
+    launch_approved: approvals.launch,
+    box_copied: false,
+    accuracy_path: null,
+  };
+}
+
+function publish(ctx) {
+  const run = ctx.run;
+  run.dry_run = true;
+  run.notified_blast = false;
+  run.notified_scale = false;
+  run.guard_sign_off = "not-submitted";
+  run.approved_for_vault_copy = false;
+  run.launch_approved = run.approvals.launch === true;
+  run.product_name = run.product_name;
+  run.spec_status = ctx.spec?.status ?? run.spec_status ?? null;
+  run.product_dir = ctx.productDir ?? null;
+  run.build_id = ctx.buildId ?? run.build_id ?? null;
+  run.package_path = ctx.productDir
+    ? join(ctx.productDir, "product.tgz")
+    : null;
+  if (run.package_path && !existsSync(run.package_path))
+    run.package_path = null;
+  run.board_dir = existsSync(join(ctx.outDir, "board", "board.json"))
+    ? join(ctx.outDir, "board")
+    : null;
+  run.handoff_dir = ctx.handoffDir ?? null;
+  run.accuracy_path = existsSync(join(ctx.outDir, "accuracy.json"))
+    ? join(ctx.outDir, "accuracy.json")
+    : null;
+  if (ctx.verify) {
+    run.verify = publicVerify(ctx.verify);
+    run.implemented = ctx.verify.implemented;
+    run.unimplemented = ctx.verify.unimplemented;
+    run.failed = ctx.verify.failed;
+  }
+  writeJson(join(ctx.outDir, "run.json"), run);
+  return run;
+}
+
+async function stageScope(ctx) {
+  const requestPath = join(ctx.fixture, "request.json");
+  const manifestPath = join(ctx.fixture, "manifest.json");
+  const hasRequest = existsSync(requestPath);
+  const hasManifest = existsSync(manifestPath);
+  if (hasRequest && hasManifest) {
+    ctx.mode = "outside-in-fixture";
+    return {
+      message: "Owned fixture. No network request is made.",
+      outputs: [],
+      provenance: {
+        mode: "outside-in-fixture",
+        authorization: "owned-fixture",
+        network: false,
+      },
+    };
+  }
+  if (hasRequest) {
+    if (!ctx.authorized) throw new Error(LIVE_SCOPE);
+    ctx.mode = "outside-in-live";
+    return {
+      message:
+        "Live document fetch is authorized. Investigate will request the public URLs in request.json.",
+      outputs: [],
+      provenance: {
+        mode: "outside-in-live",
+        authorization: "authorized",
+        network: true,
+      },
+    };
+  }
+  if (!ctx.authorized) throw new Error(ARTIFACT_SCOPE);
+  ctx.mode = "artifact";
+  return {
+    message:
+      "Artifact scope recorded. Static analysis has not started. No product spec was invented.",
+    outputs: [],
+    provenance: {
+      mode: "artifact",
+      authorization: "authorized",
+      network: false,
+    },
+  };
+}
+
+async function stageInvestigate(ctx) {
+  if (ctx.mode === "outside-in-fixture" || ctx.mode === "outside-in-live") {
+    const request = readJson(join(ctx.fixture, "request.json"));
+    const analysisDir = join(ctx.outDir, "analysis");
+    const result = await analyzeOutsideIn({
+      ...request,
+      fixtureDir: ctx.mode === "outside-in-fixture" ? ctx.fixture : undefined,
+      outDir: analysisDir,
+      now: () => ctx.now,
+    });
+    ctx.spec = result.spec;
+    ctx.analysisDir = analysisDir;
+    if (result.exitCode !== 0)
+      throw new Error(
+        `Outside-in status is ${result.spec.status}. Pipeline did not rebuild a product from a refused spec.`,
+      );
+    return {
+      message: "Outside-in wrote a behavior spec from the recorded documents.",
+      outputs: ["analysis/behavior-spec.json", "analysis/OUTSIDE_IN_REPORT.md"],
+      provenance: {
+        mode: ctx.mode,
+        tool: "analyzeOutsideIn",
+        spec_status: result.spec.status,
+        spec_path: "analysis/behavior-spec.json",
+        network: ctx.mode === "outside-in-live",
+      },
+    };
+  }
+  if (ctx.mode !== "artifact")
+    throw new Error("Scope did not record an investigation mode.");
+  const investigationDir = join(ctx.outDir, "investigation");
+  planStaticAnalysis(ctx.fixture, investigationDir, true);
+  const result = runStaticAnalysis({
+    target: ctx.fixture,
+    out: investigationDir,
+    authorized: true,
+  });
+  return {
+    message:
+      "Static analysis wrote evidence. It did not invent product features.",
+    outputs: ["investigation/view-evidence.json"],
+    provenance: {
+      mode: "artifact",
+      tool: "runStaticAnalysis",
+      evidence: "investigation/view-evidence.json",
+      report: result.report,
+    },
+  };
+}
+
+async function stageFindings(ctx) {
+  if (ctx.mode === "outside-in-fixture" || ctx.mode === "outside-in-live") {
+    const spec =
+      ctx.spec ?? readJson(join(ctx.outDir, "analysis/behavior-spec.json"));
+    ctx.spec = spec;
+    const findings = {
+      schema_version: FINDINGS_SCHEMA,
+      source: "outside-in",
+      features: (spec.features ?? []).map((feature) => {
+        const citations = citationsOf(feature);
+        return {
+          id: feature.id ?? null,
+          name: feature.name ?? null,
+          citations,
+          citation_present: citations.length > 0,
+        };
+      }),
+      endpoints: (spec.api?.endpoints ?? []).map((endpoint) => {
+        const citations = citationsOf(endpoint);
+        return {
+          method: endpoint.method ?? null,
+          path: endpoint.path ?? null,
+          operation_id: endpoint.operation_id ?? null,
+          citations,
+          citation_present: citations.length > 0,
+        };
+      }),
+    };
+    writeJson(join(ctx.outDir, "findings.json"), findings);
+    return {
+      message:
+        "Findings list spec features and endpoints with their citations. A feature with no citation is kept and marked.",
+      outputs: ["findings.json"],
+      provenance: {
+        source: "outside-in",
+        spec_path: "analysis/behavior-spec.json",
+        feature_count: findings.features.length,
+        endpoint_count: findings.endpoints.length,
+      },
+    };
+  }
+  const evidence = "investigation/view-evidence.json";
+  if (!existsSync(join(ctx.outDir, evidence)))
+    throw new Error("Static analysis did not leave view-evidence.json.");
+  writeJson(join(ctx.outDir, "findings.json"), {
+    schema_version: FINDINGS_SCHEMA,
+    source: "static-analysis",
+    evidence,
+    features: [],
+    endpoints: [],
+    note: "Evidence is linked. Product features were not invented from it.",
+  });
+  return {
+    message:
+      "Findings point at the evidence file. No product features were invented.",
+    outputs: ["findings.json"],
+    provenance: { source: "static-analysis", evidence },
+  };
+}
+
+async function stageSpec(ctx) {
+  if (ctx.mode !== "outside-in-fixture" && ctx.mode !== "outside-in-live")
+    throw new Error(NOT_A_SPEC);
+  const spec =
+    ctx.spec ?? readJson(join(ctx.outDir, "analysis/behavior-spec.json"));
+  ctx.spec = spec;
+  if (spec.status !== "completed")
+    throw new Error(
+      `Outside-in status is ${spec.status}. Pipeline did not rebuild a product from a refused spec.`,
+    );
+  return {
+    message:
+      "The clean-room spec is the outside-in behavior spec. No endpoints were invented.",
+    outputs: ["analysis/behavior-spec.json"],
+    provenance: {
+      spec_path: "analysis/behavior-spec.json",
+      spec_status: spec.status,
+      schema_version: spec.schema_version,
+    },
+  };
+}
+
+async function stageRebuild(ctx) {
+  const productDir = join(ctx.outDir, "product");
+  const built = scaffoldRebuild({
+    spec: ctx.spec,
+    productName: ctx.run.product_name,
+    outDir: productDir,
+    now: ctx.now,
+  });
+  ctx.productDir = productDir;
+  ctx.buildId = built.build_id;
+  ctx.run.build_id = built.build_id;
+  return {
+    message: "Rebuild wrote the HTTP product from the behavior spec.",
+    outputs: [
+      "product/provenance.json",
+      "product/behavior-spec.json",
+      "product/src/server.mjs",
+    ],
+    provenance: {
+      build_id: built.build_id,
+      product_name: ctx.run.product_name,
+      spec_path: "analysis/behavior-spec.json",
+    },
+  };
+}
+
+async function stageVerify(ctx) {
+  const verify = verifyRebuild(ctx.productDir);
+  ctx.verify = verify;
+  const accuracy = accuracyReport(ctx.spec, verify);
+  writeJson(join(ctx.outDir, "accuracy.json"), accuracy);
+  writeJson(join(ctx.outDir, "verify.json"), publicVerify(verify));
+  const problems = [];
+  if (verify.exit_code !== 0) problems.push("the product test process failed");
+  if (verify.failed > 0) problems.push("a route test failed");
+  if (verify.quote_test_passed !== true)
+    problems.push("the quote exclusion test did not pass");
+  if (accuracy.false_claims.length > 0 || accuracy.missed.length > 0)
+    problems.push(
+      "the endpoint-name accuracy check found a false claim or a missed route",
+    );
+  if (problems.length > 0)
+    throw new Error(
+      problems.join("; ") + ". This accuracy file is not node ree.mjs bench.",
+    );
+  return {
+    message:
+      "Route tests passed and the endpoint-name accuracy check matched. This is not the corpus bench.",
+    outputs: ["verify.json", "accuracy.json"],
+    provenance: {
+      implemented: verify.implemented,
+      unimplemented: verify.unimplemented,
+      failed: verify.failed,
+      precision: accuracy.precision,
+      recall: accuracy.recall,
+      not_the_corpus_bench: true,
+    },
+  };
+}
+
+async function stagePackage(ctx) {
+  const required = [
+    "README.md",
+    "PRICING.md",
+    "LICENSE",
+    "NOTICE",
+    "LANDING.md",
+    "product.tgz",
+  ];
+  const missing = required.filter(
+    (name) => !existsSync(join(ctx.productDir, name)),
+  );
+  if (missing.length > 0)
+    throw new Error("Product package is missing " + missing.join(", ") + ".");
+  const brand = String(ctx.spec?.target?.name ?? "").trim();
+  const readme = readFileSync(join(ctx.productDir, "README.md"), "utf8");
+  const landing = readFileSync(join(ctx.productDir, "LANDING.md"), "utf8");
+  if (brand && (readme.includes(brand) || landing.includes(brand)))
+    throw new Error("Customer copy includes the spec target name.");
+  return {
+    message:
+      "Package contains the README, pricing draft, landing copy, license, NOTICE, and tarball.",
+    outputs: required.map((name) => `product/${name}`),
+    provenance: { package: "product/product.tgz" },
+  };
+}
+
+async function stageGuard(ctx) {
+  const guard = buildGuardSubmission({
+    projectDir: ctx.productDir,
+    verify: ctx.verify,
+    now: ctx.now,
+    approvalRequested: ctx.run.approvals.guard === true,
+  });
+  mkdirSync(join(ctx.outDir, "guard"), { recursive: true });
+  writeJson(join(ctx.outDir, "guard/submission.json"), guard);
+  return {
+    message: guard.note,
+    outputs: ["guard/submission.json"],
+    provenance: {
+      approvals: ctx.run.approvals,
+      sign_off: "not-submitted",
+      called: false,
+    },
+  };
+}
+
+async function stageHandoff(ctx) {
+  ingestSpec(join(ctx.outDir, "board"), ctx.spec, ctx.now);
+  const emitted = emitHandoff({
+    projectDir: ctx.productDir,
+    verify: ctx.verify,
+    blastDir: join(ctx.outDir, "handoff"),
+    now: ctx.now,
+    approvals: ctx.run.approvals,
+  });
+  ctx.handoffDir = emitted.directory;
+  ctx.run.box_copied = false;
+  let message =
+    "Handoff files were written. Blast was not notified. Scale was not called. Vault was not copied. Guard was not called.";
+  if (ctx.run.approvals.launch === true && existsSync(BOX_SHARED)) {
+    const dest = blastDirectory({ buildId: ctx.buildId });
+    cpSync(emitted.directory, dest, { recursive: true });
+    ctx.run.box_copied = true;
+    message =
+      "Handoff files were copied under /home/box/shared. Blast was not notified. Scale was not called. Vault was not copied.";
+  }
+  const buildDir = relative(ctx.outDir, emitted.directory);
+  return {
+    message,
+    outputs: [
+      "board/board.json",
+      `${buildDir}/handoff.json`,
+      `${buildDir}/README.md`,
+      `${buildDir}/guard/submission.json`,
+      `${buildDir}/vault/manifest.json`,
+      `${buildDir}/scale/manifest.json`,
+    ],
+    provenance: {
+      approvals: ctx.run.approvals,
+      handoff_dir: emitted.directory,
+      build_id: ctx.buildId,
+      notified_blast: false,
+      notified_scale: false,
+      approved_for_vault_copy: false,
+      box_copied: ctx.run.box_copied,
+    },
+  };
+}
+
+const STAGE_RUNNERS = {
+  scope: stageScope,
+  investigate: stageInvestigate,
+  findings: stageFindings,
+  spec: stageSpec,
+  rebuild: stageRebuild,
+  verify: stageVerify,
+  package: stagePackage,
+  guard: stageGuard,
+  handoff: stageHandoff,
+};
+
+function loadRun(outDir, fixture, productName, approvals, resume, runId) {
+  const runPath = join(outDir, "run.json");
+  if (existsSync(runPath) && !resume)
+    throw new Error(
+      "This output directory already has a pipeline run. Choose a new directory or pass --resume.",
+    );
+  if (resume && existsSync(runPath)) {
+    const run = readJson(runPath);
+    if (run.schema_version !== RUN_SCHEMA)
+      throw new Error("run.json is not a pipeline run.");
+    if (resolve(run.target) !== fixture)
+      throw new Error(
+        "This pipeline run was started for a different target. Choose a new directory.",
+      );
+    if (productName) run.product_name = productName;
+    const previous = approvalsOf(run.approvals);
+    const incoming = approvalsOf(approvals);
+    run.approvals = {
+      launch: previous.launch || incoming.launch,
+      guard: previous.guard || incoming.guard,
+      blast: previous.blast || incoming.blast,
+      scale: previous.scale || incoming.scale,
+      vault: previous.vault || incoming.vault,
+    };
+    run.finished = false;
+    run.stopped_at = null;
+    run.code = null;
+    run.message = null;
+    run.dry_run = true;
+    return run;
+  }
+  if (resume)
+    throw new Error(
+      "Nothing to resume. This output directory has no run.json.",
+    );
+  return blankRun({
+    runId,
+    fixture,
+    productName: productName || "REE Product",
+    approvals: approvalsOf(approvals),
+  });
+}
+
 /**
- * Analyze an owned outside-in fixture, rebuild the HTTP features,
- * verify them, pack the product, and write a dry-run board handoff.
- * Blast is not notified. Guard is not called. Vault is not copied.
+ * Investigation through a dry-run sell package.
+ * Each stage writes a checkpoint. A failed stage stops the run.
+ * Guard, Blast, Scale, and Vault are files. None of those systems is called.
  */
 export async function runProductPipeline({
   target,
   outDir,
   productName = null,
   now = new Date(),
+  resume = false,
+  authorized = false,
+  approvals = {},
+  runId = null,
+  onStage = null,
+  pace = null,
 }) {
   if (!target || !outDir)
     throw new Error("Use pipeline TARGET --out DIR [--name NAME].");
   const fixture = resolve(target);
   if (!existsSync(fixture) || !statSync(fixture).isDirectory())
     throw new Error("pipeline TARGET must be a directory.");
-  const requestPath = join(fixture, "request.json");
-  if (!existsSync(requestPath)) throw new Error(SOURCE_ONLY);
-  const request = JSON.parse(readFileSync(requestPath, "utf8"));
-  const name = productName?.trim() || "REE Product";
-  const analysisDir = join(outDir, "analysis");
-  const productDir = join(outDir, "product");
-  const boardDir = join(outDir, "board");
-  const result = await analyzeOutsideIn({
-    ...request,
-    fixtureDir: fixture,
-    outDir: analysisDir,
-    now: () => now,
-  });
-  if (result.exitCode !== 0) {
-    return {
-      code: result.exitCode,
-      product_name: name,
-      analysis_dir: analysisDir,
-      spec_status: result.spec.status,
-      message: `Outside-in status is ${result.spec.status}. Pipeline did not rebuild a product from a refused spec.`,
-      dry_run: true,
-    };
-  }
-  const built = scaffoldRebuild({
-    spec: result.spec,
-    productName: name,
-    outDir: productDir,
+  const id = runId ?? "run_" + randomBytes(8).toString("hex");
+  if (!/^run_[a-f0-9]{16}$/u.test(id))
+    throw new Error("run id must look like run_ and 16 hex characters.");
+  mkdirSync(outDir, { recursive: true });
+  const name = typeof productName === "string" ? productName.trim() : "";
+  const run = loadRun(outDir, fixture, name || null, approvals, resume, id);
+  const ctx = {
+    run,
+    outDir,
     now,
-  });
-  const verify = verifyRebuild(productDir);
-  ingestSpec(boardDir, result.spec, now);
-  const emitted = emitHandoff({
-    projectDir: productDir,
-    verify,
-    blastDir: join(outDir, "handoff"),
-    now,
-  });
-  return {
-    code: verify.exit_code === 0 ? 0 : 1,
-    product_name: name,
-    analysis_dir: analysisDir,
-    spec_status: result.spec.status,
-    build_id: built.build_id,
-    product_dir: productDir,
-    package_path: built.package_path,
-    board_dir: boardDir,
-    handoff_dir: emitted.directory,
-    implemented: verify.implemented,
-    unimplemented: verify.unimplemented,
-    failed: verify.failed,
-    verify: publicVerify(verify),
-    dry_run: true,
-    notified_blast: false,
-    guard_sign_off: "not-submitted",
-    approved_for_vault_copy: false,
+    fixture,
+    authorized: authorized === true,
+    mode: null,
+    spec: null,
+    productDir: null,
+    buildId: null,
+    verify: null,
+    handoffDir: null,
   };
+  publish(ctx);
+  for (const stage of run.stages) {
+    if (reusable(ctx, stage)) {
+      hydrate(ctx, stage.id);
+      continue;
+    }
+    stage.status = "running";
+    run.current_stage = stage.id;
+    publish(ctx);
+    if (onStage)
+      onStage({ run_id: run.run_id, id: stage.id, status: "running" });
+    await tick(pace);
+    const started = new Date();
+    try {
+      const result = await STAGE_RUNNERS[stage.id](ctx);
+      const checkpoint = {
+        schema_version: CHECKPOINT_SCHEMA,
+        run_id: run.run_id,
+        stage: stage.id,
+        status: "passed",
+        started_at: started.toISOString(),
+        finished_at: new Date().toISOString(),
+        message: result.message,
+        outputs: result.outputs,
+        provenance: result.provenance,
+      };
+      mkdirSync(join(outDir, "checkpoints"), { recursive: true });
+      writeJson(checkpointPath(outDir, stage.id), checkpoint);
+      stage.status = "passed";
+      publish(ctx);
+      if (onStage)
+        onStage({ run_id: run.run_id, id: stage.id, status: "passed" });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      const checkpoint = {
+        schema_version: CHECKPOINT_SCHEMA,
+        run_id: run.run_id,
+        stage: stage.id,
+        status: "failed",
+        started_at: started.toISOString(),
+        finished_at: new Date().toISOString(),
+        message: reason,
+        outputs: [],
+        provenance: { failed: true },
+      };
+      mkdirSync(join(outDir, "checkpoints"), { recursive: true });
+      writeJson(checkpointPath(outDir, stage.id), checkpoint);
+      stage.status = "failed";
+      run.stopped_at = stage.id;
+      run.finished = true;
+      run.code = 1;
+      run.message = `pipeline stopped at ${stage.id}. ${reason}`;
+      run.current_stage = stage.id;
+      if (onStage)
+        onStage({
+          run_id: run.run_id,
+          id: stage.id,
+          status: "failed",
+          message: run.message,
+        });
+      return publish(ctx);
+    }
+  }
+  run.stopped_at = null;
+  run.finished = true;
+  run.code = 0;
+  run.message = null;
+  run.current_stage = null;
+  return publish(ctx);
 }

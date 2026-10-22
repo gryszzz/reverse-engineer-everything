@@ -11,7 +11,18 @@ import { parseScoutTarget } from "../opportunities/parse.mjs";
 export const BLAST_SCHEMA = "ree.blast.handoff.v1";
 export const GUARD_SCHEMA = "ree.guard.submission.v1";
 export const VAULT_SCHEMA = "ree.vault.manifest.v1";
+export const SCALE_SCHEMA = "ree.scale.handoff.v1";
 export const BOX_SHARED = "/home/box/shared";
+
+function approvalFlags(approvals = {}) {
+  return {
+    launch: approvals.launch === true,
+    guard: approvals.guard === true,
+    blast: approvals.blast === true,
+    scale: approvals.scale === true,
+    vault: approvals.vault === true,
+  };
+}
 
 export function blastDirectory({ buildId, override, boxRoot = BOX_SHARED }) {
   if (!buildId || !/^bld_[a-f0-9]{16}$/u.test(buildId))
@@ -96,39 +107,26 @@ function readJson(path) {
 }
 
 /**
- * Write Guard, Blast, and Vault files.
- * Blast is not notified. Vault is not copied. Guard is not called.
- * dry_run stays true until a caller passes a Guard PASS and that is still not a launch.
+ * Guard submission package. Writing it does not call Guard.
+ * approval_requested records that a person asked to submit.
  */
-export function emitHandoff({
+export function buildGuardSubmission({
   projectDir,
   verify,
-  scout = null,
-  blastDir,
   repo = {},
   now = new Date(),
+  approvalRequested = false,
 }) {
   const provenance = readJson(join(projectDir, "provenance.json"));
   const spec = readJson(join(projectDir, "behavior-spec.json"));
   const manifest = readJson(join(projectDir, "package.json"));
   const lock = readJson(join(projectDir, "package-lock.json"));
-  const directory = blastDirectory({
-    buildId: provenance.build_id,
-    override: blastDir,
-  });
-  const scoutFacts = weaknessesFromScout(scout);
-  const quotes = customerQuotes(spec);
-  const forbidden = [spec.target.name, scoutFacts.target_name].filter(Boolean);
-  const summary =
-    "Clean-room HTTP product. A feature is implemented only when its name matches an endpoint summary or operation id for GET, POST, PUT, PATCH, or DELETE. Other features stay unimplemented. Market scores appear only when a Scout record supplied them.";
-  for (const name of forbidden) {
-    if (summary.includes(name) || provenance.product_name.includes(name))
-      throw new Error("Customer-facing fields include a competitor name.");
-  }
-  const guard = {
+  return {
     schema_version: GUARD_SCHEMA,
     submitted_at: now.toISOString(),
     sign_off: "not-submitted",
+    approval_requested: approvalRequested === true,
+    note: "Guard was not called. The submission package is ready for a person to send.",
     repo: {
       url: repo.url ?? null,
       branch: repo.branch ?? null,
@@ -161,11 +159,52 @@ export function emitHandoff({
     ],
     secrets_included: false,
   };
+}
+
+/**
+ * Write Guard, Blast, Scale, and Vault files.
+ * Blast is not notified. Scale is not called. Vault is not copied. Guard is not called.
+ * Approval flags record intent. dry_run stays true.
+ */
+export function emitHandoff({
+  projectDir,
+  verify,
+  scout = null,
+  blastDir,
+  repo = {},
+  now = new Date(),
+  approvals = {},
+}) {
+  const asked = approvalFlags(approvals);
+  const provenance = readJson(join(projectDir, "provenance.json"));
+  const spec = readJson(join(projectDir, "behavior-spec.json"));
+  const directory = blastDirectory({
+    buildId: provenance.build_id,
+    override: blastDir,
+  });
+  const scoutFacts = weaknessesFromScout(scout);
+  const quotes = customerQuotes(spec);
+  const forbidden = [spec.target.name, scoutFacts.target_name].filter(Boolean);
+  const summary =
+    "Clean-room HTTP product. A feature is implemented only when its name matches an endpoint summary or operation id for GET, POST, PUT, PATCH, or DELETE. Other features stay unimplemented. Market scores appear only when a Scout record supplied them.";
+  for (const name of forbidden) {
+    if (summary.includes(name) || provenance.product_name.includes(name))
+      throw new Error("Customer-facing fields include a competitor name.");
+  }
+  const guard = buildGuardSubmission({
+    projectDir,
+    verify,
+    repo,
+    now,
+    approvalRequested: asked.guard,
+  });
   const handoff = {
     schema_version: BLAST_SCHEMA,
     build_id: provenance.build_id,
     dry_run: true,
     notified_blast: false,
+    launch_approved: asked.launch,
+    blast_approval_requested: asked.blast,
     product_summary: summary,
     behavior_spec: spec,
     competitor_weaknesses: scoutFacts.weaknesses,
@@ -249,6 +288,7 @@ export function emitHandoff({
     cost_sources: [],
     guard: "not-submitted",
     approved_for_vault_copy: false,
+    approval_requested: asked.vault,
     paths: {
       code: projectDir,
       spec: join(projectDir, "behavior-spec.json"),
@@ -258,7 +298,17 @@ export function emitHandoff({
     },
     env_var_names: [],
     secrets: "not-included",
-    note: "Vault copy waits for Guard PASS. This file is the finance and artifact manifest only.",
+    note: "Vault copy waits for Guard PASS. This file is the finance and artifact manifest only. approved_for_vault_copy stays false until a copy happens, and this writer does not copy.",
+  };
+  const scale = {
+    schema_version: SCALE_SCHEMA,
+    build_id: provenance.build_id,
+    dry_run: true,
+    notified_scale: false,
+    approved: asked.scale,
+    product_name: provenance.product_name,
+    package: "product.tgz",
+    note: "Scale was not called. This file is the handoff only.",
   };
   const readme = [
     `# ${provenance.product_name}`,
@@ -284,7 +334,12 @@ export function emitHandoff({
       : "No spec feature was left unimplemented.",
     `Failed route tests: ${verify.failed}.`,
     "",
-    "Guard sign-off: not submitted.",
+    "Guard sign-off: not submitted. Guard was not called.",
+    "Scale was not called.",
+    "Vault was not copied.",
+    asked.launch
+      ? "Launch approval was recorded. This is still a dry run."
+      : "Launch approval was not recorded.",
     "Competitor names are omitted from this file.",
     "",
   ].join("\n");
@@ -294,6 +349,7 @@ export function emitHandoff({
   }
   mkdirSync(join(directory, "guard"), { recursive: true });
   mkdirSync(join(directory, "vault"), { recursive: true });
+  mkdirSync(join(directory, "scale"), { recursive: true });
   writeFileSync(
     join(directory, "handoff.json"),
     JSON.stringify(handoff, null, 2) + "\n",
@@ -307,5 +363,9 @@ export function emitHandoff({
     join(directory, "vault/manifest.json"),
     JSON.stringify(vault, null, 2) + "\n",
   );
-  return { directory, handoff, guard, vault };
+  writeFileSync(
+    join(directory, "scale/manifest.json"),
+    JSON.stringify(scale, null, 2) + "\n",
+  );
+  return { directory, handoff, guard, vault, scale };
 }

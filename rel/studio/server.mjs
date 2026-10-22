@@ -457,6 +457,7 @@ async function handleApi(context) {
       token,
       bind: "127.0.0.1",
       owned_fixture: "experiments/rel-first-lab",
+      owned_web_fixture: "experiments/ree-bench/web",
       uploads: "local-copy",
       links: "approved-fetch",
       accounts: "none",
@@ -490,6 +491,17 @@ async function handleApi(context) {
   if (method === "POST" && pathname === "/api/builds") {
     const { createBuild } = await import("./product-flow.mjs");
     return createBuild(store.root, body);
+  }
+  if (method === "POST" && pathname === "/api/pipeline") {
+    const { startOwnedPipeline } = await import("./product-flow.mjs");
+    return startOwnedPipeline(store.root, body);
+  }
+  const pipelineMatch = pathname.match(
+    /^\/api\/pipeline\/(run_[a-f0-9]{16})$/u,
+  );
+  if (method === "GET" && pipelineMatch) {
+    const { readPipelineRun } = await import("./product-flow.mjs");
+    return readPipelineRun(store.root, pipelineMatch[1]);
   }
   if (method === "GET" && pathname === "/api/lessons")
     return { lessons: lessonCatalog() };
