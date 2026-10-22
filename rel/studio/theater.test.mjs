@@ -140,6 +140,59 @@ test("the native probe is limited to the owned C fixture", () => {
   rmSync(join(output, ".."), { recursive: true, force: true });
 });
 
+test("the studio native probe refuses another artifact before it starts", async () => {
+  const root = mkdtempSync(join(tmpdir(), "ree-native-http-"));
+  const studio = await startStudio({ dataDir: join(root, "data") });
+  const origin = studio.url.slice(0, -1);
+  const api = (path, options = {}) => {
+    const headers = { "x-ree-studio-token": studio.token };
+    if (options.body !== undefined)
+      headers["content-type"] = "application/json";
+    return fetch(origin + path, {
+      method: options.method ?? "GET",
+      headers,
+      body:
+        options.body === undefined ? undefined : JSON.stringify(options.body),
+    }).then(async (response) => {
+      const data = await response.json();
+      return { status: response.status, data };
+    });
+  };
+  try {
+    const project = await api("/api/projects", {
+      method: "POST",
+      body: { name: "Native" },
+    });
+    const added = await api(`/api/projects/${project.data.id}/artifacts`, {
+      method: "POST",
+      body: { path: root },
+    });
+    const artifactId = added.data.artifacts.at(-1).id;
+    const refused = await api(`/api/projects/${project.data.id}/native-probe`, {
+      method: "POST",
+      body: {
+        artifact_id: artifactId,
+        output: join(root, "out"),
+        approved: false,
+      },
+    });
+    assert.equal(refused.status, 403);
+    const wrong = await api(`/api/projects/${project.data.id}/native-probe`, {
+      method: "POST",
+      body: {
+        artifact_id: artifactId,
+        output: join(root, "out"),
+        approved: true,
+      },
+    });
+    assert.equal(wrong.status, 409);
+    assert.match(wrong.data.error, /ree-investigation-boundary/);
+  } finally {
+    studio.server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 const runtime = existsSync(
   fileURLToPath(new URL("../../dist/cli-runtime/cli.js", import.meta.url)),
 );

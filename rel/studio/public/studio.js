@@ -134,8 +134,7 @@ async function refreshProject() {
   const busy =
     [...state.project.runs, ...state.project.experiments].some(
       (item) => item.status === "running",
-    ) ||
-    state.project.runs.some((item) => item.native_probe?.status === "running");
+    ) || state.project.native_probe?.status === "running";
   if (!busy && state.phase === "running") state.phase = "idle";
   const watched =
     state.project.runs.find((run) => run.status === "running") ?? latestRun();
@@ -683,7 +682,7 @@ function rebuildPanel() {
 }
 
 function nativeClaims() {
-  const probe = latestRun()?.native_probe;
+  const probe = state.project?.native_probe;
   if (!probe) return null;
   return el("article", { class: "card" }, [
     el("h3", {}, `Native probe ${probe.status}`),
@@ -728,17 +727,18 @@ async function runRebuild(output, approved) {
 }
 
 async function runNativeProbe() {
-  const run = latestRun();
-  if (!run) throw new Error("Complete an analysis before the native probe.");
+  const artifact = state.project?.artifacts?.at(-1);
+  if (!artifact)
+    throw new Error("Add the owned C fixture before the native probe.");
   const output = document.querySelector("#probe-output")?.value ?? "";
   const approved =
     document.querySelector("#rebuild-approved")?.checked === true;
   if (!approved)
     throw new Error("Check the box to run the owned native probe.");
-  state.project = await api(
-    `/api/projects/${state.project.id}/runs/${run.id}/native-probe`,
-    { method: "POST", body: { output, approved: true } },
-  );
+  state.project = await api(`/api/projects/${state.project.id}/native-probe`, {
+    method: "POST",
+    body: { artifact_id: artifact.id, output, approved: true },
+  });
   state.notice = "Owned native probe started.";
   draw();
   await refreshProject();

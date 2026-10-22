@@ -41,7 +41,7 @@ While a JavaScript analysis runs, the studio reads `rea_progress` lines from the
 
 Rebuild previews a module map from those identities. The preview also reads each recovered file inside the artifact and places that text beside the stub that would be written, with a text diff where they differ. That comparison is display-only. The engine does not record a numeric match score for this route, so the verification label stays unverified. Writing requires approval and a new directory outside the checkout. The files are stubs: recovered identity, reconstructed implementation, unverified behavior. The included test checks the stubs against the map. It does not compare program behavior. Each written stub is appended to the same timeline.
 
-The native action runs `scripts/verify/reconstruction/c-process-probe.mjs` only when the artifact is `experiments/ree-investigation-boundary`. That harness compiles and captures the owned fixture, then records `verify-reconstruction` claim statuses. Another path is refused.
+The native action runs `scripts/verify/reconstruction/c-process-probe.mjs` only when an added artifact is `experiments/ree-investigation-boundary`. It does not need a JavaScript Evidence run. That harness compiles and captures the owned fixture, then records `verify-reconstruction` claim statuses. Another path is refused. The expected statuses are `control.terminal: pass` and `counterexample.terminal: fail`. The overall failure is the expected result because the candidate is deliberately wrong.
 
 ## Build, then analyze the owned fixture
 

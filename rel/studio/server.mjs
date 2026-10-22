@@ -569,27 +569,31 @@ async function handleApi(context) {
       appendTimeline(run.output_dir, event);
     return written;
   }
-  const nativeProbe = rest.match(/^\/runs\/(run_[a-f0-9]{16})\/native-probe$/u);
-  if (method === "POST" && nativeProbe) {
+  if (method === "POST" && rest === "/native-probe") {
     if (body.approved !== true)
       throw studioError(
         "Check the box to run the owned native reconstruction probe.",
         403,
       );
     const project = store.read(projectId);
-    const run = requireRun(project, nativeProbe[1]);
     const artifact = project.artifacts.find(
-      (item) => item.id === run.artifact_id,
+      (item) => item.id === body.artifact_id,
     );
     if (!artifact) throw studioError("Unknown artifact.", 404);
     const plan = planOwnedNativeProbe(artifact.path, body.output);
-    if (project.runs.some((item) => item.native_probe?.status === "running"))
+    if (project.native_probe?.status === "running")
       throw studioError("A native probe is already running.", 409);
+    const timelineDir = project.runs.find(
+      (item) =>
+        item.artifact_id === artifact.id &&
+        item.status === "completed" &&
+        item.output_dir,
+    )?.output_dir;
     const startedAt = new Date().toISOString();
     store.update(projectId, (current) => {
-      const saved = current.runs.find((item) => item.id === run.id);
-      saved.native_probe = {
+      current.native_probe = {
         status: "running",
+        artifact_id: artifact.id,
         output: plan.output,
         argv: plan.argv,
         started_at: startedAt,
@@ -599,11 +603,12 @@ async function handleApi(context) {
       };
       return current;
     });
-    appendTimeline(run.output_dir, {
-      source: "verify-reconstruction",
-      phase: "native-probe",
-      message: "Started the owned native reconstruction probe.",
-    });
+    if (timelineDir)
+      appendTimeline(timelineDir, {
+        source: "verify-reconstruction",
+        phase: "native-probe",
+        message: "Started the owned native reconstruction probe.",
+      });
     const child = spawnOwnedNativeProbe(plan, { env: engineChildEnv() });
     const timer = setTimeout(() => child.kill("SIGTERM"), 300000);
     child.once("close", (code, signal) => {
@@ -621,19 +626,20 @@ async function handleApi(context) {
             ? cause.message
             : "Could not read the probe summary.";
       }
-      for (const event of claimTimeline(claims))
-        appendTimeline(run.output_dir, event);
-      if (error)
-        appendTimeline(run.output_dir, {
-          source: "verify-reconstruction",
-          phase: "native-probe",
-          message: error,
-        });
+      if (timelineDir) {
+        for (const event of claimTimeline(claims))
+          appendTimeline(timelineDir, event);
+        if (error)
+          appendTimeline(timelineDir, {
+            source: "verify-reconstruction",
+            phase: "native-probe",
+            message: error,
+          });
+      }
       store.update(projectId, (current) => {
-        const saved = current.runs.find((item) => item.id === run.id);
-        if (!saved?.native_probe) return current;
-        saved.native_probe = {
-          ...saved.native_probe,
+        if (!current.native_probe) return current;
+        current.native_probe = {
+          ...current.native_probe,
           status: error ? "failed" : "completed",
           finished_at: new Date().toISOString(),
           claims,
