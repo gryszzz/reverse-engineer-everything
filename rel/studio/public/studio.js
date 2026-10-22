@@ -621,7 +621,7 @@ function boardPanel() {
       draw();
     }),
     nextStep(
-      "Next: open Build and scaffold from a behavior spec you already have.",
+      "Next: open Build and build from a behavior spec you already have.",
     ),
   ]);
 }
@@ -642,12 +642,12 @@ function buildPanel() {
     el(
       "p",
       {},
-      "Writes a new folder from a behavior spec. Quotes are not copied. The handoff is a dry run: Blast is not notified, Guard is not called, and Vault is not copied.",
+      "Writes a clean-room HTTP product from a behavior spec. A feature becomes a route only when its name matches an endpoint. Quotes are not copied. The handoff is a dry run: Blast is not notified, Guard is not called, and Vault is not copied.",
     ),
     !result
       ? emptyState(
-          "No scaffold yet",
-          "Paste a spec and a product name that is not the spec target. A declaration match is not a running product. The opportunity list is Board, under Advanced.",
+          "No build yet",
+          "Paste a spec and a product name that is not the spec target. Only a feature whose name matches an HTTP endpoint is built and tested. The opportunity list is Board, under Advanced.",
           null,
           null,
         )
@@ -656,7 +656,7 @@ function buildPanel() {
           el(
             "p",
             {},
-            `Accounted ${result.verify.accounted} of ${result.verify.total}.`,
+            `Implemented ${result.verify.implemented}. Unimplemented ${result.verify.unimplemented}. Failed ${result.verify.failed}.`,
           ),
           el(
             "p",
@@ -673,17 +673,17 @@ function buildPanel() {
         ]),
     field("Product name", name),
     spec,
-    button("Scaffold and verify", async () => {
+    button("Build and verify", async () => {
       state.build = await api("/api/builds", {
         method: "POST",
         body: { product_name: name.value, spec: JSON.parse(spec.value) },
       });
       state.notice =
-        "Scaffold written. Features are declared, not implemented.";
+        "Build written. Matching HTTP features were tested. Features that do not name an endpoint stay unimplemented.";
       draw();
     }),
     nextStep(
-      "Next: paste the spec, name the new product, then Scaffold and verify.",
+      "Next: paste the spec, name the new product, then Build and verify.",
     ),
   ]);
 }

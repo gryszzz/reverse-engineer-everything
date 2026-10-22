@@ -7,19 +7,26 @@ import {
 } from "../opportunities/board.mjs";
 import { scaffoldRebuild } from "../rebuild/scaffold.mjs";
 import { verifyRebuild } from "../rebuild/verify.mjs";
+import { runProductPipeline } from "./run.mjs";
 
 const HELP = [
-  "REE pipeline — opportunities, a clean-room scaffold, declaration tests, and handoff files.",
+  "REE pipeline — opportunities, a clean-room HTTP product, route tests, and handoff files.",
   "",
+  "node ree.mjs pipeline TARGET --out DIR [--name NAME] [--json]",
   "node ree.mjs opportunities ingest FILE --out DIR [--json]",
   "node ree.mjs opportunities list --data DIR [--json]",
   "node ree.mjs rebuild --spec FILE --name NAME --out DIR [--json]",
   "node ree.mjs verify --project DIR [--json]",
   "node ree.mjs handoff --project DIR --blast-dir DIR [--scout FILE] [--json]",
   "",
+  "pipeline reads TARGET/request.json, writes a behavior spec, rebuilds HTTP",
+  "features whose names match an endpoint, runs the route tests, packs",
+  "product.tgz, ingests the spec onto a board, and writes a dry-run handoff.",
+  "A directory with no request.json is not a product spec. Nothing is invented.",
+  "The default product name is REE Product. It must differ from the spec target.",
   "ingest accepts a Scout target or a ree.outside-in.behavior-spec.v1 document.",
   "rebuild writes a new folder. It does not copy original code.",
-  "verify runs the scaffold tests. accounted means declared, not implemented.",
+  "verify runs the product tests. pass means the route ran. unimplemented means it was not built.",
   "handoff writes handoff.json, README.md, a Guard submission, and a Vault manifest.",
   "It does not notify Blast, call Guard, or copy into Vault.",
   "On a machine with /home/box/shared, omit --blast-dir to use",
@@ -81,6 +88,34 @@ export async function runPipelineCommand(argv) {
       }
       return 0;
     }
+    if (command === "pipeline") {
+      const target = argv[1];
+      const out = flag(argv, "--out");
+      const name = flag(argv, "--name");
+      if (!target || target.startsWith("--") || !out)
+        throw new Error("Use pipeline TARGET --out DIR [--name NAME].");
+      const outcome = await runProductPipeline({
+        target,
+        outDir: out,
+        productName: name,
+      });
+      if (outcome.message) console.error("REE: " + outcome.message);
+      if (json) console.log(JSON.stringify(outcome, null, 2));
+      else if (!outcome.message) {
+        console.log("Pipeline product " + outcome.product_name);
+        console.log("Spec status " + outcome.spec_status);
+        console.log(
+          `Implemented ${outcome.implemented}. Unimplemented ${outcome.unimplemented}. Failed ${outcome.failed}.`,
+        );
+        console.log("Package " + outcome.package_path);
+        console.log("Board " + outcome.board_dir);
+        console.log("Handoff " + outcome.handoff_dir);
+        console.log(
+          "Dry run. Blast was not notified. Guard was not called. Vault was not copied.",
+        );
+      }
+      return outcome.code;
+    }
     if (command === "rebuild") {
       const spec = flag(argv, "--spec");
       const name = flag(argv, "--name");
@@ -96,7 +131,9 @@ export async function runPipelineCommand(argv) {
       else {
         console.log("Rebuild " + built.build_id);
         console.log("Folder " + built.out_dir);
-        console.log("Declared features: " + built.feature_count);
+        console.log("Implemented routes: " + built.implemented_count);
+        console.log("Unimplemented features: " + built.unimplemented_count);
+        console.log("Package " + built.package_path);
         console.log("Original code was not read or copied.");
       }
       return 0;
@@ -114,9 +151,12 @@ export async function runPipelineCommand(argv) {
           ),
         );
       else {
-        console.log(`Accounted ${result.accounted} of ${result.total}.`);
+        console.log(`Implemented ${result.implemented} of ${result.total}.`);
         console.log(
-          "accounted means declared in the scaffold, not implemented.",
+          `Unimplemented ${result.unimplemented}. Failed ${result.failed}.`,
+        );
+        console.log(
+          "pass means the HTTP route test passed. unimplemented means the feature was not built.",
         );
         for (const feature of result.features)
           console.log(`${feature.match} ${feature.id}`);

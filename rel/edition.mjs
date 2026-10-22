@@ -25,7 +25,7 @@ export const EDITION = {
     {
       id: "pipeline",
       price: "not sold separately yet",
-      commands: ["opportunities", "rebuild", "verify", "handoff"],
+      commands: ["opportunities", "rebuild", "verify", "handoff", "pipeline"],
       not_a_command: ["ree serve"],
       note: "These commands ship in this MIT checkout. Nothing is locked.",
     },

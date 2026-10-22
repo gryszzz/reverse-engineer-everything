@@ -195,6 +195,8 @@ test("onboarding, board ingest, and a dry-run build are live studio routes", asy
   });
   assert.equal(built.status, 201, JSON.stringify(built.body));
   assert.equal(built.body.dry_run, true);
-  assert.equal(built.body.verify.features[0].match, "accounted");
+  assert.equal(built.body.verify.exit_code, 0);
+  assert.equal(built.body.verify.features[0].match, "unimplemented");
+  assert.equal(built.body.verify.implemented, 0);
   assert.equal(built.body.box_path_used, false);
 });

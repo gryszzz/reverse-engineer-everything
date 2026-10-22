@@ -37,6 +37,8 @@ const help = [
   "                                                Static JavaScript/Electron folder or ASAR",
   "node ree.mjs outside-in --name NAME --url URL --out DIR [--json]",
   "                                                Public-docs behavior spec; no target source",
+  "node ree.mjs pipeline TARGET --out DIR [--name NAME]",
+  "                                                Analyze, rebuild, verify, package, handoff",
   "node ree.mjs opportunities ingest FILE --out DIR",
   "node ree.mjs opportunities list --data DIR",
   "node ree.mjs rebuild --spec FILE --name NAME --out DIR",
@@ -169,7 +171,9 @@ try {
     const { formatEdition } = await import("./rel/edition.mjs");
     console.log(formatEdition(args.includes("--json")));
   } else if (
-    ["opportunities", "rebuild", "verify", "handoff"].includes(args[0])
+    ["opportunities", "rebuild", "verify", "handoff", "pipeline"].includes(
+      args[0],
+    )
   ) {
     const { runPipelineCommand } = await import("./rel/pipeline/cli.mjs");
     process.exitCode = await runPipelineCommand(args);

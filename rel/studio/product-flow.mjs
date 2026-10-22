@@ -39,7 +39,7 @@ function slug(name) {
   return value || "rebuild";
 }
 
-/** Scaffold, run declaration tests, and write a dry-run handoff. */
+/** Build HTTP features that name an endpoint, run their tests, and write a dry-run handoff. */
 export function createBuild(root, body) {
   const productName = body?.product_name;
   const spec = body?.spec;
@@ -81,8 +81,10 @@ export function createBuild(root, body) {
     verify: {
       schema_version: verify.schema_version,
       exit_code: verify.exit_code,
-      accounted: verify.accounted,
-      missing: verify.missing,
+      implemented: verify.implemented,
+      unimplemented: verify.unimplemented,
+      failed: verify.failed,
+      not_run: verify.not_run,
       total: verify.total,
       ratio: verify.ratio,
       features: verify.features,
