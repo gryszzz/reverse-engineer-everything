@@ -4,7 +4,9 @@ The **same REE fork** retains upstream REA's broad reverse-engineering toolset. 
 
 ## Easiest start: the Finder launcher
 
-After cloning this fork and installing Node.js, double-click **`Start-REE-Studio.command`** to open the Investigation Studio, or **`Start-REE.command`** for the visual lesson. Both run the read-only Mac readiness check and listen on loopback. If macOS blocks an unsigned shell script, run `zsh ./Start-REE-Studio.command` from Terminal in the repo instead. Don't disable macOS security protections. Keep the window open; Control+C stops the local server. For the lesson, see [your first ten minutes](../FIRST_10_MINUTES.md). For analysis, build first and follow [Investigation Studio](../docs/investigation-studio.md).
+After cloning this fork and installing Node.js, double-click **`Start-REE-Studio.command`** to open the Investigation Studio, or **`Start-REE.command`** for the visual lesson. Both run the read-only Mac readiness check and listen on loopback. If macOS blocks an unsigned shell script, run `zsh ./Start-REE-Studio.command` from Terminal in the repo instead. Don't disable macOS security protections. Keep the window open; Control+C stops the local server.
+
+To get a Dock app instead, build and install the unsigned bundle from the checkout: `node ree.mjs app build` then `node ree.mjs app install`. That copies `REE.app` to `~/Applications` and adds a Desktop alias. The window runs the same loopback studio. If macOS blocks the unsigned app, right-click it, choose Open, then Open. For the lesson, see [your first ten minutes](../FIRST_10_MINUTES.md). For analysis, build the engine first and follow [Investigation Studio](../docs/investigation-studio.md).
 
 ## First: let REE look at your actual Mac
 

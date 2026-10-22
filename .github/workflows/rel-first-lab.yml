@@ -62,6 +62,7 @@ jobs:
         run: |
           node --test rel/studio/graph.test.mjs rel/studio/studio.test.mjs
           node --test rel/studio/studio-engine.test.mjs
+          node --test rel/app/mac-app.test.mjs
       - name: Run real REE/REA JavaScript analyzer
         run: node ree.mjs demo --run --out "$RUNNER_TEMP/rel-first-lab"
       - name: Analyze an explicitly authorized extracted JavaScript target
