@@ -195,6 +195,48 @@ test("onboarding, board ingest, and a dry-run build are live studio routes", asy
   });
   assert.equal(built.status, 201, JSON.stringify(built.body));
   assert.equal(built.body.dry_run, true);
-  assert.equal(built.body.verify.features[0].match, "accounted");
+  assert.equal(built.body.verify.exit_code, 0);
+  assert.equal(built.body.verify.features[0].match, "unimplemented");
+  assert.equal(built.body.verify.implemented, 0);
   assert.equal(built.body.box_path_used, false);
+  const wrongFixture = await api("/api/pipeline", {
+    method: "POST",
+    body: { fixture: "other", product_name: "Board Desk" },
+  });
+  assert.equal(wrongFixture.status, 400);
+  const started = await api("/api/pipeline", {
+    method: "POST",
+    body: { fixture: "web", product_name: "Board Desk" },
+  });
+  assert.equal(started.status, 201, JSON.stringify(started.body));
+  assert.equal(started.body.status, "running");
+  assert.match(started.body.run_id, /^run_[a-f0-9]{16}$/u);
+  let snapshot = null;
+  let sawRunning = false;
+  const deadline = Date.now() + 20000;
+  while (Date.now() < deadline) {
+    const polled = await api("/api/pipeline/" + started.body.run_id);
+    assert.equal(polled.status, 200, JSON.stringify(polled.body));
+    snapshot = polled.body;
+    if (snapshot.finished !== true) sawRunning = true;
+    if (snapshot.finished === true) break;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 30));
+  }
+  assert.equal(snapshot.finished, true, JSON.stringify(snapshot));
+  assert.equal(snapshot.code, 0, snapshot.message);
+  assert.equal(sawRunning, true);
+  assert.equal(snapshot.dry_run, true);
+  assert.equal(snapshot.notified_blast, false);
+  assert.equal(snapshot.guard_sign_off, "not-submitted");
+  assert.equal(snapshot.approved_for_vault_copy, false);
+  for (const stage of snapshot.stages)
+    assert.equal(stage.status, "passed", stage.id);
+  const create = snapshot.verify.features.find(
+    (feature) => feature.name === "Create a board",
+  );
+  assert.equal(create.match, "pass");
+  const shared = snapshot.verify.features.find(
+    (feature) => feature.name === "Shared boards",
+  );
+  assert.equal(shared.match, "unimplemented");
 });

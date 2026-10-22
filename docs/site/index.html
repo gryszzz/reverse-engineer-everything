@@ -639,9 +639,12 @@ node ree.mjs studio --open</code></pre>
             <h3>Clean-room Build</h3>
             <p>
               Board ingests a Scout target or an outside-in spec and does not
-              invent scores. Build writes a new folder, declaration tests, and a
-              dry-run handoff. It does not copy original source, notify Blast,
-              call Guard, or copy into Vault.
+              invent scores. Build writes a clean-room HTTP product for features
+              whose names match an endpoint, runs those route tests, and writes
+              a dry-run handoff. The studio can also run the owned web fixture
+              through the same stages and show each stage while it runs. Other
+              features stay unimplemented. It does not copy original source,
+              notify Blast, call Guard, call Scale, or copy into Vault.
             </p>
           </article>
           <article class="card">

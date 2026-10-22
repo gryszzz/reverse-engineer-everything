@@ -31,6 +31,10 @@ const state = {
   rebuildResult: null,
   board: null,
   build: null,
+  buildName: "",
+  buildSpec: "",
+  pipeline: null,
+  pipelineRunId: null,
   onboardingSeen: true,
   explain: null,
   tour: false,
@@ -621,33 +625,68 @@ function boardPanel() {
       draw();
     }),
     nextStep(
-      "Next: open Build and scaffold from a behavior spec you already have.",
+      "Next: open Build and build from a behavior spec you already have.",
     ),
   ]);
+}
+
+let pipelinePoll = 0;
+
+async function pollPipeline(ticket) {
+  if (ticket !== pipelinePoll || !state.pipelineRunId) return;
+  try {
+    const snapshot = await api("/api/pipeline/" + state.pipelineRunId);
+    if (ticket !== pipelinePoll) return;
+    state.pipeline = snapshot;
+    if (snapshot.finished && snapshot.message) {
+      state.error = snapshot.message;
+      state.notice = "";
+    } else if (snapshot.finished)
+      state.notice =
+        "Owned web pipeline finished. Sell steps stayed a dry run.";
+    draw();
+    if (!snapshot.finished) setTimeout(() => pollPipeline(ticket), 200);
+  } catch (error) {
+    if (ticket !== pipelinePoll) return;
+    setError(error);
+  }
 }
 
 function buildPanel() {
   const name = el("input", {
     id: "build-name",
     placeholder: "New product name",
+    value: state.buildName,
+    oninput: (event) => {
+      state.buildName = event.target.value;
+    },
   });
-  const spec = el("textarea", {
-    id: "build-spec",
-    rows: "8",
-    placeholder: "Paste a ree.outside-in.behavior-spec.v1 object.",
-  });
+  const spec = el(
+    "textarea",
+    {
+      id: "build-spec",
+      rows: "8",
+      placeholder: "Paste a ree.outside-in.behavior-spec.v1 object.",
+      oninput: (event) => {
+        state.buildSpec = event.target.value;
+      },
+    },
+    state.buildSpec,
+  );
   const result = state.build;
+  const pipeline = state.pipeline;
+  const pipelineRunning = pipeline && pipeline.finished !== true;
   return el("section", { class: "panel" }, [
     el("h2", {}, "Build"),
     el(
       "p",
       {},
-      "Writes a new folder from a behavior spec. Quotes are not copied. The handoff is a dry run: Blast is not notified, Guard is not called, and Vault is not copied.",
+      "Writes a clean-room HTTP product from a behavior spec. A feature becomes a route only when its name matches an endpoint. Quotes are not copied. The handoff is a dry run: Blast is not notified, Guard is not called, and Vault is not copied.",
     ),
     !result
       ? emptyState(
-          "No scaffold yet",
-          "Paste a spec and a product name that is not the spec target. A declaration match is not a running product. The opportunity list is Board, under Advanced.",
+          "No build yet",
+          "Paste a spec and a product name that is not the spec target. Only a feature whose name matches an HTTP endpoint is built and tested. The opportunity list is Board, under Advanced.",
           null,
           null,
         )
@@ -656,7 +695,7 @@ function buildPanel() {
           el(
             "p",
             {},
-            `Accounted ${result.verify.accounted} of ${result.verify.total}.`,
+            `Implemented ${result.verify.implemented}. Unimplemented ${result.verify.unimplemented}. Failed ${result.verify.failed}.`,
           ),
           el(
             "p",
@@ -673,18 +712,74 @@ function buildPanel() {
         ]),
     field("Product name", name),
     spec,
-    button("Scaffold and verify", async () => {
+    button("Build and verify", async () => {
+      state.buildName = name.value;
+      state.buildSpec = spec.value;
       state.build = await api("/api/builds", {
         method: "POST",
         body: { product_name: name.value, spec: JSON.parse(spec.value) },
       });
       state.notice =
-        "Scaffold written. Features are declared, not implemented.";
+        "Build written. Matching HTTP features were tested. Features that do not name an endpoint stay unimplemented.";
       draw();
     }),
-    nextStep(
-      "Next: paste the spec, name the new product, then Scaffold and verify.",
-    ),
+    el("article", { class: "card" }, [
+      el("h3", {}, "Owned web pipeline"),
+      el(
+        "p",
+        {},
+        "One run of experiments/ree-bench/web. The product name is Board Desk. Stages update from the checkpoint file. Guard, Blast, Scale, and Vault stay files. Nothing is submitted or notified.",
+      ),
+      pipeline
+        ? el(
+            "ol",
+            { class: "timeline" },
+            (pipeline.stages ?? []).map((stage) =>
+              el(
+                "li",
+                {
+                  class: statusClass(
+                    stage.status === "passed"
+                      ? "completed"
+                      : stage.status === "failed"
+                        ? "failed"
+                        : stage.status,
+                  ),
+                },
+                `${stage.id} ${stage.status}`,
+              ),
+            ),
+          )
+        : el(
+            "p",
+            { class: "note" },
+            "No pipeline run yet. The stage list appears here while the run is in progress.",
+          ),
+      pipeline?.message ? el("p", {}, pipeline.message) : null,
+      button(
+        "Run owned web pipeline",
+        async () => {
+          const started = await api("/api/pipeline", {
+            method: "POST",
+            body: { fixture: "web", product_name: "Board Desk" },
+          });
+          state.pipelineRunId = started.run_id;
+          state.pipeline = {
+            run_id: started.run_id,
+            status: "running",
+            finished: false,
+            stages: [],
+          };
+          state.notice = "Owned web pipeline is running.";
+          state.error = "";
+          pipelinePoll += 1;
+          draw();
+          pollPipeline(pipelinePoll);
+        },
+        { class: "primary", disabled: pipelineRunning },
+      ),
+    ]),
+    nextStep("Next: paste the spec and Build, or run the owned web pipeline."),
   ]);
 }
 

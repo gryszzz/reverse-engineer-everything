@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -9,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
 import { emitHandoff, blastDirectory } from "../handoff/emit.mjs";
 import {
@@ -177,7 +178,7 @@ test("scout totals must match and specs do not receive invented market scores", 
   assert.equal(listed.specs[0].listing.coverage.features, 1);
 });
 
-test("rebuild stays outside the repo, omits quotes, and verify reports the declaration", () => {
+test("rebuild stays outside the repo, omits quotes, and leaves unmatched features unimplemented", () => {
   const inside = fileURLToPath(new URL("./inside-rebuild", import.meta.url));
   assert.throws(
     () =>
@@ -212,10 +213,47 @@ test("rebuild stays outside the repo, omits quotes, and verify reports the decla
   assert.equal(built.provenance.original_code_copied, false);
   const verified = verifyRebuild(out);
   assert.equal(verified.exit_code, 0, verified.stderr || verified.stdout);
-  assert.equal(verified.features[0].match, "accounted");
+  assert.equal(verified.features[0].match, "unimplemented");
   assert.equal(verified.features[0].id, "feature:shared-boards");
-  assert.equal(verified.ratio, 1);
+  assert.equal(verified.implemented, 0);
+  assert.equal(verified.unimplemented, 1);
+  assert.equal(verified.failed, 0);
+  assert.equal(verified.ratio, 0);
   assert.equal(verified.quote_test_passed, true);
+  assert.equal(source.includes("Shared boards"), false);
+  const readme = readFileSync(join(out, "README.md"), "utf8");
+  assert.equal(readme.includes("Widget Cloud"), false);
+  assert.match(readme, /npm start/);
+  assert.match(
+    readFileSync(join(out, "LICENSE"), "utf8"),
+    /Copyright \(c\) 2026 morluto/,
+  );
+  assert.match(
+    readFileSync(join(out, "LICENSE"), "utf8"),
+    /not the target's license/,
+  );
+  assert.match(
+    readFileSync(join(out, "PRICING.md"), "utf8"),
+    /No pricing was in the spec and none was invented/,
+  );
+  const listing = spawnSync("tar", ["-tzf", join(out, "product.tgz")], {
+    encoding: "utf8",
+  });
+  assert.equal(listing.status, 0, listing.stderr);
+  assert.equal(listing.stdout.includes("README.md"), true);
+  assert.equal(listing.stdout.includes("LICENSE"), true);
+  assert.equal(listing.stdout.includes("NOTICE"), true);
+  assert.equal(listing.stdout.includes("LANDING.md"), true);
+  assert.equal(listing.stdout.includes("PRICING.md"), true);
+  assert.equal(listing.stdout.includes("src/server.mjs"), true);
+  assert.equal(listing.stdout.includes("product.tgz"), false);
+  const notice = readFileSync(join(out, "NOTICE"), "utf8");
+  assert.match(notice, /Copyright \(c\) 2026 morluto/);
+  assert.match(notice, /not viewed/);
+  assert.equal(notice.includes("Widget Cloud"), false);
+  const landing = readFileSync(join(out, "LANDING.md"), "utf8");
+  assert.equal(landing.includes("Widget Cloud"), false);
+  assert.match(landing, /Board Kit/);
 });
 
 test("handoff writes the box layout only when that directory exists", () => {
@@ -249,6 +287,11 @@ test("handoff files keep competitor names out of the README and do not claim Gua
   const readme = readFileSync(join(emitted.directory, "README.md"), "utf8");
   assert.equal(readme.includes("Widget Cloud"), false);
   assert.match(readme, /Dry run/);
+  assert.match(readme, /No route test passed/);
+  assert.equal(
+    readme.includes("A declaration is not a running feature."),
+    false,
+  );
   const handoff = JSON.parse(
     readFileSync(join(emitted.directory, "handoff.json"), "utf8"),
   );
@@ -276,7 +319,18 @@ test("handoff files keep competitor names out of the README and do not claim Gua
     readFileSync(join(emitted.directory, "vault/manifest.json"), "utf8"),
   );
   assert.equal(vault.approved_for_vault_copy, false);
+  assert.equal(vault.approval_requested, false);
   assert.equal(vault.stripe.product_id, null);
+  const scale = JSON.parse(
+    readFileSync(join(emitted.directory, "scale/manifest.json"), "utf8"),
+  );
+  assert.equal(scale.schema_version, "ree.scale.handoff.v1");
+  assert.equal(scale.dry_run, true);
+  assert.equal(scale.notified_scale, false);
+  assert.equal(scale.approved, false);
+  assert.equal(handoff.feature_match.implemented, 0);
+  assert.deepEqual(handoff.works_now, []);
+  assert.equal(handoff.notified_blast, false);
 });
 
 test("CLI list prints scout totals and the absence of a spec market score", () => {
@@ -305,4 +359,416 @@ test("CLI list prints scout totals and the absence of a spec market score", () =
   assert.equal(listed.status, 0, listed.stderr);
   assert.match(listed.stdout, /total 16\/25/);
   assert.match(listed.stdout, /no market score/);
+});
+
+test("rebuild serves an endpoint whose summary or operation id matches a feature", () => {
+  const value = spec();
+  const citation = value.features[0].citations[0];
+  value.features.push(
+    {
+      id: "feature:create-a-board",
+      name: "Create a board",
+      detail: "A route.",
+      origin: "docs",
+      quote: {
+        text: "People create a board from the client.",
+        attributed_quote: true,
+      },
+      citations: [citation],
+    },
+    {
+      id: "feature:listboards",
+      name: "listBoards",
+      detail: "A route.",
+      origin: "docs",
+      citations: [citation],
+    },
+    {
+      id: "feature:open-a-board",
+      name: "Open a board",
+      detail: "A template.",
+      origin: "docs",
+      citations: [citation],
+    },
+  );
+  value.api.style = "openapi";
+  value.api.endpoints = [
+    {
+      method: "POST",
+      path: "/boards",
+      operation_id: "createBoard",
+      summary: { text: "Create a board", attributed_quote: true },
+      parameters: ["boardName"],
+      response_codes: ["201"],
+      citations: [citation],
+    },
+    {
+      method: "GET",
+      path: "/boards",
+      operation_id: "listBoards",
+      summary: { text: "List boards", attributed_quote: true },
+      parameters: [],
+      response_codes: ["200"],
+      citations: [citation],
+    },
+    {
+      method: "GET",
+      path: "/boards/{id}",
+      operation_id: "openBoard",
+      summary: { text: "Open a board", attributed_quote: true },
+      parameters: [],
+      response_codes: ["200"],
+      citations: [citation],
+    },
+  ];
+  value.pricing.plans = [
+    {
+      name: "Desk",
+      price: {
+        amount: "12",
+        currency: "USD",
+        interval: "month",
+        display: "$12/month",
+      },
+      limits: [],
+      includes: [],
+      citations: [citation],
+    },
+  ];
+  value.pricing.unknowns = [];
+  const out = join(home, "http-rebuild");
+  scaffoldRebuild({ spec: value, productName: "Board Kit", outDir: out });
+  const verified = verifyRebuild(out);
+  assert.equal(verified.exit_code, 0, verified.stderr || verified.stdout);
+  const byName = Object.fromEntries(
+    verified.features.map((feature) => [feature.name, feature]),
+  );
+  assert.equal(byName["Create a board"].match, "pass");
+  assert.equal(byName["Create a board"].route.method, "POST");
+  assert.equal(byName["Create a board"].route.success_status, 201);
+  assert.equal(byName.listBoards.match, "pass");
+  assert.equal(byName.listBoards.route.method, "GET");
+  assert.equal(byName["Shared boards"].match, "unimplemented");
+  assert.equal(byName["Open a board"].match, "unimplemented");
+  const source = ["behaviors.mjs", "routes.mjs", "server.mjs"]
+    .map((name) => readFileSync(join(out, "src", name), "utf8"))
+    .join("\n");
+  assert.equal(source.includes("Create a board"), false);
+  assert.equal(
+    source.includes("People create a board from the client."),
+    false,
+  );
+  assert.equal(source.includes("DISTINCTIVE_BOARD_QUOTE"), false);
+  assert.equal(source.includes("/boards/{id}"), false);
+  assert.equal(source.includes("openBoard"), false);
+  assert.match(source, /createBoard/);
+  assert.match(source, /listBoards/);
+  const pricing = readFileSync(join(out, "PRICING.md"), "utf8");
+  assert.match(pricing, /\$12\/month/);
+  assert.match(pricing, /https:\/\/widgets\.example\/docs/);
+  assert.match(pricing, /no price was invented/);
+  const emitted = emitHandoff({
+    projectDir: out,
+    verify: verified,
+    blastDir: join(home, "http-blast"),
+  });
+  const handoff = JSON.parse(
+    readFileSync(join(emitted.directory, "handoff.json"), "utf8"),
+  );
+  assert.equal(handoff.dry_run, true);
+  assert.equal(handoff.notified_blast, false);
+  assert.ok(handoff.works_now.includes("POST /boards returns 201."));
+  assert.ok(handoff.works_now.includes("GET /boards returns 200."));
+  assert.equal(
+    readFileSync(join(emitted.directory, "README.md"), "utf8").includes(
+      "Widget Cloud",
+    ),
+    false,
+  );
+});
+
+test("pipeline refuses a directory that has no request.json", () => {
+  const dir = join(home, "js-only");
+  const out = join(home, "js-out");
+  mkdirSync(dir);
+  writeFileSync(join(dir, "main.mjs"), "export const value = 1;\n");
+  const run = spawnSync(
+    process.execPath,
+    [cli, "pipeline", dir, "--out", out],
+    { encoding: "utf8" },
+  );
+  assert.equal(run.status, 1, run.stderr);
+  assert.match(run.stderr, /pipeline stopped at scope/);
+  assert.match(run.stderr, /request\.json/);
+  assert.match(run.stderr, /did not invent a product spec/);
+  const saved = JSON.parse(readFileSync(join(out, "run.json"), "utf8"));
+  assert.equal(saved.stopped_at, "scope");
+  assert.equal(saved.finished, true);
+  assert.equal(
+    saved.stages.find((stage) => stage.id === "investigate").status,
+    "pending",
+  );
+  const scope = JSON.parse(
+    readFileSync(join(out, "checkpoints/scope.json"), "utf8"),
+  );
+  assert.equal(scope.status, "failed");
+  const again = spawnSync(
+    process.execPath,
+    [cli, "pipeline", dir, "--out", out],
+    { encoding: "utf8" },
+  );
+  assert.equal(again.status, 2, again.stderr);
+  assert.match(again.stderr, /already has a pipeline run/);
+});
+
+test("pipeline stops before analyzing a non-JavaScript artifact", () => {
+  const dir = join(home, "notes");
+  const out = join(home, "notes-out");
+  mkdirSync(dir);
+  writeFileSync(join(dir, "notes.txt"), "hello\n");
+  const run = spawnSync(
+    process.execPath,
+    [cli, "pipeline", dir, "--authorized", "--out", out],
+    { encoding: "utf8" },
+  );
+  assert.equal(run.status, 1, run.stderr + run.stdout);
+  assert.match(run.stderr, /pipeline stopped at investigate/);
+  assert.match(run.stderr, /JavaScript/);
+  assert.equal(existsSync(join(out, "findings.json")), false);
+  const saved = JSON.parse(readFileSync(join(out, "run.json"), "utf8"));
+  assert.equal(saved.stopped_at, "investigate");
+  assert.equal(
+    saved.stages.find((stage) => stage.id === "spec").status,
+    "pending",
+  );
+});
+
+test("pipeline rebuilds the owned web bench into a packaged product", async () => {
+  const web = fileURLToPath(
+    new URL("../../experiments/ree-bench/web/", import.meta.url),
+  );
+  const out = join(home, "web-pipeline");
+  const run = spawnSync(
+    process.execPath,
+    [cli, "pipeline", web, "--name", "Board Desk", "--out", out, "--json"],
+    { encoding: "utf8" },
+  );
+  assert.equal(run.status, 0, run.stderr + run.stdout);
+  const outcome = JSON.parse(run.stdout);
+  assert.equal(outcome.dry_run, true);
+  assert.equal(outcome.notified_blast, false);
+  assert.equal(outcome.guard_sign_off, "not-submitted");
+  assert.equal(outcome.approved_for_vault_copy, false);
+  assert.equal(outcome.product_name, "Board Desk");
+  const create = outcome.verify.features.find(
+    (feature) => feature.name === "Create a board",
+  );
+  assert.equal(create.match, "pass");
+  assert.equal(create.route.method, "POST");
+  assert.equal(create.route.path, "/boards");
+  assert.equal(create.route.success_status, 201);
+  const shared = outcome.verify.features.find(
+    (feature) => feature.name === "Shared boards",
+  );
+  assert.equal(shared.match, "unimplemented");
+  for (const feature of outcome.verify.features) {
+    if (feature.name !== "Create a board")
+      assert.notEqual(feature.match, "pass", feature.name);
+  }
+  const product = outcome.product_dir;
+  const readme = readFileSync(join(product, "README.md"), "utf8");
+  assert.equal(readme.includes("Bench Boards"), false);
+  const source = ["behaviors.mjs", "routes.mjs", "server.mjs"]
+    .map((name) => readFileSync(join(product, "src", name), "utf8"))
+    .join("\n");
+  assert.equal(source.includes("Bench Boards"), false);
+  assert.equal(source.includes("People can open one board together."), false);
+  assert.equal(
+    source.includes("People create a board from the client."),
+    false,
+  );
+  assert.equal(source.includes("Local boards for the accuracy bench."), false);
+  assert.equal(source.includes("Create a board"), false);
+  assert.equal(source.includes("listBoards"), false);
+  assert.match(source, /createBoard/);
+  assert.match(
+    readFileSync(join(product, "PRICING.md"), "utf8"),
+    /none was invented/,
+  );
+  const listed = listOpportunities(outcome.board_dir);
+  assert.equal(listed.specs.length, 1);
+  assert.equal(listed.specs[0].listing.scores, null);
+  const handoff = JSON.parse(
+    readFileSync(join(outcome.handoff_dir, "handoff.json"), "utf8"),
+  );
+  assert.equal(handoff.dry_run, true);
+  assert.equal(handoff.notified_blast, false);
+  assert.equal(handoff.guard.sign_off, "not-submitted");
+  assert.ok(handoff.works_now.includes("POST /boards returns 201."));
+  assert.equal(
+    readFileSync(join(outcome.handoff_dir, "README.md"), "utf8").includes(
+      "Bench Boards",
+    ),
+    false,
+  );
+  const vault = JSON.parse(
+    readFileSync(join(outcome.handoff_dir, "vault/manifest.json"), "utf8"),
+  );
+  assert.equal(vault.approved_for_vault_copy, false);
+  assert.equal(vault.approval_requested, false);
+  assert.equal(vault.stripe.product_id, null);
+  const scale = JSON.parse(
+    readFileSync(join(outcome.handoff_dir, "scale/manifest.json"), "utf8"),
+  );
+  assert.equal(scale.notified_scale, false);
+  assert.equal(scale.approved, false);
+  assert.equal(scale.dry_run, true);
+  const guard = JSON.parse(
+    readFileSync(join(out, "guard/submission.json"), "utf8"),
+  );
+  assert.equal(guard.sign_off, "not-submitted");
+  assert.equal(guard.approval_requested, false);
+  assert.match(guard.note, /Guard was not called/);
+  const notice = readFileSync(join(product, "NOTICE"), "utf8");
+  const landing = readFileSync(join(product, "LANDING.md"), "utf8");
+  assert.equal(notice.includes("Bench Boards"), false);
+  assert.equal(landing.includes("Bench Boards"), false);
+  assert.match(notice, /Copyright \(c\) 2026 morluto/);
+  assert.match(landing, /Board Desk/);
+  assert.equal(landing.includes("People can open one board together."), false);
+  const accuracy = JSON.parse(readFileSync(join(out, "accuracy.json"), "utf8"));
+  assert.equal(accuracy.not_the_corpus_bench, true);
+  assert.equal(accuracy.precision, 1);
+  assert.equal(accuracy.recall, 1);
+  assert.deepEqual(accuracy.false_claims, []);
+  assert.ok(accuracy.expected_implemented_ids.includes(create.id));
+  for (const stage of outcome.stages)
+    assert.equal(stage.status, "passed", stage.id);
+  assert.equal(outcome.stopped_at, null);
+  assert.equal(outcome.approvals.launch, false);
+  assert.equal(outcome.launch_approved, false);
+  const scopeBefore = JSON.parse(
+    readFileSync(join(out, "checkpoints/scope.json"), "utf8"),
+  ).finished_at;
+  const resumed = spawnSync(
+    process.execPath,
+    [
+      cli,
+      "pipeline",
+      web,
+      "--name",
+      "Board Desk",
+      "--out",
+      out,
+      "--resume",
+      "--approve-guard",
+      "--approve-launch",
+      "--approve-blast",
+      "--approve-scale",
+      "--approve-vault",
+      "--json",
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(resumed.status, 0, resumed.stderr + resumed.stdout);
+  const approved = JSON.parse(resumed.stdout);
+  assert.equal(approved.dry_run, true);
+  assert.equal(approved.notified_blast, false);
+  assert.equal(approved.notified_scale, false);
+  assert.equal(approved.guard_sign_off, "not-submitted");
+  assert.equal(approved.approved_for_vault_copy, false);
+  assert.equal(approved.launch_approved, true);
+  assert.equal(approved.approvals.guard, true);
+  assert.equal(approved.box_copied, false);
+  const scopeAfter = JSON.parse(
+    readFileSync(join(out, "checkpoints/scope.json"), "utf8"),
+  ).finished_at;
+  assert.equal(scopeAfter, scopeBefore);
+  const guardAfter = JSON.parse(
+    readFileSync(join(out, "guard/submission.json"), "utf8"),
+  );
+  assert.equal(guardAfter.approval_requested, true);
+  assert.equal(guardAfter.sign_off, "not-submitted");
+  assert.match(guardAfter.note, /Guard was not called/);
+  const scaleAfter = JSON.parse(
+    readFileSync(join(approved.handoff_dir, "scale/manifest.json"), "utf8"),
+  );
+  assert.equal(scaleAfter.approved, true);
+  assert.equal(scaleAfter.notified_scale, false);
+  const vaultAfter = JSON.parse(
+    readFileSync(join(approved.handoff_dir, "vault/manifest.json"), "utf8"),
+  );
+  assert.equal(vaultAfter.approved_for_vault_copy, false);
+  assert.equal(vaultAfter.approval_requested, true);
+  const { listen } = await import(
+    pathToFileURL(join(product, "src/server.mjs")).href
+  );
+  const server = await listen(0);
+  try {
+    const port = server.address().port;
+    const created = await fetch(
+      `http://127.0.0.1:${port}/boards?boardName=alpha`,
+      { method: "POST" },
+    );
+    assert.equal(created.status, 201);
+    const body = await created.json();
+    assert.equal(body.boardName, "alpha");
+    const missing = await fetch(`http://127.0.0.1:${port}/boards`);
+    assert.equal(missing.status, 405);
+    assert.equal((await missing.json()).error, "method");
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+});
+
+test("pipeline resumes after a product name collision", () => {
+  const web = fileURLToPath(
+    new URL("../../experiments/ree-bench/web/", import.meta.url),
+  );
+  const out = join(home, "same-target");
+  const blocked = spawnSync(
+    process.execPath,
+    [cli, "pipeline", web, "--name", "Bench Boards", "--out", out],
+    { encoding: "utf8" },
+  );
+  assert.equal(blocked.status, 1, blocked.stderr + blocked.stdout);
+  assert.match(blocked.stderr, /pipeline stopped at rebuild/);
+  assert.match(blocked.stderr, /must differ/);
+  const scopeBefore = JSON.parse(
+    readFileSync(join(out, "checkpoints/scope.json"), "utf8"),
+  ).finished_at;
+  assert.equal(existsSync(join(out, "product/src/server.mjs")), false);
+  const resumed = spawnSync(
+    process.execPath,
+    [
+      cli,
+      "pipeline",
+      web,
+      "--name",
+      "Board Desk",
+      "--out",
+      out,
+      "--resume",
+      "--json",
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(resumed.status, 0, resumed.stderr + resumed.stdout);
+  const outcome = JSON.parse(resumed.stdout);
+  assert.equal(outcome.product_name, "Board Desk");
+  assert.equal(outcome.dry_run, true);
+  const create = outcome.verify.features.find(
+    (feature) => feature.name === "Create a board",
+  );
+  assert.equal(create.match, "pass");
+  const scopeAfter = JSON.parse(
+    readFileSync(join(out, "checkpoints/scope.json"), "utf8"),
+  ).finished_at;
+  assert.equal(scopeAfter, scopeBefore);
+  assert.equal(
+    readFileSync(join(outcome.product_dir, "README.md"), "utf8").includes(
+      "Bench Boards",
+    ),
+    false,
+  );
 });
