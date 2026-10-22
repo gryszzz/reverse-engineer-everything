@@ -28,6 +28,7 @@ export function buildMacApp({
   platform = process.platform,
   root = repositoryRoot,
   nodePath = process.execPath,
+  spawn = spawnSync,
 } = {}) {
   if (!layoutOnly && platform !== "darwin") {
     throw new Error(
@@ -66,14 +67,14 @@ export function buildMacApp({
       const source = join(macSource, name);
       if (existsSync(source)) copyFileSync(source, join(resources, name));
     }
-    if (platform === "darwin") writeNativeIcon(resources);
+    if (platform === "darwin") writeNativeIcon(resources, spawn);
 
     let window = "not-built";
     let windowReason =
       "WebKit window was not compiled. The launcher opens the studio in the default browser.";
     let architectures = [];
     if (!layoutOnly) {
-      const compiled = compileWindow(macos);
+      const compiled = compileWindow(macos, spawn);
       window = "built";
       windowReason = null;
       architectures = compiled.architectures;
@@ -106,7 +107,7 @@ export function buildMacApp({
   }
 }
 
-function writeNativeIcon(resources) {
+function writeNativeIcon(resources, spawn) {
   const png = join(resources, "AppIcon.png");
   if (!existsSync(png)) return;
   const iconset = join(resources, "AppIcon.iconset");
@@ -126,7 +127,7 @@ function writeNativeIcon(resources) {
   ];
   try {
     for (const [size, name] of names) {
-      const sized = spawnSync(
+      const sized = spawn(
         "sips",
         ["-z", String(size), String(size), png, "--out", join(iconset, name)],
         { encoding: "utf8" },
@@ -137,7 +138,7 @@ function writeNativeIcon(resources) {
         );
       }
     }
-    const made = spawnSync(
+    const made = spawn(
       "iconutil",
       ["-c", "icns", iconset, "-o", join(resources, "AppIcon.icns")],
       { encoding: "utf8" },
@@ -220,16 +221,16 @@ export function macosSwiftArgs({ sdk, arch, output, source }) {
   ];
 }
 
-function compileWindow(macos) {
-  const swiftc = resolveSwiftc();
-  const sdk = resolveMacosSdk();
+function compileWindow(macos, spawn) {
+  const swiftc = resolveSwiftc(spawn);
+  const sdk = resolveMacosSdk(spawn);
   const env = macosSwiftEnv(sdk);
   const source = join(macSource, "REEWindow.swift");
   const built = [];
   const skipped = [];
   for (const arch of ["arm64", "x86_64"]) {
     const output = join(macos, `REEWindow-${arch}`);
-    const result = spawnSync(
+    const result = spawn(
       swiftc,
       macosSwiftArgs({ sdk, arch, output, source }),
       {
@@ -254,7 +255,7 @@ function compileWindow(macos) {
     copyFileSync(built[0].output, finalPath);
     rmSync(built[0].output);
   } else {
-    const lipo = spawnSync(
+    const lipo = spawn(
       "lipo",
       ["-create", "-output", finalPath, ...built.map((item) => item.output)],
       { encoding: "utf8" },

@@ -355,11 +355,21 @@ test("a missing macOS SDK is reported instead of compiling without SDKROOT", () 
 test("a failed mac build removes the partial REE.app", () => {
   const directory = temp("partial");
   const out = join(directory, "REE.app");
-  assert.throws(() =>
-    buildMacApp({
-      out,
-      platform: "darwin",
-    }),
+  // A real darwin build succeeds on the macOS runner. Inject the tool failure
+  // so cleanup is tested on every host, including one that has swiftc.
+  assert.throws(
+    () =>
+      buildMacApp({
+        out,
+        platform: "darwin",
+        spawn: () => ({
+          status: 1,
+          stdout: "",
+          stderr: "injected tool failure",
+          error: null,
+        }),
+      }),
+    /sips could not size the REE icon|swiftc was not found/,
   );
   assert.equal(existsSync(out), false);
   const built = buildMacApp({
