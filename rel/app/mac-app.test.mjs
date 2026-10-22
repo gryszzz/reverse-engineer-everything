@@ -24,6 +24,7 @@ function runLauncher(app, env, timeout = 20000) {
   return spawnSync(join(app, "Contents", "MacOS", "REE"), [], {
     encoding: "utf8",
     timeout,
+    killSignal: "SIGKILL",
     env,
   });
 }
@@ -205,9 +206,25 @@ test("a second launch sees the running instance and does not replace it", async 
     second.stdout,
     /REE is already running: http:\/\/127\.0\.0\.1:\d+\//,
   );
-  child.kill("SIGTERM");
-  await new Promise((resolve) => child.once("exit", resolve));
+  child.kill("SIGKILL");
+  const exited = await Promise.race([
+    new Promise((resolve) => child.once("exit", () => resolve(true))),
+    new Promise((resolve) => setTimeout(() => resolve(false), 5000)),
+  ]);
+  assert.equal(exited, true);
   rmSync(directory, { recursive: true, force: true });
+});
+
+test("macOS dialogs are detached so a click cannot stall the launcher", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("./mac/ree-launcher.sh", import.meta.url)),
+    "utf8",
+  );
+  const invocations = source
+    .split("\n")
+    .filter((line) => line.includes("osascript -e"));
+  assert.ok(invocations.length >= 1);
+  for (const line of invocations) assert.match(line, /&\s*$/);
 });
 
 test("install copies the bundle and links it from the Desktop home", () => {
