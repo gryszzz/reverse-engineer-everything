@@ -74,6 +74,34 @@ async function settle(projectId) {
   throw new Error("Studio work did not finish.");
 }
 
+test("diff lab leaves behavior unknown for two owned source files", async () => {
+  const project = await api("/api/projects", {
+    method: "POST",
+    body: { name: "Diff lab", question: "What changed?", mode: "simple" },
+  });
+  const root = fileURLToPath(
+    new URL("../../experiments/ree-investigation-boundary/", import.meta.url),
+  );
+  const left = await api(`/api/projects/${project.id}/artifacts`, {
+    method: "POST",
+    body: { path: `${root}authority.c` },
+  });
+  const right = await api(`/api/projects/${project.id}/artifacts`, {
+    method: "POST",
+    body: { path: `${root}candidate.c` },
+  });
+  const diff = await api(`/api/projects/${project.id}/diff-lab`, {
+    method: "POST",
+    body: {
+      left_artifact_id: left.artifacts.at(-1).id,
+      right_artifact_id: right.artifacts.at(-1).id,
+    },
+  });
+  assert.equal(diff.behavior.status, "unknown");
+  assert.equal(diff.functions.status, "unknown");
+  assert.match(diff.text.lines.join("\n"), /floor/);
+});
+
 test("lessons stay on owned fixtures and an unknown id is 404", async () => {
   const catalog = await api("/api/lessons");
   assert.equal(catalog.lessons.length, 4);

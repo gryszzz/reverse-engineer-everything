@@ -36,6 +36,7 @@ const state = {
   lessonCatalog: null,
   lesson: null,
   lessonStep: 0,
+  diffLab: null,
 };
 
 const views = [
@@ -56,6 +57,7 @@ function visibleViews() {
     ["rebuild", "Rebuild"],
     ["findings", "Findings"],
     ["lessons", "Lessons"],
+    ["diff-lab", "Diff Lab"],
   ];
   if (mode() !== "advanced") return headline;
   return [...headline, ...views];
@@ -242,6 +244,7 @@ function panel() {
   if (state.view === "rebuild") return rebuildPanel();
   if (state.view === "findings") return findingsPanel();
   if (state.view === "lessons") return lessonsPanel();
+  if (state.view === "diff-lab") return diffLabPanel();
   if (state.view === "intake") return intakePanel();
   if (state.view === "evidence") return evidencePanel();
   if (state.view === "graph") return graphPanel();
@@ -882,6 +885,125 @@ function palette() {
       ]),
     ],
   );
+}
+
+function diffLines(prefix, items) {
+  if (!items?.length) return null;
+  return el(
+    "pre",
+    { class: "mono diff" },
+    items.map((item) => `${prefix} ${item}`).join("\n"),
+  );
+}
+
+function diffDimension(title, dimension) {
+  if (!dimension) return null;
+  if (dimension.status !== "compared")
+    return el("article", { class: "card" }, [
+      el("h3", {}, title),
+      el("p", { class: "note" }, dimension.reason || "Unknown."),
+    ]);
+  return el("article", { class: "card" }, [
+    el("h3", {}, title),
+    el("p", {}, `${dimension.shared_count} shared.`),
+    diffLines("-", dimension.only_left),
+    diffLines("+", dimension.only_right),
+    dimension.only_left.length === 0 && dimension.only_right.length === 0
+      ? el("p", { class: "note" }, "No difference in this dimension.")
+      : null,
+  ]);
+}
+
+function diffLabPanel() {
+  const artifacts = state.project?.artifacts ?? [];
+  if (!state.project || artifacts.length < 2)
+    return el("section", { class: "panel" }, [
+      el("p", { class: "eyebrow" }, "Diff Lab"),
+      el("h2", {}, "Drop two versions"),
+      el(
+        "p",
+        { class: "empty" },
+        "Add two artifacts on the front door or in Intake. Diff Lab compares their directory listings and, when both have Evidence, stored file identities and dependency edge ids. Functions, strings, and behavior stay unknown until those identities are stored.",
+      ),
+      button(
+        "Go to the front door",
+        () => {
+          state.view = "door";
+          draw();
+        },
+        { class: "primary" },
+      ),
+    ]);
+  const left = el(
+    "select",
+    { id: "diff-left" },
+    artifacts.map((artifact) =>
+      el(
+        "option",
+        { value: artifact.id },
+        artifact.intake?.label || artifact.id,
+      ),
+    ),
+  );
+  const right = el(
+    "select",
+    { id: "diff-right" },
+    artifacts.map((artifact, index) =>
+      el(
+        "option",
+        { value: artifact.id, selected: index === 1 ? "selected" : undefined },
+        artifact.intake?.label || artifact.id,
+      ),
+    ),
+  );
+  const result = state.diffLab;
+  return el("section", { class: "panel" }, [
+    el("p", { class: "eyebrow" }, "Diff Lab"),
+    el("h2", {}, "Two versions, only stored differences"),
+    el(
+      "p",
+      {},
+      "A path or edge id shown here was listed or saved. A dimension marked unknown was not stored. That is not evidence the dimension is empty.",
+    ),
+    field("Left version", left),
+    field("Right version", right),
+    button("Compare versions", () => runDiffLab(left.value, right.value), {
+      class: "primary",
+    }),
+    result
+      ? el("div", { class: "stack" }, [
+          el("p", { class: "note" }, result.note),
+          el(
+            "p",
+            {},
+            `Left Evidence ${result.left.evidence_id || "none"}. Right Evidence ${result.right.evidence_id || "none"}.`,
+          ),
+          diffDimension("Structural listing", result.structural),
+          diffDimension("Evidence file identities", result.evidence_files),
+          diffDimension("Functions", result.functions),
+          diffDimension("Dependencies", result.dependencies),
+          diffDimension("Strings", result.strings),
+          el("article", { class: "card" }, [
+            el("h3", {}, "Behavior"),
+            el("p", { class: "note" }, result.behavior.reason),
+          ]),
+          result.text?.status === "shown"
+            ? el("article", { class: "card" }, [
+                el("h3", {}, "Text"),
+                el("p", { class: "note" }, result.text.note),
+                el("pre", { class: "mono diff" }, result.text.lines.join("\n")),
+              ])
+            : el("article", { class: "card" }, [
+                el("h3", {}, "Text"),
+                el(
+                  "p",
+                  { class: "note" },
+                  result.text?.reason || "No text diff.",
+                ),
+              ]),
+        ])
+      : null,
+  ]);
 }
 
 function lessonsPanel() {
@@ -1884,6 +2006,14 @@ function draw() {
   } catch (error) {
     document.querySelector("#app").textContent = error.message;
   }
+}
+
+async function runDiffLab(leftId, rightId) {
+  state.diffLab = await api(`/api/projects/${state.project.id}/diff-lab`, {
+    method: "POST",
+    body: { left_artifact_id: leftId, right_artifact_id: rightId },
+  });
+  draw();
 }
 
 async function loadLessons() {
