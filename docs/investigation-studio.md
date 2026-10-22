@@ -14,7 +14,7 @@ node ree.mjs studio --open
 
 Or double-click `Start-REE-Studio.command`. If macOS blocks the unsigned file, run `zsh ./Start-REE-Studio.command` in Terminal. Leave the window open. Control+C stops the server.
 
-The page address is `http://127.0.0.1:<port>/`. The server refuses other hosts and other origins. Projects are stored in `~/Library/Application Support/REE/studio` unless you pass `--data DIR`. That directory must be outside the checkout. On Linux the default is `$XDG_DATA_HOME/ree/studio` or `~/.local/share/ree/studio`.
+The page address is `http://127.0.0.1:<port>/`. The server refuses other hosts and other origins. The theme script is `/theme.js` because the page content-security policy blocks inline scripts. Projects are stored in `~/Library/Application Support/REE/studio` unless you pass `--data DIR`. That directory must be outside the checkout. On Linux the default is `$XDG_DATA_HOME/ree/studio` or `~/.local/share/ree/studio`.
 
 `doctor` and the studio page do not need a build. Static analysis does.
 
@@ -37,7 +37,7 @@ The bundle is unsigned and not notarized. If macOS blocks the first open, right-
 
 ## Theater and rebuild
 
-While a JavaScript analysis runs, the studio reads `rea_progress` lines from the engine's stderr and appends them to `timeline.jsonl`. The Analyze view is that timeline: those lines, the active provider, elapsed time, and a file list that grows only when a progress line names a file. The eyebrow still says Investigation Theater. After Evidence is written, the timeline adds the Evidence id, recovered module identities, and inferred imports. Replay walks that saved file. It does not synthesize events.
+While a JavaScript analysis runs, the studio reads `rea_progress` lines from the engine's stderr and appends them to `timeline.jsonl`. The Analyze view is that timeline: those lines, the active provider, elapsed time, and a file list that grows only when a progress line names a file. The eyebrow says Live analysis. After Evidence is written, the timeline adds the Evidence id, recovered module identities, and inferred imports. Replay walks that saved file. It does not synthesize events.
 
 Evidence rebuild, under Advanced, previews a module map from those identities. The preview also reads each recovered file inside the artifact and places that text beside the stub that would be written, with a text diff where they differ. That comparison is display-only. The engine does not record a numeric match score for this route, so the verification label stays unverified. Writing requires approval and a new directory outside the checkout. The files are stubs: recovered identity, reconstructed implementation, unverified behavior. The included test checks the stubs against the map. It does not compare program behavior. Each written stub is appended to the same timeline.
 
@@ -99,7 +99,7 @@ The studio can run the existing engine commands for JavaScript and ASAR, PE reso
 
 Click **Explain this** on a finding, a theater module, or a graph node. The text is a local template. It quotes the stored label, relationship, and Evidence id, and it lists what is unknown. It does not call a model. A sentence with no Evidence id is withheld from the facts list.
 
-The first visit shows a three-step tour. `?` opens shortcuts. `1` through `4` jump to the front door, theater, rebuild, and findings when focus is not in a field. After a drop or a saved project with artifacts, **What can I do with this?** lists the ready routes and says which views restate Evidence. Simple Mode, the first ready route, research off, and authorization off are the defaults.
+The first visit shows a three-step tour. `?` opens shortcuts. `1` through `4` jump to the front door, Analyze, Findings, and Build when focus is not in a field. Lessons, Diff Lab, and Trace Lab are under Advanced. After a drop or a saved project with artifacts, **What can I do with this?** lists the ready routes and says which views restate Evidence. Simple Mode, the first ready route, research off, and authorization off are the defaults.
 
 ## Trace Lab
 

@@ -1,28 +1,39 @@
 <div align="center">
 
-<img src="docs/assets/ree-banner.svg" alt="REE banner. Graphite field, cyan and violet instrument marks, and the line Preserve the intelligence. Expand the possibilities." width="1200" />
+<img src="docs/assets/ree-banner.svg" alt="REE. Reverse Engineering Everything. Drop a file. Watch the analysis. Read the findings." width="1200" />
 
 # REE
 
-### Reverse Engineering Everything
+A local studio on the REA engine. Drop a file or paste a link, watch the analysis the engine records, then read the findings. Evidence stays on your machine.
 
-**Preserve the intelligence. Expand the possibilities.**
+## Start
 
-A local investigation studio on the REA analysis engine.
-Projects, fetches, and Evidence stay on your machine.
+Node 24.18.0 (`nvm use`).
+
+1. `npm ci`
+2. `node ree.mjs studio`
+3. Drop a file or paste a link, tick authorization, and press Analyze.
+
+The page listens on `127.0.0.1`. Nothing is uploaded.
 
 [![CI](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/ci.yml)
 [![macOS smoke](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/rel-macos-smoke.yml/badge.svg?branch=main)](https://github.com/gryszzz/reverse-engineer-everything/actions/workflows/rel-macos-smoke.yml)
-[![Landing page](https://img.shields.io/badge/site-gryszzz.github.io-5ce1ff?style=flat-square)](https://gryszzz.github.io/reverse-engineer-everything/)
-[![Platform](https://img.shields.io/badge/platform-macOS%20first%20%C2%B7%20local-5ce1ff?style=flat-square)](rel/MAC_SETUP.md)
+[![Landing page](https://img.shields.io/badge/site-gryszzz.github.io-8eb0ff?style=flat-square)](https://gryszzz.github.io/reverse-engineer-everything/)
+[![Platform](https://img.shields.io/badge/platform-macOS%20first%20%C2%B7%20local-8eb0ff?style=flat-square)](rel/MAC_SETUP.md)
 [![Node.js pinned version](https://img.shields.io/badge/Node.js-24.18.0-339933?style=flat-square&logo=nodedotjs&logoColor=white)](.nvmrc)
 [![License: MIT](https://img.shields.io/badge/license-MIT-56e0bd?style=flat-square)](LICENSE)
 
 [Landing page](https://gryszzz.github.io/reverse-engineer-everything/) · [Get started](#get-started) · [Studio](#investigation-studio) · [Formats](#format-matrix) · [Outside-in](#outside-in) · [Roadmap](#roadmap) · [Safety](#safety-and-authorization)
 
-<img src="docs/assets/studio/graph.png" alt="Architecture graph from a live studio session. The selected edge is cli.mjs imports search.mjs, state inferred, confidence high, authority static-relationship-inference. The recorded source line is import searchNotes from search.mjs." width="1200" />
+<img src="docs/assets/studio/path-door.png" alt="REE Studio front door in the dark theme. The path is Front door, Analyze, Findings, and Build. The heading is Drop a file, folder, or paste a link." width="1280" />
 
-The picture is a live studio session in this checkout on Linux, Node 24.18.0. It analyzed the owned fixture `experiments/rel-first-lab`. Evidence id `ev_45d365f3b6f0be5b8831504b9bf5f268826bf0973e47a11ad01e1bd65587d58b`: 49 nodes, 67 edges, 7 files parsed, 0 parse failures. The selected edge is an inferred static import, not a captured execution.
+<img src="docs/assets/studio/path-analyze.png" alt="Live analysis after the owned JavaScript fixture. Provider javascript-application, elapsed 2.6s, 7 of 7 files parsed, 7 modules, 40 edges, Evidence ev_45d365f3b…." width="1280" />
+
+<img src="docs/assets/studio/path-analyze.gif" alt="Replay of that saved timeline. The counters move as recorded parse events are shown. The still above is the finished timeline." width="800" />
+
+<img src="docs/assets/studio/path-findings.png" alt="Findings for the same run. Status completed, route javascript-static, Evidence ev_45d365f3b6f0be5b8831504b9bf5f268826bf0973e47a11ad01e1bd65587d58b, 49 nodes and 67 edges." width="1280" />
+
+These frames are one studio session on this Linux checkout, Node 24.18.0. The target was the owned fixture `experiments/rel-first-lab`. Analyze reports provider `javascript-application`, 7 of 7 files parsed, 7 recovered modules, 40 inferred import edges, and Evidence `ev_45d365f3b6f0be5b…`. Elapsed time on that timeline is 2.6s. Findings quote the full id `ev_45d365f3b6f0be5b8831504b9bf5f268826bf0973e47a11ad01e1bd65587d58b`: 49 nodes, 67 edges. Unknowns stay listed. The GIF replays the saved timeline. The still is the finished view. Nothing in these frames was drawn by hand.
 
 </div>
 
@@ -56,29 +67,29 @@ The studio binds to `127.0.0.1` only. It has no account and does not upload Evid
 
 ## Investigation Studio
 
-The studio is a loopback page served from this checkout. Simple Mode is Front door, Analyze, Findings, Board, Build, Lessons, Diff Lab, and Trace Lab. Analyze is the Investigation Theater timeline. Board ingests a Scout target or an outside-in spec. Build writes a clean-room scaffold and a dry-run handoff. Lessons walk owned fixtures and do not execute them. Diff Lab compares two artifacts already in the project. Trace Lab runs the owned `bridge` query only after approval and does not write into static Evidence. Advanced Mode adds Evidence rebuild and the rest of the rail. The labels on the page are the names below.
+The studio is a loopback page served from this checkout. The path is Front door, Analyze, Findings, and Build. Analyze shows recorded engine progress. Build writes a clean-room scaffold and a dry-run handoff. Board, Lessons, Diff Lab, Trace Lab, Evidence rebuild, and the other labs are under Advanced. The labels on the page are the names below.
 
-| Surface              | What it does                                                                                                                                                                                              |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Projects**         | The rail lists projects in the data directory. A drop or a link plan creates one named Investigation, with the question "What is this, in plain language?" Choosing a name resumes it.                    |
-| **Front door**       | "Drop a file, folder, or paste a link." A drop is copied and classified. A link shows a fetch plan before any request.                                                                                    |
-| **Analyze**          | The Investigation Theater. Recorded engine progress and Evidence facts while a JavaScript analysis runs, then a replay of that saved timeline. Process lines are start, the first output chunk, and exit. |
-| **Findings**         | One sentence per saved fact. Each sentence names the Evidence id and path. Unknowns stay listed.                                                                                                          |
-| **Board**            | Ingest a Scout target or an outside-in behavior spec. Scout scores stay the integers in the file. A spec is listed by coverage and has no market score.                                                   |
-| **Build**            | A new folder from a behavior spec: feature ids, declaration tests, and a dry-run handoff. Original source is not copied. Blast, Guard, and Vault are not called.                                          |
-| **Lessons**          | Four walks of owned fixtures. They do not execute those programs. `objdump` output is tool stdout. A missing tool stays unavailable.                                                                      |
-| **Diff Lab**         | Compare two artifacts already in the project. Directory listings, Evidence file identities, and edge ids. Functions, strings, and behavior stay unknown when they were not stored.                        |
-| **Trace Lab**        | After approval, runs the owned `experiments/rel-first-lab` query `bridge`. Filesystem checkpoints only. It does not write into static Evidence.                                                           |
-| **Evidence rebuild** | Advanced. A preview of recovered module identities beside reconstructed stubs, with the text difference. Writing needs approval. Behavior stays unverified.                                               |
-| **Overview**         | Artifact, run, and experiment counts, plus the latest Evidence id.                                                                                                                                        |
-| **Intake**           | Heading "Artifact intake." Classifies a drop, a path, or the owned JavaScript fixture. It does not launch the target. You pick a ready route.                                                             |
-| **Readiness**        | Heading "What this machine can actually do." Engine, studio, prerequisites, configured, and verified-on-this-host for each route.                                                                         |
-| **Evidence**         | Search of the saved application graph. A hit is a recorded relationship.                                                                                                                                  |
-| **Graph**            | Heading "Architecture graph." A window of stored edges. Positions are display-only. "Open recorded source" shows a few lines when the path stays inside a directory target.                               |
-| **Research**         | Heading "Research notebook." Local stages are off until you enable them. They restate intake, Evidence, and saved comparisons.                                                                            |
-| **Experiment**       | Heading "Experiment lab." One approved command: the owned notes search, query `bridge`.                                                                                                                   |
-| **Report**           | Markdown that restates saved records. "Save report beside the project" writes `REE_STUDIO_REPORT.md`.                                                                                                     |
-| **Summary diff**     | Not a rail item. `GET /api/projects/:id/diff` compares summary counts and application-graph edge ids of two runs. The research DIFF stage restates that comparison. It is not an REA version comparison.  |
+| Surface              | What it does                                                                                                                                                                                             |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Projects**         | The rail lists projects in the data directory. A drop or a link plan creates one named Investigation, with the question "What is this, in plain language?" Choosing a name resumes it.                   |
+| **Front door**       | "Drop a file, folder, or paste a link." A drop is copied and classified. A link shows a fetch plan before any request.                                                                                   |
+| **Analyze**          | Live analysis. Recorded engine progress and Evidence facts while a JavaScript analysis runs, then a replay of that saved timeline. Process lines are start, the first output chunk, and exit.            |
+| **Findings**         | One sentence per saved fact. Each sentence names the Evidence id and path. Unknowns stay listed.                                                                                                         |
+| **Board**            | Ingest a Scout target or an outside-in behavior spec. Scout scores stay the integers in the file. A spec is listed by coverage and has no market score.                                                  |
+| **Build**            | A new folder from a behavior spec: feature ids, declaration tests, and a dry-run handoff. Original source is not copied. Blast, Guard, and Vault are not called.                                         |
+| **Lessons**          | Four walks of owned fixtures. They do not execute those programs. `objdump` output is tool stdout. A missing tool stays unavailable.                                                                     |
+| **Diff Lab**         | Compare two artifacts already in the project. Directory listings, Evidence file identities, and edge ids. Functions, strings, and behavior stay unknown when they were not stored.                       |
+| **Trace Lab**        | After approval, runs the owned `experiments/rel-first-lab` query `bridge`. Filesystem checkpoints only. It does not write into static Evidence.                                                          |
+| **Evidence rebuild** | Advanced. A preview of recovered module identities beside reconstructed stubs, with the text difference. Writing needs approval. Behavior stays unverified.                                              |
+| **Overview**         | Artifact, run, and experiment counts, plus the latest Evidence id.                                                                                                                                       |
+| **Intake**           | Heading "Artifact intake." Classifies a drop, a path, or the owned JavaScript fixture. It does not launch the target. You pick a ready route.                                                            |
+| **Readiness**        | Heading "What this machine can actually do." Engine, studio, prerequisites, configured, and verified-on-this-host for each route.                                                                        |
+| **Evidence**         | Search of the saved application graph. A hit is a recorded relationship.                                                                                                                                 |
+| **Graph**            | Heading "Architecture graph." A window of stored edges. Positions are display-only. "Open recorded source" shows a few lines when the path stays inside a directory target.                              |
+| **Research**         | Heading "Research notebook." Local stages are off until you enable them. They restate intake, Evidence, and saved comparisons.                                                                           |
+| **Experiment**       | Heading "Experiment lab." One approved command: the owned notes search, query `bridge`.                                                                                                                  |
+| **Report**           | Markdown that restates saved records. "Save report beside the project" writes `REE_STUDIO_REPORT.md`.                                                                                                    |
+| **Summary diff**     | Not a rail item. `GET /api/projects/:id/diff` compares summary counts and application-graph edge ids of two runs. The research DIFF stage restates that comparison. It is not an REA version comparison. |
 
 ```mermaid
 flowchart LR
@@ -140,7 +151,9 @@ The picture is the top of the page on this Linux host after the session. JavaScr
 
 Search for `cli.mjs` returned 6 matching relationships and showed 6. The note on the result is `saved-static-evidence-not-runtime-proof`.
 
-The graph at the top of this page is the same Evidence, filtered to `cli.mjs` and basis inferred. The selected edge is `cli.mjs` imports `search.mjs`, state inferred, confidence high, authority `static-relationship-inference`. The recorded line is `cli.mjs:2`, `import { searchNotes } from "./search.mjs"`. The window copies stored edges. It does not invent nodes for files that were not in that window.
+<img src="docs/assets/studio/graph.png" alt="Architecture graph from a live studio session. The selected edge is cli.mjs imports search.mjs, state inferred, confidence high, authority static-relationship-inference. The recorded source line is import searchNotes from search.mjs." width="1200" />
+
+The graph is the same Evidence, filtered to `cli.mjs` and basis inferred. The selected edge is `cli.mjs` imports `search.mjs`, state inferred, confidence high, authority `static-relationship-inference`. The recorded line is `cli.mjs:2`, `import { searchNotes } from "./search.mjs"`. The window copies stored edges. It does not invent nodes for files that were not in that window. The picture is from an earlier session of this fixture: 49 nodes, 67 edges, 7 files parsed, 0 parse failures. The selected edge is an inferred static import, not a captured execution.
 
 ### Experiment lab
 
@@ -182,7 +195,7 @@ Status words mean only this:
 | EVM bytecode interface                                                                     | Implemented                                                                   | `evmole` 0.9.3 in this checkout. Selectors are inferences. The bytecode is not executed                                               | **Implemented**         |
 | objdump file headers                                                                       | Implemented                                                                   | Runs when `objdump` is on `PATH`                                                                                                      | **Implemented**         |
 | Evidence search and bounded relationship graph                                             | Implemented                                                                   | Uses saved Evidence                                                                                                                   | **Implemented**         |
-| Investigation Theater                                                                      | JavaScript analysis progress on stderr                                        | Analyze shows those `rea_progress` lines and later Evidence facts. Replay uses the saved timeline                                     | **Implemented**         |
+| Live analysis                                                                              | JavaScript analysis progress on stderr                                        | Analyze shows those `rea_progress` lines and later Evidence facts. Replay uses the saved timeline                                     | **Implemented**         |
 | Opportunity board and clean-room build                                                     | Not an engine route                                                           | Board ingests Scout JSON or an outside-in spec. Build scaffolds a new folder and a dry-run handoff. It does not copy original source  | **Implemented**         |
 | JavaScript rebuild                                                                         | Evidence graph                                                                | Advanced, labeled Evidence rebuild. Writes a reconstructed module map and stubs. Source text is not copied. Behavior stays unverified | **Implemented**         |
 | Owned native reconstruction probe                                                          | `verify-reconstruction` through the owned C harness                           | Runs only for `experiments/ree-investigation-boundary` after approval. It does not need a JavaScript run                              | **Implemented**         |
@@ -380,7 +393,7 @@ These items are planned. They are not commands, views, or routes in this checkou
 - There is no separate published REE package, updater, or notarized app.
 - Ghidra runs only as `inspect --provider ghidra` when `GHIDRA_INSTALL_DIR` is already set. IDA, Hopper, Rizin, radare2, and JEB are not launched from the studio. Firmware tools, browser debuggers, packet capture, and SQLite are not launched from the studio. `capture-process` runs only for the owned rel-first-lab trace after approval. That capture is not a sandbox, and it does not record network or IPC events.
 - WebAssembly, ELF layout, and JADX stay not-configured until the documented absolute tool path is set. The studio does not install WABT, Python, JADX, or Ghidra.
-- The Investigation Theater replays recorded engine progress and Evidence. It does not invent stages.
+- Live analysis replays recorded engine progress and Evidence. It does not invent stages.
 - A JavaScript rebuild is a module map of recovered identities plus reconstructed stubs. The side-by-side view shows the original text and the text diff. The engine does not record a numeric match score for that route, so verification stays unverified. The map test does not prove behavioral equivalence.
 - The owned native probe is the existing C fixture harness. Its claim statuses are only those `verify-reconstruction` returns. It is not a general decompiler.
 - A static graph edge is not an observed execution.
