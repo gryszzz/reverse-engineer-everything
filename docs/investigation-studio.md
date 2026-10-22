@@ -14,7 +14,7 @@ node ree.mjs studio --open
 
 Or double-click `Start-REE-Studio.command`. If macOS blocks the unsigned file, run `zsh ./Start-REE-Studio.command` in Terminal. Leave the window open. Control+C stops the server.
 
-The page address is `http://127.0.0.1:<port>/`. The server refuses other hosts and other origins. Projects are stored in `~/Library/Application Support/REE/studio` unless you pass `--data DIR`. That directory must be outside the checkout. On Linux the default is `$XDG_DATA_HOME/ree/studio` or `~/.local/share/ree/studio`.
+The page address is `http://127.0.0.1:<port>/`. The server refuses other hosts and other origins. The theme script is `/theme.js` because the page content-security policy blocks inline scripts. Projects are stored in `~/Library/Application Support/REE/studio` unless you pass `--data DIR`. That directory must be outside the checkout. On Linux the default is `$XDG_DATA_HOME/ree/studio` or `~/.local/share/ree/studio`.
 
 `doctor` and the studio page do not need a build. Static analysis does.
 
