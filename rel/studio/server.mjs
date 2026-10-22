@@ -68,6 +68,11 @@ import { factsFromEvidence } from "./diff.mjs";
 import { diffArtifactPair } from "./diff-lab.mjs";
 import { lessonCatalog, renderLesson } from "./lessons.mjs";
 import { runLocalResearch } from "./research.mjs";
+import {
+  askWithEvidence,
+  completeWithFetch,
+  publicModelSettings,
+} from "./research-model.mjs";
 import { readRecordedSource } from "./source.mjs";
 import {
   ownedTraceArgv,
@@ -215,23 +220,29 @@ function researchPath(root) {
 
 function readResearchConfig(root) {
   const path = researchPath(root);
-  if (!existsSync(path))
+  if (!existsSync(path)) {
+    const model = publicModelSettings();
     return {
       enabled: false,
-      key_configured: false,
+      key_configured: model.configured,
       remote_calls: "refused",
       remote_reason: REMOTE_REASON,
+      model,
     };
+  }
   const stat = statSync(path);
   if (!stat.isFile() || stat.size > 65536)
     throw studioError("research.json must be a file of at most 64 KiB.");
   const parsed = JSON.parse(readFileSync(path, "utf8"));
+  const model = publicModelSettings();
   return {
     enabled: parsed.enabled === true,
     key_configured:
-      typeof parsed.api_key === "string" && parsed.api_key.length > 0,
+      model.configured ||
+      (typeof parsed.api_key === "string" && parsed.api_key.length > 0),
     remote_calls: "refused",
     remote_reason: REMOTE_REASON,
+    model,
   };
 }
 
@@ -906,7 +917,7 @@ async function handleApi(context) {
     const experiment =
       [...project.experiments].reverse().find((item) => item.observation) ??
       null;
-    const result = runLocalResearch({
+    let result = runLocalResearch({
       enabled: true,
       keyConfigured: config.key_configured,
       project,
@@ -914,6 +925,44 @@ async function handleApi(context) {
       diff,
       experiment,
     });
+    if (body.model === true) {
+      const evidenceIds =
+        typeof record?.evidence_id === "string" ? [record.evidence_id] : [];
+      const passages = result.stages
+        .flatMap((item) => item.facts)
+        .filter((fact) => typeof fact === "string")
+        .join("\n");
+      const model = await askWithEvidence({
+        question: project.question || "",
+        evidenceIds,
+        passages,
+        complete: completeWithFetch,
+      });
+      const stages = [...result.stages, ...model.stages];
+      result = {
+        ...result,
+        remote_calls: model.remote_calls,
+        remote_reason: model.remote_reason,
+        cost: model.cost,
+        stages,
+        facts: stages.flatMap((item) =>
+          item.facts.map((fact) => ({ stage: item.id, fact })),
+        ),
+        hypotheses: stages.flatMap((item) =>
+          item.hypotheses.map((hypothesis) => ({
+            stage: item.id,
+            hypothesis,
+          })),
+        ),
+        unknowns: stages.flatMap((item) =>
+          item.unknowns.map((unknown) => ({ stage: item.id, unknown })),
+        ),
+        tool_calls:
+          result.tool_calls +
+          model.stages.filter((item) => item.tool_call).length,
+        tool_call_budget: 16,
+      };
+    }
     if (result.tool_calls > result.tool_call_budget)
       throw studioError("Research exceeded its tool-call budget.", 409);
     const session = {
