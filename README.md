@@ -117,9 +117,9 @@ node ree.mjs app build
 node ree.mjs app install
 ```
 
-Then open **REE** from `~/Applications` or the Desktop alias. The build records this checkout and the Node binary you used. Rebuild after either one moves.
+Then open **REE** from `~/Applications` or the Desktop link. Install asks Finder for an alias and kills that request if it has not finished in five seconds, then leaves a symlink. The build records this checkout and the Node binary you used. Rebuild after either one moves.
 
-`node ree.mjs app build` needs `swiftc` from the Xcode Command Line Tools so it can compile the WebKit window. It tries an Apple Silicon slice and an Intel slice and combines them when both compile. The bundle id is `io.github.gryszzz.ree.studio`, the display name is **REE**, and the icon is the graphite mark in `rel/app/mac/AppIcon.svg`.
+`node ree.mjs app build` compiles the WebKit window with `swiftc`. It uses `swiftc` on `PATH` when that runs, and otherwise `xcrun -f swiftc` and `xcrun --sdk macosx -f swiftc`, including `/usr/bin/xcrun` when the Command Line Tools compiler is not on `PATH`. It sets `SDKROOT` from `xcrun --sdk macosx --show-sdk-path` and passes that SDK to `swiftc`, because a compiler on `PATH` can still fail to load the standard library for `arm64-apple-macos12.0` without it. It tries an Apple Silicon slice and an Intel slice and combines them when both compile. A failed build deletes the partial `REE.app` it just created. The bundle id is `io.github.gryszzz.ree.studio`, the display name is **REE**, and the icon is the graphite mark in `rel/app/mac/AppIcon.svg`.
 
 The bundle is unsigned and not notarized. If macOS says it cannot be opened, right-click `REE.app`, choose **Open**, then **Open**. That leaves Gatekeeper on. Closing the window stops the studio. A second launch focuses the running app. If Node.js cannot be found, the app shows an alert instead of a blank window.
 
