@@ -28,6 +28,7 @@ export function buildMacApp({
   platform = process.platform,
   root = repositoryRoot,
   nodePath = process.execPath,
+  spawn = spawnSync,
 } = {}) {
   if (!layoutOnly && platform !== "darwin") {
     throw new Error(
@@ -43,60 +44,70 @@ export function buildMacApp({
       "Refusing to replace an existing REE.app. Remove it or pass a new --out path.",
     );
   }
-  const contents = join(destination, "Contents");
-  const macos = join(contents, "MacOS");
-  const resources = join(contents, "Resources");
-  mkdirSync(macos, { recursive: true });
-  mkdirSync(resources, { recursive: true });
-  copyFileSync(join(macSource, "Info.plist"), join(contents, "Info.plist"));
-  writeFileSync(join(contents, "PkgInfo"), "APPL????");
-  const launcher = join(macos, "REE");
-  copyFileSync(join(macSource, "ree-launcher.sh"), launcher);
-  chmodSync(launcher, 0o755);
-  writeFileSync(join(resources, "checkout.path"), `${root}\n`);
-  writeFileSync(join(resources, "node.path"), `${nodePath}\n`);
-  copyFileSync(join(macSource, "AppIcon.svg"), join(resources, "AppIcon.svg"));
-  for (const name of ["AppIcon.png", "AppIcon.icns"]) {
-    const source = join(macSource, name);
-    if (existsSync(source)) copyFileSync(source, join(resources, name));
-  }
-  if (platform === "darwin") writeNativeIcon(resources);
-
-  let window = "not-built";
-  let windowReason =
-    "WebKit window was not compiled. The launcher opens the studio in the default browser.";
-  let architectures = [];
-  if (!layoutOnly) {
-    const compiled = compileWindow(macos);
-    window = "built";
-    windowReason = null;
-    architectures = compiled.architectures;
-    if (compiled.skipped.length > 0) {
-      windowReason = `Compiled ${compiled.architectures.join(", ")}. Skipped ${compiled.skipped.map((item) => item.arch).join(", ")}.`;
+  let created = false;
+  try {
+    const contents = join(destination, "Contents");
+    const macos = join(contents, "MacOS");
+    const resources = join(contents, "Resources");
+    mkdirSync(macos, { recursive: true });
+    mkdirSync(resources, { recursive: true });
+    created = true;
+    copyFileSync(join(macSource, "Info.plist"), join(contents, "Info.plist"));
+    writeFileSync(join(contents, "PkgInfo"), "APPL????");
+    const launcher = join(macos, "REE");
+    copyFileSync(join(macSource, "ree-launcher.sh"), launcher);
+    chmodSync(launcher, 0o755);
+    writeFileSync(join(resources, "checkout.path"), `${root}\n`);
+    writeFileSync(join(resources, "node.path"), `${nodePath}\n`);
+    copyFileSync(
+      join(macSource, "AppIcon.svg"),
+      join(resources, "AppIcon.svg"),
+    );
+    for (const name of ["AppIcon.png", "AppIcon.icns"]) {
+      const source = join(macSource, name);
+      if (existsSync(source)) copyFileSync(source, join(resources, name));
     }
-  } else if (platform === "darwin") {
-    windowReason =
-      "layout-only: WebKit window was not compiled. Re-run without --layout-only on macOS.";
-  } else {
-    windowReason =
-      "This host is not macOS, so the WebKit window was not compiled. Build on a Mac for REEWindow.";
+    if (platform === "darwin") writeNativeIcon(resources, spawn);
+
+    let window = "not-built";
+    let windowReason =
+      "WebKit window was not compiled. The launcher opens the studio in the default browser.";
+    let architectures = [];
+    if (!layoutOnly) {
+      const compiled = compileWindow(macos, spawn);
+      window = "built";
+      windowReason = null;
+      architectures = compiled.architectures;
+      if (compiled.skipped.length > 0) {
+        windowReason = `Compiled ${compiled.architectures.join(", ")}. Skipped ${compiled.skipped.map((item) => item.arch).join(", ")}.`;
+      }
+    } else if (platform === "darwin") {
+      windowReason =
+        "layout-only: WebKit window was not compiled. Re-run without --layout-only on macOS.";
+    } else {
+      windowReason =
+        "This host is not macOS, so the WebKit window was not compiled. Build on a Mac for REEWindow.";
+    }
+    writeFileSync(
+      join(resources, "window.txt"),
+      `${window}\n${windowReason ?? architectures.join(",")}\n`,
+    );
+    return {
+      app: destination,
+      window,
+      window_reason: windowReason,
+      architectures,
+      checkout: root,
+      node: nodePath,
+      identifier: "io.github.gryszzz.ree.studio",
+    };
+  } catch (error) {
+    if (created) rmSync(destination, { recursive: true, force: true });
+    throw error;
   }
-  writeFileSync(
-    join(resources, "window.txt"),
-    `${window}\n${windowReason ?? architectures.join(",")}\n`,
-  );
-  return {
-    app: destination,
-    window,
-    window_reason: windowReason,
-    architectures,
-    checkout: root,
-    node: nodePath,
-    identifier: "io.github.gryszzz.ree.studio",
-  };
 }
 
-function writeNativeIcon(resources) {
+function writeNativeIcon(resources, spawn) {
   const png = join(resources, "AppIcon.png");
   if (!existsSync(png)) return;
   const iconset = join(resources, "AppIcon.iconset");
@@ -116,7 +127,7 @@ function writeNativeIcon(resources) {
   ];
   try {
     for (const [size, name] of names) {
-      const sized = spawnSync(
+      const sized = spawn(
         "sips",
         ["-z", String(size), String(size), png, "--out", join(iconset, name)],
         { encoding: "utf8" },
@@ -127,7 +138,7 @@ function writeNativeIcon(resources) {
         );
       }
     }
-    const made = spawnSync(
+    const made = spawn(
       "iconutil",
       ["-c", "icns", iconset, "-o", join(resources, "AppIcon.icns")],
       { encoding: "utf8" },
@@ -142,33 +153,90 @@ function writeNativeIcon(resources) {
   }
 }
 
-function compileWindow(macos) {
-  const swift = spawnSync("swiftc", ["--version"], { encoding: "utf8" });
-  if (swift.error?.code === "ENOENT" || swift.status !== 0) {
-    throw new Error(
-      "swiftc was not found. Install the Xcode Command Line Tools, then run node ree.mjs app build again.",
-    );
+/**
+ * PATH often misses the Command Line Tools compiler. `xcrun -f swiftc` and
+ * `xcrun --sdk macosx -f swiftc` are the same lookup Xcode uses.
+ * @param {typeof spawnSync} [spawn]
+ */
+export function resolveSwiftc(spawn = spawnSync) {
+  const direct = spawn("swiftc", ["--version"], { encoding: "utf8" });
+  if (!direct.error && direct.status === 0) return "swiftc";
+  const lookups = [
+    ["-f", "swiftc"],
+    ["--sdk", "macosx", "-f", "swiftc"],
+  ];
+  for (const launcher of ["xcrun", "/usr/bin/xcrun"]) {
+    for (const args of lookups) {
+      const found = spawn(launcher, args, { encoding: "utf8" });
+      if (found.error?.code === "ENOENT") break;
+      const compiler = String(found.stdout ?? "").trim();
+      if (
+        found.status !== 0 ||
+        !compiler.startsWith("/") ||
+        compiler.includes("\n")
+      )
+        continue;
+      const version = spawn(compiler, ["--version"], { encoding: "utf8" });
+      if (!version.error && version.status === 0) return compiler;
+    }
   }
+  throw new Error(
+    "swiftc was not found on PATH. xcrun -f swiftc and xcrun --sdk macosx -f swiftc also failed. Install the Xcode Command Line Tools, then run node ree.mjs app build again.",
+  );
+}
+
+/** `xcrun --sdk macosx --show-sdk-path`. swiftc on PATH still needs this SDK. */
+export function resolveMacosSdk(spawn = spawnSync) {
+  const args = ["--sdk", "macosx", "--show-sdk-path"];
+  for (const launcher of ["xcrun", "/usr/bin/xcrun"]) {
+    const found = spawn(launcher, args, { encoding: "utf8" });
+    if (found.error?.code === "ENOENT") continue;
+    const sdk = String(found.stdout ?? "").trim();
+    if (found.status === 0 && sdk.startsWith("/") && !sdk.includes("\n"))
+      return sdk;
+  }
+  throw new Error(
+    "The macOS SDK was not found. xcrun --sdk macosx --show-sdk-path failed, so REE did not run swiftc. Install the Xcode Command Line Tools, then run node ree.mjs app build again.",
+  );
+}
+
+export function macosSwiftEnv(sdk, base = process.env) {
+  return { ...base, SDKROOT: sdk };
+}
+
+export function macosSwiftArgs({ sdk, arch, output, source }) {
+  return [
+    "-sdk",
+    sdk,
+    "-O",
+    "-target",
+    `${arch}-apple-macos12.0`,
+    "-o",
+    output,
+    source,
+    "-framework",
+    "Cocoa",
+    "-framework",
+    "WebKit",
+  ];
+}
+
+function compileWindow(macos, spawn) {
+  const swiftc = resolveSwiftc(spawn);
+  const sdk = resolveMacosSdk(spawn);
+  const env = macosSwiftEnv(sdk);
   const source = join(macSource, "REEWindow.swift");
   const built = [];
   const skipped = [];
   for (const arch of ["arm64", "x86_64"]) {
     const output = join(macos, `REEWindow-${arch}`);
-    const result = spawnSync(
-      "swiftc",
-      [
-        "-O",
-        "-target",
-        `${arch}-apple-macos12.0`,
-        "-o",
-        output,
-        source,
-        "-framework",
-        "Cocoa",
-        "-framework",
-        "WebKit",
-      ],
-      { encoding: "utf8" },
+    const result = spawn(
+      swiftc,
+      macosSwiftArgs({ sdk, arch, output, source }),
+      {
+        encoding: "utf8",
+        env,
+      },
     );
     if (result.status === 0) built.push({ arch, output });
     else skipped.push({ arch, detail: commandText(result) });
@@ -187,7 +255,7 @@ function compileWindow(macos) {
     copyFileSync(built[0].output, finalPath);
     rmSync(built[0].output);
   } else {
-    const lipo = spawnSync(
+    const lipo = spawn(
       "lipo",
       ["-create", "-output", finalPath, ...built.map((item) => item.output)],
       { encoding: "utf8" },

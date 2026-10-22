@@ -10,12 +10,20 @@ bundle_root="$(cd "$(dirname "$0")/.." && pwd)"
 resources="$bundle_root/Resources"
 window_bin="$bundle_root/MacOS/REEWindow"
 
+# Modal AppleScript waits for a click and ignores SIGTERM. Bash will not run
+# a trap until that child returns, so a foreground osascript stalls CI until
+# the job is killed. Detach the dialog and keep going.
+show_osascript() {
+  if [ "$(uname -s)" != "Darwin" ] || ! command -v osascript >/dev/null 2>&1; then
+    return 0
+  fi
+  nohup osascript -e "$1" >/dev/null 2>&1 &
+}
+
 alert() {
   printf '%s\n' "$1" >&2
-  if [ "$(uname -s)" = "Darwin" ] && command -v osascript >/dev/null 2>&1; then
-    message=$(printf '%s' "$1" | tr '\n' ' ')
-    osascript -e "display alert \"REE\" message \"$message\" as critical" >/dev/null 2>&1 || true
-  fi
+  message=$(printf '%s' "$1" | tr '\n' ' ')
+  show_osascript "display alert \"REE\" message \"$message\" as critical"
 }
 
 fail() {
@@ -104,10 +112,10 @@ stop_pid() {
 }
 
 focus_pid() {
-  if [ "$(uname -s)" != "Darwin" ] || ! command -v osascript >/dev/null 2>&1; then
-    return 0
-  fi
-  osascript -e "tell application \"System Events\" to set frontmost of the first process whose unix id is $1 to true" >/dev/null 2>&1 || true
+  case "$1" in
+    "" | *[!0-9]*) return 0 ;;
+  esac
+  show_osascript "tell application \"System Events\" to set frontmost of the first process whose unix id is $1 to true"
 }
 
 read_instance
