@@ -1,0 +1,419 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gryszzz/reverse-engineer-everything/rel/outside-in/behavior-spec.schema.json",
+  "title": "REE outside-in behavior spec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "clean_room",
+    "clean_room_statement",
+    "mode",
+    "status",
+    "generated_at",
+    "target",
+    "collector",
+    "llm",
+    "sources",
+    "refusals",
+    "features",
+    "workflows",
+    "api",
+    "pricing",
+    "integrations",
+    "limitations",
+    "changes",
+    "omitted",
+    "similarity",
+    "coverage"
+  ],
+  "properties": {
+    "schema_version": { "const": "ree.outside-in.behavior-spec.v1" },
+    "clean_room": { "const": true },
+    "clean_room_statement": { "type": "string", "minLength": 20 },
+    "mode": { "const": "outside-in" },
+    "status": { "enum": ["completed", "partial", "refused"] },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "target": { "$ref": "#/$defs/target" },
+    "collector": { "$ref": "#/$defs/collector" },
+    "llm": { "$ref": "#/$defs/llm" },
+    "sources": { "type": "array", "items": { "$ref": "#/$defs/source" } },
+    "refusals": { "type": "array", "items": { "$ref": "#/$defs/refusal" } },
+    "features": { "type": "array", "items": { "$ref": "#/$defs/feature" } },
+    "workflows": { "type": "array", "items": { "$ref": "#/$defs/workflow" } },
+    "api": { "$ref": "#/$defs/api" },
+    "pricing": { "$ref": "#/$defs/pricing" },
+    "integrations": { "type": "array", "items": { "$ref": "#/$defs/integration" } },
+    "limitations": { "type": "array", "items": { "$ref": "#/$defs/limitation" } },
+    "changes": { "type": "array", "items": { "$ref": "#/$defs/change" } },
+    "omitted": { "type": "array", "items": { "$ref": "#/$defs/omitted" } },
+    "similarity": { "$ref": "#/$defs/similarity" },
+    "coverage": { "$ref": "#/$defs/coverage" }
+  },
+  "$defs": {
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "fetched_at", "role"],
+      "properties": {
+        "url": { "type": "string", "minLength": 1 },
+        "fetched_at": { "type": "string", "format": "date-time" },
+        "role": { "type": "string", "minLength": 1 }
+      }
+    },
+    "quote": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "attributed_quote"],
+      "properties": {
+        "text": { "type": "string", "maxLength": 160 },
+        "attributed_quote": { "const": true }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "urls"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "urls": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+      }
+    },
+    "collector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "user_agent",
+        "platform",
+        "headless_browser",
+        "authentication",
+        "source_acquisition"
+      ],
+      "properties": {
+        "name": { "const": "ree-outside-in" },
+        "version": { "const": "1" },
+        "user_agent": { "type": "string", "minLength": 1 },
+        "platform": { "type": "string" },
+        "headless_browser": { "const": false },
+        "authentication": { "const": "none" },
+        "source_acquisition": { "const": "public-http-get" }
+      }
+    },
+    "llm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["used", "provider", "ree_remote_calls", "transport", "summary", "error"],
+      "properties": {
+        "used": { "type": "boolean" },
+        "provider": { "type": ["string", "null"] },
+        "ree_remote_calls": { "const": "not-performed" },
+        "transport": { "enum": ["none", "caller-supplied"] },
+        "summary": { "type": ["string", "null"], "maxLength": 4000 },
+        "error": { "type": ["string", "null"], "maxLength": 80 }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "role",
+        "status",
+        "content_type",
+        "fetched_at",
+        "sha256",
+        "bytes",
+        "robots",
+        "cache"
+      ],
+      "properties": {
+        "url": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "integer" },
+        "content_type": { "type": "string" },
+        "fetched_at": { "type": "string", "format": "date-time" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "robots": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["allowed", "rule"],
+          "properties": {
+            "allowed": { "const": true },
+            "rule": { "type": ["string", "null"] }
+          }
+        },
+        "cache": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hit"],
+          "properties": { "hit": { "type": "boolean" } }
+        }
+      }
+    },
+    "refusal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "role", "reason", "detail", "fetched_at"],
+      "properties": {
+        "url": { "type": "string" },
+        "role": { "type": "string" },
+        "reason": { "type": "string" },
+        "detail": { "type": "string", "maxLength": 300 },
+        "fetched_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "feature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "detail", "origin", "citations"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 160 },
+        "detail": { "type": "string", "maxLength": 240 },
+        "origin": { "type": "string" },
+        "quote": { "$ref": "#/$defs/quote" },
+        "citations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/citation" }
+        }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "steps", "citations"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 160 },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/quote" }
+        },
+        "citations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/citation" }
+        }
+      }
+    },
+    "api": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["style", "servers", "auth", "rate_limits", "endpoints", "unknowns"],
+      "properties": {
+        "style": { "enum": ["openapi", "graphql", "mixed", "unknown"] },
+        "servers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["url", "citations"],
+            "properties": {
+              "url": { "type": "string" },
+              "citations": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "$ref": "#/$defs/citation" }
+              }
+            }
+          }
+        },
+        "auth": { "type": "array", "items": { "$ref": "#/$defs/auth" } },
+        "rate_limits": { "type": "array", "items": { "$ref": "#/$defs/rateLimit" } },
+        "endpoints": { "type": "array", "items": { "$ref": "#/$defs/endpoint" } },
+        "unknowns": { "type": "array", "items": { "type": "string", "maxLength": 300 } }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "style", "placement", "citations"],
+      "properties": {
+        "name": { "type": "string" },
+        "style": { "type": "string" },
+        "placement": { "type": ["string", "null"] },
+        "citations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/citation" }
+        }
+      }
+    },
+    "rateLimit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["limit", "window", "scope", "citations"],
+      "properties": {
+        "limit": { "type": "string", "maxLength": 40 },
+        "window": { "type": ["string", "null"], "maxLength": 40 },
+        "scope": { "type": "string" },
+        "citations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/citation" }
+        }
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "path", "operation_id", "parameters", "response_codes", "citations"],
+      "properties": {
+        "method": { "type": "string" },
+        "path": { "type": "string" },
+        "operation_id": { "type": ["string", "null"] },
+        "summary": { "$ref": "#/$defs/quote" },
+        "parameters": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 80 }
+        },
+        "response_codes": { "type": "array", "items": { "type": "string" } },
+        "citations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/citation" }
+        }
+      }
+    },
+    "pricing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plans", "unknowns"],
+      "properties": {
+        "plans": { "type": "array", "items": { "$ref": "#/$defs/plan" } },
+        "unknowns": { "type": "array", "items": { "type": "string", "maxLength": 300 } }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "price", "limits", "includes", "citations"],
+      "properties": {
+        "name": { "type": "string", "maxLength": 160 },
+        "price": {
+          "anyOf": [{ "$ref": "#/$defs/price" }, { "type": "null" }]
+        },
+        "limits": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 160 }
+        },
+        "includes": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 160 }
+        },
+        "citations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/citation" }
+        }
+      }
+    },
+    "price": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["amount", "currency", "interval", "display"],
+      "properties": {
+        "amount": { "type": "string" },
+        "currency": { "type": "string" },
+        "interval": { "type": ["string", "null"] },
+        "display": { "type": "string", "maxLength": 40 }
+      }
+    },
+    "integration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "citations"],
+      "properties": {
+        "name": { "type": "string", "maxLength": 80 },
+        "citations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/citation" }
+        }
+      }
+    },
+    "limitation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statement", "origin", "citations"],
+      "properties": {
+        "statement": { "$ref": "#/$defs/quote" },
+        "origin": { "type": "string" },
+        "citations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/citation" }
+        }
+      }
+    },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "published_at", "citations"],
+      "properties": {
+        "title": { "$ref": "#/$defs/quote" },
+        "published_at": { "type": ["string", "null"] },
+        "citations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/citation" }
+        }
+      }
+    },
+    "omitted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "count", "citations"],
+      "properties": {
+        "kind": { "type": "string" },
+        "count": { "type": "integer", "minimum": 1 },
+        "citations": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/citation" }
+        }
+      }
+    },
+    "similarity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threshold", "quote_max", "flagged", "findings"],
+      "properties": {
+        "threshold": { "type": "integer", "minimum": 1 },
+        "quote_max": { "type": "integer", "minimum": 1 },
+        "flagged": { "type": "boolean" },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "run_length", "source_url", "action"],
+            "properties": {
+              "path": { "type": "string" },
+              "run_length": { "type": "integer", "minimum": 0 },
+              "source_url": { "type": "string" },
+              "action": { "const": "redacted" }
+            }
+          }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["examined_urls", "unknowns"],
+      "properties": {
+        "examined_urls": { "type": "array", "items": { "type": "string" } },
+        "unknowns": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 300 }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "target": { "name": "Limited", "urls": ["https://limited.test/"] },
+  "docs": [{ "url": "https://limited.test/docs", "kind": "sdk-readme" }]
+}

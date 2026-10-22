@@ -1,0 +1,14 @@
+{
+  "target": {
+    "name": "Widget Cloud",
+    "urls": ["https://widgets.test/"]
+  },
+  "docs": [
+    { "url": "https://widgets.test/openapi.yaml", "kind": "openapi" },
+    { "url": "https://widgets.test/schema.graphql", "kind": "graphql" },
+    { "url": "https://widgets.test/sdk/README.md", "kind": "sdk-readme" }
+  ],
+  "pricing_url": "https://widgets.test/pricing",
+  "changelog_url": "https://widgets.test/changelog.xml",
+  "review_urls": ["https://widgets.test/reviews"]
+}

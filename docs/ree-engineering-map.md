@@ -7,11 +7,12 @@ inherited REA engine and calls out the areas this pass did not verify.
 ## System in one view
 
 REE is the product and onboarding layer. The executable `ree.mjs` offers a
-Mac-first readiness check, a preview-only intake, a local teaching lab, and a
-guarded static JavaScript/Electron analysis path. The analysis engine is REA:
-the TypeScript package behind the `rea` CLI and the `rea` MCP server. REE's
-authorized analysis command delegates to that local engine and presents its
-Evidence; it does not implement a second analyzer.
+Mac-first readiness check, a preview-only intake, a local teaching lab, a
+guarded static JavaScript/Electron analysis path, and an opt-in public-document
+collector (`outside-in`). The analysis engine is REA: the TypeScript package
+behind the `rea` CLI and the `rea` MCP server. REE's authorized static analysis
+command delegates to that local engine and presents its Evidence. `outside-in`
+does not call the engine and does not analyze target source.
 
 The broad design is ports and adapters around an Evidence-centered domain:
 
@@ -38,22 +39,24 @@ paths, fork state and limits needed to read that diagram accurately.
 
 The public beginner commands are implemented in [`ree.mjs`](../ree.mjs):
 
-| Command                               | Source path                                       | Verified behavior                                                          |
-| ------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------- |
-| `doctor [--json]`                     | `rel/mac-doctor.mjs`                              | Reads host/toolchain state; does not run REA or install software.          |
-| `types`                               | `rel/intake.mjs`                                  | Lists target families and their declared prerequisites.                    |
-| `inspect PATH`                        | `rel/intake.mjs`                                  | Classifies a supplied path and prints a plan; it does not analyze it.      |
-| `lab [--open]`                        | `rel/lab-server.mjs`                              | Serves a source-owned visual lesson on loopback.                           |
-| `demo`                                | `rel/intake.mjs`                                  | Previews the source-owned fixture.                                         |
-| `demo --run --out DIR`                | `experiments/rel-first-lab/run-real-analysis.mjs` | Runs static analysis on the repository's own lesson fixture.               |
-| `analyze PATH --authorized --out DIR` | `rel/analyze-static.mjs`                          | Runs static JavaScript/Electron analysis on an admitted directory or ASAR. |
+| Command                               | Source path                                       | Verified behavior                                                             |
+| ------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `doctor [--json]`                     | `rel/mac-doctor.mjs`                              | Reads host/toolchain state; does not run REA or install software.             |
+| `types`                               | `rel/intake.mjs`                                  | Lists target families and their declared prerequisites.                       |
+| `inspect PATH`                        | `rel/intake.mjs`                                  | Classifies a supplied path and prints a plan; it does not analyze it.         |
+| `lab [--open]`                        | `rel/lab-server.mjs`                              | Serves a source-owned visual lesson on loopback.                              |
+| `demo`                                | `rel/intake.mjs`                                  | Previews the source-owned fixture.                                            |
+| `demo --run --out DIR`                | `experiments/rel-first-lab/run-real-analysis.mjs` | Runs static analysis on the repository's own lesson fixture.                  |
+| `analyze PATH --authorized --out DIR` | `rel/analyze-static.mjs`                          | Runs static JavaScript/Electron analysis on an admitted directory or ASAR.    |
+| `outside-in`                          | `rel/outside-in/`                                 | Opt-in public-document behavior spec. No target source, login, or model call. |
 
 `inspect` is an intake heuristic: for directories it looks only at directly
 visible entries such as `package.json` or source files; it does not recursively
 identify a complete project or prove the format. `types` is a catalog, not a
 claim that every listed provider is installed. The `--authorized` flag is
 specific to this constrained REE static path. It does not authorize running a
-target or grant a direct REA CLI/MCP tool new authority.
+target or grant a direct REA CLI/MCP tool new authority. `outside-in` does not
+use that flag. It fetches only caller-named public documents.
 
 The static analysis admission path in `rel/analyze-static.mjs` checks the
 explicit authorization, supported input type, resolved target path, a fresh

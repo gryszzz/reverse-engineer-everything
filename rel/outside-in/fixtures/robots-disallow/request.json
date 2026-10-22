@@ -1,0 +1,6 @@
+{
+  "target": {
+    "name": "Blocked",
+    "urls": ["https://blocked.test/"]
+  }
+}

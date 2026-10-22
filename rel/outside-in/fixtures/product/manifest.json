@@ -1,0 +1,49 @@
+{
+  "responses": {
+    "https://widgets.test/robots.txt": {
+      "status": 200,
+      "headers": { "content-type": "text/plain; charset=utf-8" },
+      "file": "robots.txt"
+    },
+    "https://widgets.test/": {
+      "status": 200,
+      "headers": { "content-type": "text/html; charset=utf-8" },
+      "file": "home.html"
+    },
+    "https://widgets.test/openapi.yaml": {
+      "status": 200,
+      "headers": { "content-type": "application/yaml; charset=utf-8" },
+      "file": "openapi.yaml"
+    },
+    "https://widgets.test/schema.graphql": {
+      "status": 200,
+      "headers": { "content-type": "text/plain; charset=utf-8" },
+      "file": "schema.graphql"
+    },
+    "https://widgets.test/sdk/README.md": {
+      "status": 200,
+      "headers": { "content-type": "text/markdown; charset=utf-8" },
+      "file": "sdk-readme.md"
+    },
+    "https://widgets.test/pricing": {
+      "status": 200,
+      "headers": { "content-type": "text/html; charset=utf-8" },
+      "file": "pricing.html"
+    },
+    "https://widgets.test/changelog.xml": {
+      "status": 200,
+      "headers": { "content-type": "application/rss+xml; charset=utf-8" },
+      "file": "changelog.xml"
+    },
+    "https://widgets.test/reviews": {
+      "status": 200,
+      "headers": { "content-type": "text/html; charset=utf-8" },
+      "file": "reviews.html"
+    },
+    "https://widgets.test/secret": {
+      "status": 200,
+      "headers": { "content-type": "text/html; charset=utf-8" },
+      "file": "secret.html"
+    }
+  }
+}

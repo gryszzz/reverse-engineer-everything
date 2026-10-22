@@ -27,6 +27,8 @@ That command delegates to our already verified [Phase 2 REA runner](../experimen
 
 For an authorized extracted JavaScript application, use `node ree.mjs analyze /absolute/app/path --authorized --out /tmp/rel-investigation-001`. Other `inspect` targets—including website URLs—are **preview only**. `--run` intentionally rejects them rather than opening programs, running unknown code, contacting websites or making unsupported analysis claims. The type classifier reads directory names or the first 32 bytes of a local regular file only; filenames are clues, not verified program behavior.
 
+Public documentation collection is a separate opt-in command, `node ree.mjs outside-in`. It does not run the target, fetch its source, or change `inspect`. See [outside-in](outside-in/README.md).
+
 ## Retained Evidence and selected views
 
 Both `demo --run` and `analyze` require a new output directory with an existing
@@ -69,6 +71,7 @@ for the existing engine connections, measured refinements and unresolved limits.
 | HAR / PCAP files                   | Analyze _recorded_ requests and packets | Capture-format tooling and permission                  |
 | Firmware or raw binary             | Identify actual format before analysis  | Often additional Linux tools                           |
 | Website                            | Plan bounded browser observation        | Explicit authorization and browser                     |
+| Named public docs URLs             | Outside-in behavior spec                | Explicit URL list; robots.txt and rate limits          |
 | Unknown format                     | Ask for a format or sample              | No fabricated diagnosis                                |
 
 ## Our intended workflow
