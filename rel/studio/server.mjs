@@ -29,11 +29,6 @@ import {
 } from "../evidence-explorer.mjs";
 import { cancelStaticAnalysis, startStaticAnalysis } from "./analysis.mjs";
 import {
-  createBuild,
-  ingestOpportunity,
-  readOpportunityBoard,
-} from "./product-flow.mjs";
-import {
   claimRows,
   claimTimeline,
   moduleComparisons,
@@ -415,10 +410,13 @@ async function handleApi(context) {
     );
     return { seen: true };
   }
-  if (method === "GET" && pathname === "/api/board")
+  if (method === "GET" && pathname === "/api/board") {
+    const { readOpportunityBoard } = await import("./product-flow.mjs");
     return readOpportunityBoard(store.root);
+  }
   if (method === "POST" && pathname === "/api/board") {
     try {
+      const { ingestOpportunity } = await import("./product-flow.mjs");
       return ingestOpportunity(store.root, body);
     } catch (error) {
       if (error?.status) throw error;
@@ -428,8 +426,10 @@ async function handleApi(context) {
       );
     }
   }
-  if (method === "POST" && pathname === "/api/builds")
+  if (method === "POST" && pathname === "/api/builds") {
+    const { createBuild } = await import("./product-flow.mjs");
     return createBuild(store.root, body);
+  }
   if (method === "GET" && pathname === "/api/readiness")
     return assessStudioReadiness({
       verifiedCounts: countStudioVerifications(store),
