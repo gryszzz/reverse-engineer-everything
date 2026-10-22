@@ -49,6 +49,7 @@ This checkout is MIT, copyright (c) 2026 morluto. The license allows selling cop
 | Preview and approve one probe of `experiments/rel-first-lab`              | Studio experiment lab                                             |
 | Restate saved records as Markdown                                         | Studio report                                                     |
 | Write a behavior spec from public documents you name                      | `node ree.mjs outside-in`                                         |
+| Print the MIT sale terms and the draft edition split                      | `node ree.mjs edition`                                            |
 | Use the full engine, including providers the studio does not launch       | `node scripts/rea.mjs` and the project MCP server                 |
 
 The studio binds to `127.0.0.1` only. It has no account and does not upload Evidence. A link is fetched only after you approve the URLs, the size limit, and the destination. Research stages, when you turn them on, restate retained tool results. A model runs only when local research is on, `REE_MODEL_API_KEY` is set, and the research box is checked.
