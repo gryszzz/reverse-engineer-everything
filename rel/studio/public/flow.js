@@ -6,6 +6,7 @@ export const primaryFlow = [
   ["build", "Build"],
   ["lessons", "Lessons"],
   ["diff-lab", "Diff Lab"],
+  ["trace-lab", "Trace Lab"],
 ];
 
 export const advancedLabs = [

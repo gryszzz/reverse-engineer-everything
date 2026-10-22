@@ -74,6 +74,23 @@ async function settle(projectId) {
   throw new Error("Studio work did not finish.");
 }
 
+test("an unapproved trace does not start capture-process", async () => {
+  const project = await api("/api/projects", {
+    method: "POST",
+    body: { name: "Trace", question: "What ran?", mode: "simple" },
+  });
+  await assert.rejects(
+    () =>
+      api(`/api/projects/${project.id}/trace`, {
+        method: "POST",
+        body: { approved: false },
+      }),
+    (error) => error.status === 403,
+  );
+  const after = await api(`/api/projects/${project.id}`);
+  assert.equal(after.trace, undefined);
+});
+
 test("diff lab leaves behavior unknown for two owned source files", async () => {
   const project = await api("/api/projects", {
     method: "POST",

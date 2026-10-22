@@ -133,6 +133,7 @@ test("simple navigation keeps labs behind advanced", () => {
       "Build",
       "Lessons",
       "Diff Lab",
+      "Trace Lab",
     ],
   );
   assert.equal(

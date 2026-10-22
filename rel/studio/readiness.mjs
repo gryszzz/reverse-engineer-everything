@@ -153,7 +153,7 @@ export function assessStudioReadiness({
       configured: "not-applicable",
       verified_on_host: "not-recorded",
       notes:
-        "The engine can capture an explicitly scoped process. The studio experiment is a separate owned-fixture probe and does not call capture-process.",
+        "The engine can capture an explicitly scoped process. Trace Lab calls capture-process only for experiments/rel-first-lab/cli.mjs query bridge, after approval. That capture is not written into static Evidence. Network and IPC events are not part of the capture contract.",
     },
     {
       id: "finite-hypotheses",

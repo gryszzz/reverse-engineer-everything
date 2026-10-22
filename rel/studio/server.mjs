@@ -64,10 +64,18 @@ import {
   countStudioVerifications,
 } from "./readiness.mjs";
 import { renderStudioReport } from "./report.mjs";
+import { factsFromEvidence } from "./diff.mjs";
 import { diffArtifactPair } from "./diff-lab.mjs";
 import { lessonCatalog, renderLesson } from "./lessons.mjs";
 import { runLocalResearch } from "./research.mjs";
 import { readRecordedSource } from "./source.mjs";
+import {
+  ownedTraceArgv,
+  ownedTraceScenario,
+  projectProcessCapture,
+  spawnOwnedTrace,
+  traceRuntimeReady,
+} from "./trace.mjs";
 
 const PUBLIC = fileURLToPath(new URL("./public/", import.meta.url));
 const FILES = new Map([
@@ -646,6 +654,77 @@ async function handleApi(context) {
     for (const event of rebuildTimeline(written))
       appendTimeline(run.output_dir, event);
     return written;
+  }
+  if (method === "POST" && rest === "/trace") {
+    if (body.approved !== true)
+      throw studioError("Check the box to run the owned process capture.", 403);
+    if (!traceRuntimeReady())
+      throw studioError(
+        "The built runtime is absent, so capture-process was not started.",
+        409,
+      );
+    const project = store.read(projectId);
+    if (project.trace?.status === "running")
+      throw studioError("A trace is already running.", 409);
+    const scenarioPath = join(store.root, "trace-scenario.json");
+    const scenario = ownedTraceScenario();
+    writeFileSync(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`);
+    const labels = [];
+    for (const run of project.runs) {
+      if (run.status !== "completed") continue;
+      const facts = factsFromEvidence(evidenceFor(run));
+      for (const file of facts.evidence_files ?? []) labels.push(file);
+    }
+    const startedAt = new Date().toISOString();
+    store.update(projectId, (current) => {
+      current.trace = {
+        status: "running",
+        separate_from_static_evidence: true,
+        started_at: startedAt,
+        finished_at: null,
+        argv: ownedTraceArgv(scenarioPath),
+        projection: null,
+        error: null,
+      };
+      return current;
+    });
+    const child = spawnOwnedTrace(scenarioPath, engineChildEnv());
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk) => {
+      if (stdout.length < 8_000_000) stdout += chunk;
+    });
+    child.stderr?.on("data", (chunk) => {
+      if (stderr.length < 8_000) stderr += chunk;
+    });
+    const timer = setTimeout(() => child.kill("SIGTERM"), 20_000);
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      let projection = null;
+      let error = null;
+      try {
+        const parsed = JSON.parse(stdout);
+        if (parsed?.error)
+          error =
+            typeof parsed.message === "string" ? parsed.message : parsed.error;
+        else projection = projectProcessCapture(parsed, labels);
+      } catch {
+        error = `Capture exited ${code} signal ${signal}. ${stderr.slice(0, 400)}`;
+      }
+      if (!projection && !error)
+        error = `Capture exited ${code} signal ${signal}.`;
+      store.update(projectId, (current) => {
+        current.trace = {
+          ...current.trace,
+          status: projection ? "completed" : "failed",
+          finished_at: new Date().toISOString(),
+          projection,
+          error,
+        };
+        return current;
+      });
+    });
+    return store.read(projectId);
   }
   if (method === "POST" && rest === "/native-probe") {
     if (body.approved !== true)
