@@ -1,0 +1,24 @@
+{
+  "responses": {
+    "https://bench.test/robots.txt": {
+      "status": 200,
+      "headers": { "content-type": "text/plain; charset=utf-8" },
+      "file": "robots.txt"
+    },
+    "https://bench.test/": {
+      "status": 200,
+      "headers": { "content-type": "text/html; charset=utf-8" },
+      "file": "home.html"
+    },
+    "https://bench.test/openapi.yaml": {
+      "status": 200,
+      "headers": { "content-type": "application/yaml; charset=utf-8" },
+      "file": "openapi.yaml"
+    },
+    "https://bench.test/sdk/README.md": {
+      "status": 200,
+      "headers": { "content-type": "text/markdown; charset=utf-8" },
+      "file": "sdk-readme.md"
+    }
+  }
+}

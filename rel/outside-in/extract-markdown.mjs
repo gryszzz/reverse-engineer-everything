@@ -12,11 +12,19 @@ export function extractMarkdown(text, quoteMax) {
   for (const heading of headings) {
     const name = heading[2].trim();
     if (!shortQuote(name, quoteMax)) continue;
+    const after = stripped.slice(heading.index + heading[0].length);
+    const nextHeading = after.search(/\n#{1,6}\s/u);
+    const block = (
+      nextHeading === -1 ? after : after.slice(0, nextHeading)
+    ).trim();
+    const paragraph = (block.split(/\n\s*\n/u)[0] ?? "").replace(/\n/g, " ");
     features.push({
       name,
-      quote: null,
+      quote: shortQuote(paragraph, quoteMax),
       detail:
-        "SDK README heading. Fenced code samples on this page were omitted.",
+        codeBlockCount > 0
+          ? "SDK README heading. Fenced code samples on this page were omitted."
+          : "SDK README heading.",
       origin: "sdk-readme",
     });
   }

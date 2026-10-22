@@ -45,6 +45,7 @@ const help = [
   "node ree.mjs edition [--json]                   License and edition boundary",
   "node ree.mjs codex                              Check Codex project setup",
   "node ree.mjs doctor [--json]                    Read-only Mac readiness check",
+  "node ree.mjs bench [--json] [--case ID]         Score owned fixtures against ground truth",
   "",
   "All output goes outside the REE repository. Other target families use REA's",
   "documented providers/MCP tools, not a fabricated universal analyzer.",
@@ -158,7 +159,10 @@ async function runAppCommand(settings) {
 
 try {
   const args = process.argv.slice(2);
-  if (args[0] === "outside-in") {
+  if (args[0] === "bench") {
+    const { runBenchCommand } = await import("./rel/bench/cli.mjs");
+    process.exitCode = await runBenchCommand(args.slice(1));
+  } else if (args[0] === "outside-in") {
     const { runOutsideInCommand } = await import("./rel/outside-in/cli.mjs");
     process.exitCode = await runOutsideInCommand(args.slice(1));
   } else if (args[0] === "edition") {

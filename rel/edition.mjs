@@ -19,6 +19,7 @@ export const EDITION = {
         "doctor",
         "app",
         "outside-in",
+        "bench",
       ],
     },
     {

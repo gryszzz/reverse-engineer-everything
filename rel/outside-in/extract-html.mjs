@@ -35,7 +35,7 @@ export function extractHtml(html, quoteMax) {
   const descriptionQuote = shortQuote(description, quoteMax);
   if (descriptionQuote) {
     features.push({
-      name: "Site description",
+      name: descriptionQuote.text,
       quote: descriptionQuote,
       detail: "Taken from the meta description as a short attributed quote.",
       origin: "meta-description",
