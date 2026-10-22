@@ -35,6 +35,14 @@ The bundle is unsigned and not notarized. If macOS blocks the first open, right-
 
 `node ree.mjs app build --layout-only` assembles the bundle without the WebKit window. Tests and non-mac hosts use that form. It is not the install path on a Mac.
 
+## Theater and rebuild
+
+While a JavaScript analysis runs, the studio reads `rea_progress` lines from the engine's stderr and appends them to `timeline.jsonl`. The Analyze view is that timeline: those lines, the active provider, elapsed time, and a file list that grows only when a progress line names a file. The eyebrow still says Investigation Theater. After Evidence is written, the timeline adds the Evidence id, recovered module identities, and inferred imports. Replay walks that saved file. It does not synthesize events.
+
+Evidence rebuild, under Advanced, previews a module map from those identities. The preview also reads each recovered file inside the artifact and places that text beside the stub that would be written, with a text diff where they differ. That comparison is display-only. The engine does not record a numeric match score for this route, so the verification label stays unverified. Writing requires approval and a new directory outside the checkout. The files are stubs: recovered identity, reconstructed implementation, unverified behavior. The included test checks the stubs against the map. It does not compare program behavior. Each written stub is appended to the same timeline.
+
+The native action runs `scripts/verify/reconstruction/c-process-probe.mjs` only when an added artifact is `experiments/ree-investigation-boundary`. It does not need a JavaScript Evidence run. That harness compiles and captures the owned fixture, then records `verify-reconstruction` claim statuses. Another path is refused. The expected statuses are `control.terminal: pass` and `counterexample.terminal: fail`. The overall failure is the expected result because the candidate is deliberately wrong.
+
 ## Build, then analyze the owned fixture
 
 ```sh
@@ -49,8 +57,10 @@ In the studio, Simple Mode opens on one front door: **Drop a file, folder, or pa
 2. Or paste a link and choose **Show what will be fetched**. That lists the URL, byte limit, time limit, and destination. It does not use the network. **Fetch and analyze** runs only after you tick authorization and the digest still matches. The saved bytes are not executed.
 3. Tick the authorization box. The studio picks a ready route. If none is ready, it says so and does not invent a run.
 4. When the run finishes, Findings shows one plain-English sentence per saved fact. Each sentence names the Evidence id and path. Unknowns stay listed. The map shows stored relationships only.
+5. Board accepts a Scout target or an outside-in spec. It does not invent scores.
+6. Build asks for a new product name and a behavior spec, then writes a clean-room folder, declaration tests, and a dry-run handoff. It does not implement the features or copy original source. Evidence rebuild, in Advanced, is a different action: stubs from recovered module identities, not this scaffold.
 
-Advanced Mode keeps intake, readiness, the exact command, Evidence search, the graph, research, the owned probe, and the report. From there, **Use the owned JavaScript fixture** classifies `experiments/rel-first-lab` without analyzing it. A static run reads source and does not launch the fixture. Search Evidence for `search.mjs` or `cli.mjs`. Inferred graph edges are static relationships, not captured executions.
+Advanced Mode keeps Evidence rebuild, intake, readiness, the exact command, Evidence search, the graph, research, the owned probe, and the report. From there, **Use the owned JavaScript fixture** classifies `experiments/rel-first-lab` without analyzing it. A static run reads source and does not launch the fixture. Search Evidence for `search.mjs` or `cli.mjs`. Inferred graph edges are static relationships, not captured executions.
 
 The same analysis from the terminal:
 
@@ -83,9 +93,29 @@ The studio can run the existing engine commands for JavaScript and ASAR, PE reso
 
 **Report** and summary diff compare saved records. They do not create a new engine verdict.
 
-**Research** is off until you enable it. The stages SCOUT, MAPPER, TRACER, ANALYST, DIFF, VERIFIER, and REPORTER restate intake, Evidence summaries, and saved comparisons. Remote model calls stay refused even if `research.json` contains a key. The key is not shown in the UI and is not sent anywhere by this build.
+**Research** is off until you enable it. The local stages SCOUT, MAPPER, TRACER, ANALYST, DIFF, VERIFIER, and REPORTER restate intake, Evidence summaries, and saved comparisons. A model call also needs `REE_MODEL_API_KEY` and the checkbox. OpenAI-compatible endpoints are the default, including xAI when `REE_MODEL_PROVIDER=xai`. Anthropic uses `REE_MODEL_PROVIDER=anthropic`. The request contains retrieved passages, not the project at large. The verifier drops a fact that does not cite a retrieved Evidence id. Cost is unknown unless the response includes usage and `REE_MODEL_USD_PER_MILLION` is set. A computed cost above `REE_MODEL_BUDGET_USD` (default 0.05) discards the claims. A key stored only in `research.json` is still not sent.
+
+## Explain this and the first run
+
+Click **Explain this** on a finding, a theater module, or a graph node. The text is a local template. It quotes the stored label, relationship, and Evidence id, and it lists what is unknown. It does not call a model. A sentence with no Evidence id is withheld from the facts list.
+
+The first visit shows a three-step tour. `?` opens shortcuts. `1` through `4` jump to the front door, theater, rebuild, and findings when focus is not in a field. After a drop or a saved project with artifacts, **What can I do with this?** lists the ready routes and says which views restate Evidence. Simple Mode, the first ready route, research off, and authorization off are the defaults.
+
+## Trace Lab
+
+Trace Lab runs `capture-process` for `experiments/rel-first-lab/cli.mjs` with the query `bridge` after you check the box. Press T to open it. The record stays on the project trace, not in `evidence.json`. Filesystem rows are checkpoint effects for that directory. Network and IPC stay not-recorded. A matching path is the same name in the static record and the checkpoint, which does not show that the module ran. Linux and macOS need a native PTY. Windows capture is unavailable. A missing runtime refuses the launch.
+
+## Diff Lab
+
+Drop two versions into one project, then open Diff Lab and press Compare versions. The structural section is a directory listing. Evidence file identities and dependency edge ids appear only when both versions have a completed Evidence file under 8 MiB. Functions, strings, and behavior stay unknown when the records do not store those identities. Unknown is not shown as zero changes.
+
+## Lessons
+
+The Lessons view has four walks: Your first binary, How Electron apps are built, Reading disassembly, and Comparing versions. They read `experiments/ree-fixtures`, `experiments/rel-first-lab`, and the two C files in `experiments/ree-investigation-boundary`. They do not execute those programs. `objdump` output is labeled as tool stdout. If `objdump` is missing, the step says so and shows no listing.
 
 ## Limits
+
+- Explain this does not describe runtime behavior and does not invent a function body.
 
 - One static analysis at a time in a data directory, with a three-minute timeout.
 - Evidence browsing follows the existing 64 MiB explorer limit.

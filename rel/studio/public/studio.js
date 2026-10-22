@@ -1,3 +1,4 @@
+import { explainSubject } from "./explain.js";
 import { el, statusClass } from "./format.js";
 import { advancedLabs, navigation, primaryFlow } from "./flow.js";
 import { mountGraph } from "./graph-view.js";
@@ -22,11 +23,25 @@ const state = {
   phase: "idle",
   linkInput: "",
   linkPlan: null,
+  timeline: [],
+  replayTo: null,
+  palette: false,
+  paletteQuery: "",
+  rebuildPlan: null,
+  rebuildResult: null,
   board: null,
   build: null,
   onboardingSeen: true,
-  palette: false,
-  paletteQuery: "",
+  explain: null,
+  tour: false,
+  tourStep: 0,
+  shortcuts: false,
+  capabilities: false,
+  lessonCatalog: null,
+  lesson: null,
+  lessonStep: 0,
+  diffLab: null,
+  modelOptIn: false,
 };
 
 function visibleViews() {
@@ -107,32 +122,46 @@ async function refreshProject() {
   if (runningId && state.view === "door") {
     const updated = state.project.runs.find((run) => run.id === runningId);
     if (updated?.status === "completed") {
-      state.view = "findings";
+      state.view = "analyze";
       state.phase = "idle";
-      state.notice = "Analysis finished. The summary uses the saved Evidence.";
-      await loadGraph("", "");
-      return;
+      state.notice =
+        "Analysis finished. The timeline is recorded engine progress and Evidence.";
     }
   }
-  const busy = [...state.project.runs, ...state.project.experiments].some(
-    (item) => item.status === "running",
-  );
+  const busy =
+    [...state.project.runs, ...state.project.experiments].some(
+      (item) => item.status === "running",
+    ) ||
+    state.project.native_probe?.status === "running" ||
+    state.project.trace?.status === "running";
   if (!busy && state.phase === "running") state.phase = "idle";
-  if (busy) setTimeout(() => refreshProject().then(draw).catch(setError), 800);
+  const watched =
+    state.project.runs.find((run) => run.status === "running") ?? latestRun();
+  if (watched)
+    state.timeline = (
+      await api(`/api/projects/${state.project.id}/runs/${watched.id}/timeline`)
+    ).events;
+  if (busy) setTimeout(() => refreshProject().then(draw).catch(setError), 400);
 }
 
-function navButton(id, label) {
-  return button(label, () => openView(id), {
-    class: state.view === id ? "nav current" : "nav",
-    "aria-current": state.view === id ? "page" : undefined,
-  });
-}
-
-async function openView(id) {
+function openView(id) {
   state.view = id;
   state.palette = false;
-  if (id === "board") state.board = await api("/api/board");
-  if (id === "analyze" && state.project) await refreshProject();
+  if (id === "board")
+    api("/api/board")
+      .then((board) => {
+        state.board = board;
+        draw();
+      })
+      .catch(setError);
+  if (id === "lessons") {
+    loadLessons().catch(setError);
+    return;
+  }
+  if (id === "analyze" && state.project) {
+    refreshProject().then(draw).catch(setError);
+    return;
+  }
   draw();
 }
 
@@ -156,6 +185,15 @@ function shell() {
       ]),
       el("div", { class: "top-actions" }, [
         el("span", { class: "pill" }, "127.0.0.1"),
+        button("Commands", () => {
+          state.palette = true;
+          state.paletteQuery = "";
+          draw();
+        }),
+        button("Shortcuts", () => {
+          state.shortcuts = true;
+          draw();
+        }),
         button(advanced ? "Advanced" : "Simple", async () => {
           if (!state.project) return;
           state.project = await api(`/api/projects/${state.project.id}`, {
@@ -169,11 +207,21 @@ function shell() {
     el("div", { class: "layout" }, [
       el("nav", { class: "rail", "aria-label": "Studio" }, [
         el("p", { class: "rail-label" }, "Workspace"),
-        ...primaryFlow.map(([id, label]) => navButton(id, label)),
+        ...primaryFlow.map(([id, label]) =>
+          button(label, () => openView(id), {
+            class: state.view === id ? "nav current" : "nav",
+            "aria-current": state.view === id ? "page" : undefined,
+          }),
+        ),
         ...(advanced
           ? [
               el("p", { class: "rail-label" }, "Advanced"),
-              ...advancedLabs.map(([id, label]) => navButton(id, label)),
+              ...advancedLabs.map(([id, label]) =>
+                button(label, () => openView(id), {
+                  class: state.view === id ? "nav current" : "nav",
+                  "aria-current": state.view === id ? "page" : undefined,
+                }),
+              ),
             ]
           : [
               button("Show advanced labs", async () => {
@@ -202,19 +250,27 @@ function shell() {
         onboardingCard(),
         flowStepper(),
         panel(),
-        state.palette ? palette() : null,
+        explainCard(),
       ]),
     ]),
+    state.palette ? palette() : null,
+    state.shortcuts ? shortcutSheet() : null,
+    state.tour ? tourCard() : null,
   );
 }
 
 function panel() {
   if (state.view === "readiness") return readinessPanel();
-  if (state.view === "analyze") return analyzePanel();
+  if (state.view === "analyze" || state.view === "theater")
+    return theaterPanel();
   if (state.view === "board") return boardPanel();
   if (state.view === "build") return buildPanel();
   if (state.view === "door" || !state.project) return doorPanel();
+  if (state.view === "rebuild") return rebuildPanel();
   if (state.view === "findings") return findingsPanel();
+  if (state.view === "lessons") return lessonsPanel();
+  if (state.view === "diff-lab") return diffLabPanel();
+  if (state.view === "trace-lab") return traceLabPanel();
   if (state.view === "intake") return intakePanel();
   if (state.view === "evidence") return evidencePanel();
   if (state.view === "graph") return graphPanel();
@@ -290,9 +346,15 @@ function doorPanel() {
     ),
     el(
       "p",
+      { class: "note" },
+      "Simple Mode is the default. The first ready route is selected for you. Authorization stays off until you tick it. Research stays off.",
+    ),
+    el(
+      "p",
       { class: "status-live", role: "status", "data-phase": state.phase },
       phaseText(),
     ),
+    stageRow(),
     drop,
     el("div", { class: "file-row" }, [
       field("File", file),
@@ -321,6 +383,7 @@ function doorPanel() {
             : null,
         ])
       : null,
+    state.capabilities && artifact ? capabilitiesPanel(artifact) : null,
     el("label", { class: "check" }, [
       checkbox,
       state.linkPlan
@@ -335,6 +398,46 @@ function doorPanel() {
     mode() === "advanced"
       ? button("Use the owned JavaScript fixture", () => addOwned())
       : null,
+  ]);
+}
+
+function capabilitiesPanel(artifact) {
+  const routes = artifact.intake?.routes ?? [];
+  const ready = routes.filter((route) => route.status === "ready");
+  const blocked = routes.filter((route) => route.status !== "ready");
+  const lines = [
+    ready.length
+      ? `Run ${ready.map((route) => route.label).join(", ")}. That route reads the target. It does not launch it.`
+      : "No route is ready. Open Readiness in Advanced Mode to see which tool is missing. The studio will not invent a result.",
+  ];
+  if (
+    artifact.intake?.kind === "javascript" ||
+    ready.some((route) => /javascript/i.test(route.label))
+  )
+    lines.push(
+      "After a JavaScript analysis, Analyze replays the engine’s progress and Findings lists saved sentences.",
+    );
+  lines.push(
+    "Choose Explain this on a finding, module, or graph node. With no model configured, the text is a local template over stored fields.",
+  );
+  lines.push(
+    "Evidence rebuild, under Advanced and after a JavaScript Evidence run, writes a module map. It does not copy source. Build, on the simple path, scaffolds a new folder from a behavior spec.",
+  );
+  if (blocked.length)
+    lines.push(
+      `${blocked.length} route${blocked.length === 1 ? " is" : "s are"} not ready on this machine.`,
+    );
+  return el("article", { class: "card capabilities", id: "capabilities" }, [
+    el("h3", {}, "What can I do with this?"),
+    el(
+      "ul",
+      {},
+      lines.map((line) => el("li", {}, line)),
+    ),
+    button("Hide this panel", () => {
+      state.capabilities = false;
+      draw();
+    }),
   ]);
 }
 
@@ -355,6 +458,52 @@ function linkPlanCard(plan) {
       ? el("p", { class: "bad" }, plan.unavailable_reason)
       : null,
   ]);
+}
+
+function shownEvents() {
+  if (state.replayTo === null) return state.timeline;
+  return state.timeline.slice(0, state.replayTo);
+}
+
+function theaterStats(events) {
+  const files = events.filter(
+    (event) => event.phase === "parse_javascript_source",
+  );
+  const latest = files.at(-1);
+  const evidence = events.find((event) => event.phase === "evidence");
+  const modules = new Set(
+    events
+      .filter((event) => event.phase === "module" && event.file)
+      .map((event) => event.file),
+  );
+  return {
+    files: files.length,
+    fileTotal: latest?.file_total ?? null,
+    modules: modules.size,
+    edges: events.filter((event) => event.phase === "edge").length,
+    evidence: evidence?.evidence_id ?? null,
+    provider: events.find((event) => event.provider)?.provider ?? "unrecorded",
+  };
+}
+
+function elapsedLabel(events) {
+  if (events.length === 0) return "0.0s";
+  const start = Date.parse(events[0].at);
+  const running = state.project?.runs?.some((run) => run.status === "running");
+  const end = running ? Date.now() : Date.parse(events.at(-1).at);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return "0.0s";
+  return `${((end - start) / 1000).toFixed(1)}s`;
+}
+
+function theaterGraph(events) {
+  const files = [];
+  for (const event of events) {
+    if (event.file && !files.includes(event.file)) files.push(event.file);
+  }
+  const edges = events.filter(
+    (event) => event.phase === "edge" && event.to && files.includes(event.from),
+  );
+  return { files, edges };
 }
 
 function flowStepper() {
@@ -378,101 +527,13 @@ function onboardingCard() {
     el(
       "p",
       {},
-      "Drop a file or paste a link you are allowed to fetch. Analyze runs one ready engine route and records the events that route actually emits. Findings quote saved Evidence. Board lists Scout records and behavior specs you ingest. Build writes a clean-room folder and a dry-run handoff.",
+      "Drop a file or paste a link you are allowed to fetch. Analyze shows the engine progress that route actually emits. Findings quote saved Evidence. Board lists Scout records and behavior specs you ingest. Build writes a clean-room folder and a dry-run handoff.",
     ),
     button("Hide this introduction", async () => {
       await api("/api/onboarding", { method: "POST", body: {} });
       state.onboardingSeen = true;
       draw();
     }),
-  ]);
-}
-
-function palette() {
-  const query = state.paletteQuery.trim().toLowerCase();
-  const choices = visibleViews().filter(([, label]) =>
-    label.toLowerCase().includes(query),
-  );
-  const input = el("input", {
-    id: "palette-input",
-    placeholder: "Jump to a view",
-    value: state.paletteQuery,
-    oninput: (event) => {
-      state.paletteQuery = event.target.value;
-      draw();
-    },
-    onkeydown: (event) => {
-      if (event.key === "Enter" && choices[0]) {
-        event.preventDefault();
-        openView(choices[0][0]);
-      }
-    },
-  });
-  queueMicrotask(() => document.querySelector("#palette-input")?.focus());
-  return el(
-    "div",
-    { class: "palette", role: "dialog", "aria-label": "Views" },
-    [
-      input,
-      el(
-        "ul",
-        {},
-        choices.map(([id, label]) =>
-          el(
-            "li",
-            {},
-            button(label, () => openView(id)),
-          ),
-        ),
-      ),
-      choices.length === 0
-        ? el("p", { class: "empty" }, "No view matches that text.")
-        : null,
-    ],
-  );
-}
-
-function analyzePanel() {
-  const runs = state.project?.runs ?? [];
-  const run = runs[runs.length - 1] ?? null;
-  const events = run?.events ?? [];
-  return el("section", { class: "panel" }, [
-    el("h2", {}, "Analyze"),
-    el(
-      "p",
-      {},
-      "The timeline lists events this studio recorded from the engine process: start, the first output chunk, and exit. It does not add stages the engine did not emit.",
-    ),
-    !state.project
-      ? el(
-          "p",
-          { class: "empty" },
-          "No project yet. Drop a file on the front door.",
-        )
-      : null,
-    state.project && !run
-      ? el(
-          "p",
-          { class: "empty" },
-          "No analysis has started. Choose Analyze on the front door after you authorize the target.",
-        )
-      : null,
-    run ? el("p", {}, `${run.route_id ?? run.kind} is ${run.status}.`) : null,
-    events.length
-      ? el(
-          "ol",
-          { class: "timeline" },
-          events.map((event) =>
-            el(
-              "li",
-              {},
-              `${event.at} ${event.kind}${event.route_id ? " " + event.route_id : ""}${event.bytes ? " " + event.bytes + " bytes" : ""}${event.evidence_id ? " " + event.evidence_id : ""}${event.code !== undefined && event.code !== null ? " exit " + event.code : ""}`,
-            ),
-          ),
-        )
-      : run
-        ? el("p", { class: "empty" }, "This run has no recorded engine events.")
-        : null,
   ]);
 }
 
@@ -592,6 +653,744 @@ function buildPanel() {
   ]);
 }
 
+function watchedRun() {
+  return (
+    state.project?.runs?.find((run) => run.status === "running") ??
+    state.project?.runs?.at(-1) ??
+    null
+  );
+}
+
+function processFact(event) {
+  const parts = [event.at, event.kind];
+  if (event.route_id) parts.push(event.route_id);
+  if (event.bytes) parts.push(`${event.bytes} bytes`);
+  if (event.evidence_id) parts.push(event.evidence_id);
+  if (event.code !== undefined && event.code !== null)
+    parts.push(`exit ${event.code}`);
+  return parts.filter((part) => part !== undefined && part !== "").join(" ");
+}
+
+function theaterPanel() {
+  const events = shownEvents();
+  const stats = theaterStats(events);
+  const graph = theaterGraph(events);
+  const holder = el("div", { class: "theater-graph", id: "theater-graph" });
+  holder.append(theaterSvg(graph));
+  const run = watchedRun();
+  const processEvents = run?.events ?? [];
+  return el("section", { class: "panel theater" }, [
+    el("p", { class: "eyebrow" }, "Investigation Theater"),
+    el("h2", {}, "Analyze"),
+    el(
+      "p",
+      {},
+      "Each line is an engine progress event or a fact read from written Evidence. Process lines are start, the first output chunk, and exit. Nothing here is simulated.",
+    ),
+    !state.project
+      ? el(
+          "p",
+          { class: "empty" },
+          "No project yet. Drop a file on the front door.",
+        )
+      : null,
+    state.project && !run
+      ? el(
+          "p",
+          { class: "empty" },
+          "No analysis has started. Choose Analyze on the front door after you authorize the target.",
+        )
+      : null,
+    el("div", { class: "stats" }, [
+      stat("Provider", stats.provider),
+      stat("Elapsed", elapsedLabel(events)),
+      stat(
+        "Files parsed",
+        stats.fileTotal
+          ? `${stats.files}/${stats.fileTotal}`
+          : String(stats.files),
+      ),
+      stat("Modules", String(stats.modules)),
+      stat("Edges", String(stats.edges)),
+      stat(
+        "Evidence",
+        stats.evidence ? stats.evidence.slice(0, 12) + "…" : "not yet",
+      ),
+    ]),
+    stageRow(),
+    holder,
+    events.length
+      ? el(
+          "ol",
+          { class: "timeline" },
+          events.map((event) =>
+            el("li", {}, [
+              el("span", { class: "phase" }, event.phase),
+              el("span", {}, event.message),
+              event.phase === "module" && event.file
+                ? button("Explain this", () =>
+                    showExplain({
+                      kind: "module",
+                      label: event.file,
+                      node_kind: "javascript-module",
+                      evidence_id: stats.evidence,
+                    }),
+                  )
+                : null,
+            ]),
+          ),
+        )
+      : run
+        ? el(
+            "p",
+            { class: "empty" },
+            "This run has no recorded engine progress lines.",
+          )
+        : state.project
+          ? el(
+              "p",
+              { class: "empty" },
+              "The theater is empty because no analysis has written progress yet. Use the front door: drop a target, tick authorization, and press Analyze. A line appears only when the engine emits it.",
+            )
+          : null,
+    processEvents.length
+      ? el(
+          "ol",
+          { class: "timeline" },
+          processEvents.map((event) => el("li", {}, processFact(event))),
+        )
+      : run && events.length === 0
+        ? el("p", { class: "empty" }, "This run has no recorded engine events.")
+        : null,
+    button("Replay recorded timeline", () => replayTimeline(), {
+      class: "primary",
+    }),
+  ]);
+}
+
+function stat(label, value) {
+  return el("div", {}, [el("dt", {}, label), el("dd", {}, value)]);
+}
+
+function stageRow() {
+  const stages = [
+    ["copying", "Copy"],
+    ["planning", "Plan"],
+    ["fetching", "Fetch"],
+    ["running", "Analyze"],
+  ];
+  return el(
+    "ol",
+    { class: "stages" },
+    stages.map(([id, label]) =>
+      el(
+        "li",
+        { class: state.phase === id ? "current" : "", "data-stage": id },
+        label,
+      ),
+    ),
+  );
+}
+
+function theaterSvg(graph) {
+  const height = Math.max(120, graph.files.length * 42 + 24);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", `0 0 640 ${height}`);
+  svg.setAttribute("class", "graph");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Modules named by recorded progress");
+  const title = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  title.setAttribute("x", "16");
+  title.setAttribute("y", "20");
+  title.setAttribute("fill", "#b9a6ff");
+  title.textContent =
+    graph.files.length === 0
+      ? "No parsed file has been reported yet."
+      : "Files the engine reported while parsing.";
+  svg.append(title);
+  const yOf = new Map();
+  graph.files.forEach((file, index) => {
+    const y = 36 + index * 42;
+    yOf.set(file, y);
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", "16");
+    rect.setAttribute("y", String(y));
+    rect.setAttribute("width", "220");
+    rect.setAttribute("height", "32");
+    rect.setAttribute("rx", "8");
+    rect.setAttribute("class", "node-shape");
+    const label = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "text",
+    );
+    label.setAttribute("x", "28");
+    label.setAttribute("y", String(y + 21));
+    label.textContent = file;
+    const open = () =>
+      showExplain({
+        kind: "module",
+        label: file,
+        node_kind: "javascript-module",
+        evidence_id:
+          state.timeline.find((event) => event.phase === "evidence")
+            ?.evidence_id ?? null,
+      });
+    rect.addEventListener("click", open);
+    label.addEventListener("click", open);
+    svg.append(rect, label);
+  });
+  for (const edge of graph.edges) {
+    const from = yOf.get(edge.from);
+    const to = yOf.get(edge.to);
+    if (from === undefined || to === undefined) continue;
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute(
+      "d",
+      `M 236 ${from + 16} C 300 ${from + 16}, 300 ${to + 16}, 236 ${to + 16}`,
+    );
+    path.setAttribute("class", "edge-line");
+    svg.append(path);
+  }
+  const minimap = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  minimap.setAttribute("viewBox", `0 0 640 ${height}`);
+  minimap.setAttribute("class", "minimap");
+  minimap.setAttribute("aria-hidden", "true");
+  for (const y of yOf.values()) {
+    const mark = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    mark.setAttribute("x", "16");
+    mark.setAttribute("y", String(y));
+    mark.setAttribute("width", "220");
+    mark.setAttribute("height", "32");
+    mark.setAttribute("class", "node-shape");
+    minimap.append(mark);
+  }
+  const frame = document.createElement("div");
+  frame.className = "graph-frame";
+  frame.append(svg, minimap);
+  return frame;
+}
+
+function replayTimeline() {
+  if (state.timeline.length === 0) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    state.replayTo = null;
+    draw();
+    return;
+  }
+  state.replayTo = 0;
+  const step = () => {
+    if (state.replayTo === null) return;
+    state.replayTo += 1;
+    draw();
+    if (state.replayTo < state.timeline.length) setTimeout(step, 180);
+    else state.replayTo = null;
+  };
+  step();
+}
+
+function rebuildPanel() {
+  const output = el("input", {
+    id: "rebuild-output",
+    placeholder: "/tmp/ree-rebuild",
+  });
+  const approved = el("input", { type: "checkbox", id: "rebuild-approved" });
+  const plan = state.rebuildPlan;
+  return el("section", { class: "panel" }, [
+    el("p", { class: "eyebrow" }, "Rebuild Studio"),
+    el("h2", {}, "Original identities and a reconstructed map"),
+    el(
+      "p",
+      {},
+      "The preview lists recovered module identities from Evidence. Writing creates stubs only. It does not copy source, and it does not claim the result behaves like the original.",
+    ),
+    field("New output folder outside this checkout", output),
+    button("Preview rebuild", () => previewRebuild(output.value)),
+    plan
+      ? el("article", { class: "card" }, [
+          el("p", {}, plan.statement),
+          el("table", { class: "data" }, [
+            el(
+              "caption",
+              {},
+              "Original identity compared with the file that will be written",
+            ),
+            el(
+              "thead",
+              {},
+              el(
+                "tr",
+                {},
+                ["Module", "Identity", "Implementation", "Verification"].map(
+                  (name) => el("th", {}, name),
+                ),
+              ),
+            ),
+            el(
+              "tbody",
+              {},
+              plan.modules.map((module) =>
+                el("tr", {}, [
+                  el("td", {}, module.file),
+                  el("td", {}, module.identity),
+                  el("td", {}, module.implementation),
+                  el("td", {}, module.verification),
+                ]),
+              ),
+            ),
+          ]),
+          ...(plan.comparisons ?? []).map((row) =>
+            el("details", { class: "compare-row" }, [
+              el(
+                "summary",
+                {},
+                `${row.file}: identity ${row.identity}, rebuilt ${row.implementation}, verification ${row.verification}, engine match ${row.engine_match}, text ${row.text_relation}`,
+              ),
+              row.original_excerpt
+                ? el("div", { class: "compare" }, [
+                    el("div", {}, [
+                      el("h4", {}, "Original, read for display"),
+                      el("pre", { class: "mono" }, row.original_excerpt),
+                    ]),
+                    el("div", {}, [
+                      el("h4", {}, "Reconstructed stub"),
+                      el("pre", { class: "mono" }, row.rebuilt_text),
+                    ]),
+                  ])
+                : el(
+                    "p",
+                    {},
+                    "The original file was not available beside this recovered identity.",
+                  ),
+              row.diff
+                ? el("pre", { class: "mono diff" }, row.diff)
+                : el(
+                    "p",
+                    { class: "note" },
+                    "No text mismatch to show. Engine verification remains unverified.",
+                  ),
+            ]),
+          ),
+        ])
+      : null,
+    el("label", { class: "check" }, [
+      approved,
+      "I approve writing this reconstructed map into the folder above.",
+    ]),
+    button(
+      "Write rebuild and run the map test",
+      () => runRebuild(output.value, approved.checked),
+      { class: "primary" },
+    ),
+    state.rebuildResult
+      ? el(
+          "p",
+          { class: state.rebuildResult.map_test === "green" ? "ok" : "bad" },
+          [
+            `Map test ${state.rebuildResult.map_test}. Behavior remains ${state.rebuildResult.behavior}.`,
+          ],
+        )
+      : null,
+    el("h3", {}, "Owned native fixture"),
+    el(
+      "p",
+      { class: "note" },
+      "The native probe runs only when the artifact is experiments/ree-investigation-boundary. It uses the existing reconstruction verifier. Claim results stay pass, fail, or unknown.",
+    ),
+    field(
+      "New probe output folder",
+      el("input", { id: "probe-output", placeholder: "/tmp/ree-native-probe" }),
+    ),
+    button("Run owned native probe", () => runNativeProbe()),
+    nativeClaims(),
+  ]);
+}
+
+function nativeClaims() {
+  const probe = state.project?.native_probe;
+  if (!probe) return null;
+  return el("article", { class: "card" }, [
+    el("h3", {}, `Native probe ${probe.status}`),
+    el("p", {}, probe.note || probe.error || ""),
+    el(
+      "ul",
+      {},
+      (probe.claims ?? []).map((claim) =>
+        el("li", {}, `${claim.name}: ${claim.status} (${claim.scope})`),
+      ),
+    ),
+  ]);
+}
+
+async function previewRebuild(output) {
+  const run = latestRun();
+  if (!run) throw new Error("Complete an analysis before rebuilding.");
+  state.rebuildPlan = await api(
+    `/api/projects/${state.project.id}/runs/${run.id}/rebuild/preview`,
+    { method: "POST", body: { output } },
+  );
+  state.rebuildResult = null;
+  draw();
+}
+
+async function runRebuild(output, approved) {
+  if (!approved) throw new Error("Check the box to write the rebuild.");
+  if (!state.rebuildPlan) throw new Error("Preview the rebuild first.");
+  const run = latestRun();
+  state.rebuildResult = await api(
+    `/api/projects/${state.project.id}/runs/${run.id}/rebuild`,
+    {
+      method: "POST",
+      body: { output, approved: true, digest: state.rebuildPlan.digest },
+    },
+  );
+  state.notice = `Rebuild map test ${state.rebuildResult.map_test}. Behavior is unverified.`;
+  state.timeline = (
+    await api(`/api/projects/${state.project.id}/runs/${run.id}/timeline`)
+  ).events;
+  draw();
+}
+
+async function runNativeProbe() {
+  const artifact = state.project?.artifacts?.at(-1);
+  if (!artifact)
+    throw new Error("Add the owned C fixture before the native probe.");
+  const output = document.querySelector("#probe-output")?.value ?? "";
+  const approved =
+    document.querySelector("#rebuild-approved")?.checked === true;
+  if (!approved)
+    throw new Error("Check the box to run the owned native probe.");
+  state.project = await api(`/api/projects/${state.project.id}/native-probe`, {
+    method: "POST",
+    body: { artifact_id: artifact.id, output, approved: true },
+  });
+  state.notice = "Owned native probe started.";
+  draw();
+  await refreshProject();
+  draw();
+}
+
+function palette() {
+  const query = state.paletteQuery.toLowerCase();
+  const items = visibleViews().filter(([, label]) =>
+    label.toLowerCase().includes(query),
+  );
+  const input = el("input", {
+    id: "palette-input",
+    placeholder: "Jump to a view",
+    value: state.paletteQuery,
+    oninput: (event) => {
+      state.paletteQuery = event.target.value;
+      draw();
+    },
+    onkeydown: (event) => {
+      if (event.key === "Enter" && items[0]) {
+        event.preventDefault();
+        openView(items[0][0]);
+      }
+    },
+  });
+  queueMicrotask(() => document.querySelector("#palette-input")?.focus());
+  return el(
+    "div",
+    { class: "palette", role: "dialog", "aria-label": "Commands" },
+    [
+      el("div", { class: "palette-card" }, [
+        input,
+        el(
+          "ul",
+          {},
+          items.map(([id, label]) =>
+            el(
+              "li",
+              {},
+              button(label, () => openView(id)),
+            ),
+          ),
+        ),
+        items.length === 0
+          ? el("p", { class: "empty" }, "No view matches that text.")
+          : null,
+        el("p", { class: "note" }, "Esc closes. Ctrl+K or Cmd+K opens."),
+      ]),
+    ],
+  );
+}
+
+function traceLabPanel() {
+  const trace = state.project?.trace;
+  const view = trace?.projection;
+  const approved = el("input", { type: "checkbox", id: "trace-approved" });
+  return el("section", { class: "panel" }, [
+    el("p", { class: "eyebrow" }, "Trace Lab"),
+    el("h2", {}, "Owned process observation"),
+    el(
+      "p",
+      {},
+      "This runs capture-process on experiments/rel-first-lab/cli.mjs with the query bridge. The capture is stored apart from static Evidence. Network and IPC events are not recorded by that contract.",
+    ),
+    el("label", { class: "check" }, [
+      approved,
+      "I approve this owned capture. It runs with my user permissions and is not a sandbox.",
+    ]),
+    button("Run owned trace", () => runOwnedTrace(approved.checked), {
+      class: "primary",
+    }),
+    !trace
+      ? el(
+          "p",
+          { class: "empty" },
+          "No capture yet. Nothing is launched until you check the box and press Run owned trace.",
+        )
+      : el("article", { class: "card" }, [
+          el("h3", {}, `Trace ${trace.status}`),
+          trace.error ? el("p", { class: "bad" }, trace.error) : null,
+          view
+            ? el("div", {}, [
+                el(
+                  "p",
+                  { class: "note" },
+                  `Separate from static Evidence. Capture id ${view.evidence_id || "none"}.`,
+                ),
+                el(
+                  "p",
+                  {},
+                  `Terminal frames: ${view.terminal?.frames ?? "unknown"}.`,
+                ),
+                el("h3", {}, "Filesystem checkpoints"),
+                el(
+                  "p",
+                  { class: "note" },
+                  view.filesystem?.note || view.filesystem?.reason,
+                ),
+                el(
+                  "ul",
+                  {},
+                  (view.filesystem?.effects ?? [])
+                    .slice(0, 12)
+                    .map((effect) =>
+                      el("li", {}, `${effect.status}: ${effect.path}`),
+                    ),
+                ),
+                el("h3", {}, "Network"),
+                el("p", {}, view.network.reason),
+                el("h3", {}, "IPC"),
+                el("p", {}, view.ipc.reason),
+                el("h3", {}, "Static path correlation"),
+                (view.correlated ?? []).length
+                  ? el(
+                      "ul",
+                      {},
+                      view.correlated.map((item) =>
+                        el("li", {}, `${item.static_label}: ${item.note}`),
+                      ),
+                    )
+                  : el(
+                      "p",
+                      { class: "note" },
+                      "No checkpoint path matched a stored static label.",
+                    ),
+              ])
+            : null,
+        ]),
+  ]);
+}
+
+function diffLines(prefix, items) {
+  if (!items?.length) return null;
+  return el(
+    "pre",
+    { class: "mono diff" },
+    items.map((item) => `${prefix} ${item}`).join("\n"),
+  );
+}
+
+function diffDimension(title, dimension) {
+  if (!dimension) return null;
+  if (dimension.status !== "compared")
+    return el("article", { class: "card" }, [
+      el("h3", {}, title),
+      el("p", { class: "note" }, dimension.reason || "Unknown."),
+    ]);
+  return el("article", { class: "card" }, [
+    el("h3", {}, title),
+    el("p", {}, `${dimension.shared_count} shared.`),
+    diffLines("-", dimension.only_left),
+    diffLines("+", dimension.only_right),
+    dimension.only_left.length === 0 && dimension.only_right.length === 0
+      ? el("p", { class: "note" }, "No difference in this dimension.")
+      : null,
+  ]);
+}
+
+function diffLabPanel() {
+  const artifacts = state.project?.artifacts ?? [];
+  if (!state.project || artifacts.length < 2)
+    return el("section", { class: "panel" }, [
+      el("p", { class: "eyebrow" }, "Diff Lab"),
+      el("h2", {}, "Drop two versions"),
+      el(
+        "p",
+        { class: "empty" },
+        "Add two artifacts on the front door or in Intake. Diff Lab compares their directory listings and, when both have Evidence, stored file identities and dependency edge ids. Functions, strings, and behavior stay unknown until those identities are stored.",
+      ),
+      button(
+        "Go to the front door",
+        () => {
+          state.view = "door";
+          draw();
+        },
+        { class: "primary" },
+      ),
+    ]);
+  const left = el(
+    "select",
+    { id: "diff-left" },
+    artifacts.map((artifact) =>
+      el(
+        "option",
+        { value: artifact.id },
+        artifact.intake?.label || artifact.id,
+      ),
+    ),
+  );
+  const right = el(
+    "select",
+    { id: "diff-right" },
+    artifacts.map((artifact, index) =>
+      el(
+        "option",
+        { value: artifact.id, selected: index === 1 ? "selected" : undefined },
+        artifact.intake?.label || artifact.id,
+      ),
+    ),
+  );
+  const result = state.diffLab;
+  return el("section", { class: "panel" }, [
+    el("p", { class: "eyebrow" }, "Diff Lab"),
+    el("h2", {}, "Two versions, only stored differences"),
+    el(
+      "p",
+      {},
+      "A path or edge id shown here was listed or saved. A dimension marked unknown was not stored. That is not evidence the dimension is empty.",
+    ),
+    field("Left version", left),
+    field("Right version", right),
+    button("Compare versions", () => runDiffLab(left.value, right.value), {
+      class: "primary",
+    }),
+    result
+      ? el("div", { class: "stack" }, [
+          el("p", { class: "note" }, result.note),
+          el(
+            "p",
+            {},
+            `Left Evidence ${result.left.evidence_id || "none"}. Right Evidence ${result.right.evidence_id || "none"}.`,
+          ),
+          diffDimension("Structural listing", result.structural),
+          diffDimension("Evidence file identities", result.evidence_files),
+          diffDimension("Functions", result.functions),
+          diffDimension("Dependencies", result.dependencies),
+          diffDimension("Strings", result.strings),
+          el("article", { class: "card" }, [
+            el("h3", {}, "Behavior"),
+            el("p", { class: "note" }, result.behavior.reason),
+          ]),
+          result.text?.status === "shown"
+            ? el("article", { class: "card" }, [
+                el("h3", {}, "Text"),
+                el("p", { class: "note" }, result.text.note),
+                el("pre", { class: "mono diff" }, result.text.lines.join("\n")),
+              ])
+            : el("article", { class: "card" }, [
+                el("h3", {}, "Text"),
+                el(
+                  "p",
+                  { class: "note" },
+                  result.text?.reason || "No text diff.",
+                ),
+              ]),
+        ])
+      : null,
+  ]);
+}
+
+function lessonsPanel() {
+  if (!state.lessonCatalog)
+    return el("section", { class: "panel" }, [
+      el("h2", {}, "Guided lessons"),
+      el(
+        "p",
+        { class: "empty" },
+        "Lessons use owned fixtures in this checkout. Open the list to read them. A missing tool stays unavailable.",
+      ),
+      button("Load lessons", () => loadLessons(), { class: "primary" }),
+    ]);
+  const lesson = state.lesson;
+  const step = lesson?.steps?.[state.lessonStep];
+  return el("section", { class: "panel" }, [
+    el("h2", {}, "Guided lessons"),
+    el(
+      "p",
+      {},
+      "Each lesson reads an owned fixture. It does not launch a target, and it does not invent tool output.",
+    ),
+    el(
+      "div",
+      { class: "stack" },
+      state.lessonCatalog.lessons.map((item) =>
+        button(item.title, () => openLesson(item.id), {
+          class: lesson?.id === item.id ? "nav current" : "nav",
+        }),
+      ),
+    ),
+    lesson
+      ? el("article", { class: "card" }, [
+          el("h3", {}, lesson.title),
+          el("p", {}, lesson.summary),
+          el("p", { class: "note" }, `Fixture: ${lesson.fixture}`),
+          step
+            ? el("div", {}, [
+                el(
+                  "p",
+                  { class: "eyebrow" },
+                  `Step ${state.lessonStep + 1} of ${lesson.steps.length}`,
+                ),
+                el("h3", {}, step.title),
+                el("p", {}, step.hint),
+                step.observation.status === "unavailable"
+                  ? el("p", { class: "empty" }, step.observation.reason)
+                  : el(
+                      "pre",
+                      { class: "mono" },
+                      step.observation.text || step.observation.note || "",
+                    ),
+                step.observation.note && step.observation.status === "shown"
+                  ? el("p", { class: "note" }, step.observation.note)
+                  : null,
+              ])
+            : null,
+          button(
+            state.lessonStep < lesson.steps.length - 1
+              ? "Next hint"
+              : "Back to the first hint",
+            () => {
+              state.lessonStep =
+                state.lessonStep < lesson.steps.length - 1
+                  ? state.lessonStep + 1
+                  : 0;
+              draw();
+            },
+            { class: "primary" },
+          ),
+        ])
+      : el(
+          "p",
+          { class: "empty" },
+          "Choose a lesson. The steps stay on the fixture named in the catalog.",
+        ),
+  ]);
+}
+
 function findingsPanel() {
   const run = latestRun();
   const holder = el("div", { id: "graph-holder" });
@@ -605,7 +1404,21 @@ function findingsPanel() {
     ),
     run
       ? runCard(run)
-      : el("p", { class: "empty" }, "No completed analysis yet."),
+      : el(
+          "p",
+          { class: "empty" },
+          "No completed analysis yet. Drop a target on the front door, authorize it, and press Analyze. A finding appears only after Evidence is saved.",
+        ),
+    run
+      ? null
+      : button(
+          "Go to the front door",
+          () => {
+            state.view = "door";
+            draw();
+          },
+          { class: "primary" },
+        ),
     holder,
     state.edge ? edgeDetail() : null,
     state.source ? sourceDetail() : null,
@@ -710,9 +1523,7 @@ function intakePanel() {
       field("File", file),
       field("Folder", folder),
     ]),
-    button("Use the owned JavaScript fixture", () => addOwned(), {
-      class: "primary",
-    }),
+    button("Use the owned JavaScript fixture", () => addOwned()),
     field("Path you are authorized to inspect", path),
     button("Classify path", () => addPath(path.value)),
     el("div", { class: "stack" }, state.project.artifacts.map(artifactCard)),
@@ -797,6 +1608,16 @@ function runCard(run) {
           "span",
           { class: "note" },
           `${statement.evidence_id} · ${statement.path}`,
+        ),
+        " ",
+        button("Explain this", () =>
+          showExplain({
+            kind: "finding",
+            text: statement.text,
+            evidence_id: statement.evidence_id,
+            path: statement.path,
+            unknowns: run.narrative?.unknowns ?? [],
+          }),
         ),
       ]),
     );
@@ -911,7 +1732,11 @@ function evidencePanel() {
     }),
     state.evidence
       ? evidenceResult(state.evidence)
-      : el("p", { class: "empty" }, "No Evidence window loaded."),
+      : el(
+          "p",
+          { class: "empty" },
+          "No Evidence window is loaded. Search after a completed run. A hit is a recorded relationship, not a new analysis.",
+        ),
   ]);
 }
 
@@ -986,6 +1811,13 @@ function graphPanel() {
     button("Load window", () => loadGraph(find.value, basis.value), {
       class: "primary",
     }),
+    state.graph
+      ? null
+      : el(
+          "p",
+          { class: "empty" },
+          "No graph window is loaded. Load one after a completed run. The map shows stored relationships only.",
+        ),
     holder,
     state.edge ? edgeDetail() : null,
     state.source ? sourceDetail() : null,
@@ -1038,13 +1870,31 @@ function researchPanel() {
     el(
       "p",
       {},
-      `Local stages are ${config?.enabled ? "on" : "off"}. A configured key is ${config?.key_configured ? "present and unused" : "not present"}.`,
+      `Local stages are ${config?.enabled ? "on" : "off"}. An env model key is ${config?.key_configured ? "set" : "not set"}. A model runs only when local research is on and you check the box.`,
     ),
+    config?.model
+      ? el(
+          "p",
+          { class: "note" },
+          `Provider ${config.model.provider}, model ${config.model.model}, budget ${config.model.budget_usd ?? "unset"} USD. Cost stays unknown unless the provider returns usage and REE_MODEL_USD_PER_MILLION is set.`,
+        )
+      : null,
     button(
       config?.enabled ? "Turn local research off" : "Turn local research on",
       toggleResearch,
     ),
-    button("Run local stages", runResearch, {
+    el("label", { class: "check" }, [
+      el("input", {
+        type: "checkbox",
+        id: "model-opt-in",
+        checked: state.modelOptIn ? "checked" : false,
+        onchange: (event) => {
+          state.modelOptIn = event.target.checked;
+        },
+      }),
+      "Ask the model with retrieved Evidence only. Claims that cite no retrieved id are rejected.",
+    ]),
+    button("Run research", runResearch, {
       class: "primary",
       disabled: !config?.enabled,
     }),
@@ -1058,7 +1908,7 @@ function sessionCard(session) {
     el(
       "p",
       {},
-      `Tool calls ${session.tool_calls} / budget ${session.tool_call_budget}. Remote: ${session.remote_calls}.`,
+      `Tool calls ${session.tool_calls} / budget ${session.tool_call_budget}. Remote: ${session.remote_calls}. Cost: ${session.cost?.status || "not recorded"}${session.cost?.tokens != null ? `, tokens ${session.cost.tokens}` : ""}${session.cost?.usd != null ? `, USD ${session.cost.usd}` : ""}.`,
     ),
     el("h4", {}, "Facts"),
     el(
@@ -1175,6 +2025,7 @@ async function loadProjects() {
 async function openProject(id) {
   state.project = await api(`/api/projects/${id}`);
   state.view = mode() === "advanced" ? "overview" : "door";
+  state.capabilities = state.project.artifacts.length > 0;
   state.error = "";
   draw();
   await refreshProject();
@@ -1203,6 +2054,7 @@ async function addOwned() {
     },
   );
   state.notice = "Owned fixture classified. No analysis has run.";
+  state.capabilities = true;
   draw();
 }
 
@@ -1212,6 +2064,7 @@ async function addPath(path) {
     body: { path },
   });
   state.notice = "Path classified. No analysis has run.";
+  state.capabilities = true;
   draw();
 }
 
@@ -1247,6 +2100,7 @@ async function dropped(fileList) {
   state.phase = "idle";
   state.notice =
     "Drop copied into the studio data directory and classified. No analysis has run.";
+  state.capabilities = true;
   draw();
 }
 
@@ -1288,6 +2142,7 @@ async function frontDoorRun() {
     });
     state.linkInput = "";
     state.linkPlan = null;
+    state.capabilities = true;
   }
   state.phase = "running";
   await analyze(state.project.question || "");
@@ -1340,6 +2195,8 @@ async function analyze(question) {
     },
   });
   state.notice = "Static analysis started.";
+  state.view = "analyze";
+  state.replayTo = null;
   draw();
   await refreshProject();
   draw();
@@ -1378,9 +2235,25 @@ async function loadGraph(find, basis) {
 }
 
 async function selectEdge(edge) {
+  if (edge?.kind === "node") {
+    const nodeKind = edge.node_kind ?? null;
+    showExplain({
+      kind: nodeKind === "javascript-module" ? "module" : "node",
+      id: edge.id,
+      label: edge.label,
+      node_kind: nodeKind,
+      group: edge.group,
+      evidence_id: latestRun()?.evidence_id ?? null,
+    });
+    return;
+  }
   state.edge = edge;
   state.source = null;
-  draw();
+  showExplain({
+    ...edge,
+    kind: "edge",
+    evidence_id: latestRun()?.evidence_id ?? null,
+  });
 }
 
 async function loadSource(edgeId) {
@@ -1402,9 +2275,11 @@ async function toggleResearch() {
 async function runResearch() {
   state.project = await api(`/api/projects/${state.project.id}/research`, {
     method: "POST",
-    body: {},
+    body: { model: state.modelOptIn === true },
   });
-  state.notice = "Local research stages finished. No model was called.";
+  state.notice = state.modelOptIn
+    ? "Research finished. A model ran only if an env key was set, and uncited claims were rejected."
+    : "Local research stages finished. No model was called.";
   draw();
 }
 
@@ -1461,19 +2336,235 @@ function draw() {
   }
 }
 
+async function runOwnedTrace(approved) {
+  if (!state.project) throw new Error("Open a project before running a trace.");
+  state.project = await api(`/api/projects/${state.project.id}/trace`, {
+    method: "POST",
+    body: { approved },
+  });
+  state.notice = "Owned trace started. It is not part of static Evidence.";
+  draw();
+  await refreshProject();
+  draw();
+}
+
+async function runDiffLab(leftId, rightId) {
+  state.diffLab = await api(`/api/projects/${state.project.id}/diff-lab`, {
+    method: "POST",
+    body: { left_artifact_id: leftId, right_artifact_id: rightId },
+  });
+  draw();
+}
+
+async function loadLessons() {
+  state.lessonCatalog = await api("/api/lessons");
+  draw();
+}
+
+async function openLesson(id) {
+  state.lesson = await api(`/api/lessons/${id}`);
+  state.lessonStep = 0;
+  state.view = "lessons";
+  draw();
+}
+
+function showExplain(subject) {
+  state.explain = explainSubject(subject);
+  draw();
+}
+
+function explainCard() {
+  const item = state.explain;
+  if (!item) return null;
+  return el("aside", { class: "explain", "aria-label": "Explanation" }, [
+    el("h3", {}, item.title),
+    el("p", { class: "note" }, "Local template. No model was called."),
+    el("p", {}, item.text),
+    explainList("Facts", item.facts, "No stored fact was attached."),
+    explainList(
+      "Hypotheses",
+      item.hypotheses,
+      "None. A template does not guess.",
+    ),
+    explainList("Unknowns", item.unknowns, "None recorded."),
+    item.evidence_ids.length
+      ? el("p", { class: "note" }, `Evidence: ${item.evidence_ids.join(", ")}`)
+      : el("p", { class: "note" }, "No Evidence id."),
+    button("Close explanation", () => {
+      state.explain = null;
+      draw();
+    }),
+  ]);
+}
+
+function explainList(title, items, empty) {
+  return el("div", {}, [
+    el("h4", {}, title),
+    el(
+      "ul",
+      {},
+      (items.length ? items : [empty]).map((line) => el("li", {}, line)),
+    ),
+  ]);
+}
+
+const TOUR = [
+  {
+    title: "Drop a target",
+    body: "The front door copies a file, folder, or an approved link into this studio. Nothing is analyzed until you tick authorization.",
+  },
+  {
+    title: "One primary action",
+    body: "Each screen has one filled button. Here it is Analyze, or Fetch and analyze after you approve a link preview.",
+  },
+  {
+    title: "Read what was saved",
+    body: "Analyze, Findings, and Explain this restate engine progress and Evidence. Board and Build turn a behavior spec into a clean-room folder. A local explanation does not call a model and does not fill an unknown.",
+  },
+];
+
+function tourCard() {
+  const step = TOUR[state.tourStep] ?? TOUR[0];
+  return el(
+    "div",
+    { class: "palette", role: "dialog", "aria-label": "First-run tour" },
+    [
+      el("div", { class: "palette-card" }, [
+        el(
+          "p",
+          { class: "eyebrow" },
+          `Tour ${state.tourStep + 1} of ${TOUR.length}`,
+        ),
+        el("h2", {}, step.title),
+        el("p", {}, step.body),
+        el("div", { class: "top-actions" }, [
+          state.tourStep > 0
+            ? button("Back", () => {
+                state.tourStep -= 1;
+                draw();
+              })
+            : null,
+          state.tourStep < TOUR.length - 1
+            ? button(
+                "Next",
+                () => {
+                  state.tourStep += 1;
+                  draw();
+                },
+                { class: "primary" },
+              )
+            : button("Start on the front door", () => finishTour(), {
+                class: "primary",
+              }),
+          button("Skip tour", () => finishTour()),
+        ]),
+      ]),
+    ],
+  );
+}
+
+function finishTour() {
+  state.tour = false;
+  try {
+    localStorage.setItem("ree-studio-tour-v1", "done");
+  } catch {
+    /* private mode can refuse storage; the tour stays dismissed for this page */
+  }
+  draw();
+}
+
+function shortcutSheet() {
+  const rows = [
+    ["Ctrl or Cmd K", "Open the command list"],
+    ["?", "Open this shortcut list"],
+    ["Escape", "Close the command list, shortcuts, tour, or explanation"],
+    ["1", "Front door"],
+    ["2", "Analyze"],
+    ["3", "Findings"],
+    ["4", "Board"],
+    ["5", "Build"],
+    ["L", "Lessons"],
+    ["D", "Diff Lab"],
+    ["T", "Trace Lab"],
+  ];
+  return el(
+    "div",
+    { class: "palette", role: "dialog", "aria-label": "Keyboard shortcuts" },
+    [
+      el("div", { class: "palette-card" }, [
+        el("h2", {}, "Keyboard shortcuts"),
+        el(
+          "ul",
+          {},
+          rows.map(([key, action]) => el("li", {}, `${key}: ${action}`)),
+        ),
+        button("Close", () => {
+          state.shortcuts = false;
+          draw();
+        }),
+      ]),
+    ],
+  );
+}
+
+function typingTarget(target) {
+  const tag = target?.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable;
+}
+
 async function boot() {
   document.addEventListener("keydown", (event) => {
-    const meta = event.metaKey || event.ctrlKey;
-    if (meta && event.key.toLowerCase() === "k") {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
       event.preventDefault();
       state.palette = !state.palette;
       state.paletteQuery = "";
       draw();
-    } else if (event.key === "Escape" && state.palette) {
-      state.palette = false;
-      draw();
+      document.querySelector("#palette-input")?.focus();
+      return;
     }
+    if (event.key === "Escape") {
+      if (!state.palette && !state.shortcuts && !state.tour && !state.explain)
+        return;
+      const touring = state.tour;
+      state.palette = false;
+      state.shortcuts = false;
+      state.explain = null;
+      if (touring) finishTour();
+      else draw();
+      return;
+    }
+    if (typingTarget(event.target)) return;
+    if (event.key === "?") {
+      state.shortcuts = !state.shortcuts;
+      draw();
+      return;
+    }
+    const viewKeys = {
+      1: "door",
+      2: "analyze",
+      3: "findings",
+      4: "board",
+      5: "build",
+    };
+    if (event.key.toLowerCase() === "l") {
+      openView("lessons");
+      return;
+    }
+    if (event.key.toLowerCase() === "d") {
+      openView("diff-lab");
+      return;
+    }
+    if (event.key.toLowerCase() === "t") {
+      openView("trace-lab");
+      return;
+    }
+    if (viewKeys[event.key]) openView(viewKeys[event.key]);
   });
+  try {
+    state.tour = localStorage.getItem("ree-studio-tour-v1") !== "done";
+  } catch {
+    state.tour = false;
+  }
   const session = await api("/api/session");
   token = session.token;
   state.onboardingSeen = session.onboarding_seen === true;

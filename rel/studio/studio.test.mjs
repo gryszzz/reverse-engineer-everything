@@ -74,6 +74,62 @@ async function settle(projectId) {
   throw new Error("Studio work did not finish.");
 }
 
+test("an unapproved trace does not start capture-process", async () => {
+  const project = await api("/api/projects", {
+    method: "POST",
+    body: { name: "Trace", question: "What ran?", mode: "simple" },
+  });
+  await assert.rejects(
+    () =>
+      api(`/api/projects/${project.id}/trace`, {
+        method: "POST",
+        body: { approved: false },
+      }),
+    (error) => error.status === 403,
+  );
+  const after = await api(`/api/projects/${project.id}`);
+  assert.equal(after.trace, undefined);
+});
+
+test("diff lab leaves behavior unknown for two owned source files", async () => {
+  const project = await api("/api/projects", {
+    method: "POST",
+    body: { name: "Diff lab", question: "What changed?", mode: "simple" },
+  });
+  const root = fileURLToPath(
+    new URL("../../experiments/ree-investigation-boundary/", import.meta.url),
+  );
+  const left = await api(`/api/projects/${project.id}/artifacts`, {
+    method: "POST",
+    body: { path: `${root}authority.c` },
+  });
+  const right = await api(`/api/projects/${project.id}/artifacts`, {
+    method: "POST",
+    body: { path: `${root}candidate.c` },
+  });
+  const diff = await api(`/api/projects/${project.id}/diff-lab`, {
+    method: "POST",
+    body: {
+      left_artifact_id: left.artifacts.at(-1).id,
+      right_artifact_id: right.artifacts.at(-1).id,
+    },
+  });
+  assert.equal(diff.behavior.status, "unknown");
+  assert.equal(diff.functions.status, "unknown");
+  assert.match(diff.text.lines.join("\n"), /floor/);
+});
+
+test("lessons stay on owned fixtures and an unknown id is 404", async () => {
+  const catalog = await api("/api/lessons");
+  assert.equal(catalog.lessons.length, 4);
+  const lesson = await api("/api/lessons/compare-versions");
+  assert.match(lesson.steps[0].observation.note, /Behavior is unknown/);
+  await assert.rejects(
+    () => api("/api/lessons/nope"),
+    (error) => error.status === 404,
+  );
+});
+
 test("the studio binds only to loopback and serves its own page", async () => {
   assert.equal(studio.server.address().address, "127.0.0.1");
   const page = await fetch(studio.url);
@@ -86,6 +142,14 @@ test("the studio binds only to loopback and serves its own page", async () => {
   assert.equal(page.headers.get("access-control-allow-origin"), null);
   const hidden = await fetch(origin + "/README.md");
   assert.equal(hidden.status, 404);
+  const explain = await fetch(origin + "/explain.js");
+  assert.equal(explain.status, 200);
+  assert.match(await explain.text(), /local-template/);
+  const script = await fetch(origin + "/studio.js");
+  const source = await script.text();
+  assert.match(source, /What can I do with this\?/);
+  assert.match(source, /Explain this/);
+  assert.match(source, /Keyboard shortcuts/);
 });
 
 test("state-changing requests require the loopback token and JSON", async () => {
@@ -212,6 +276,23 @@ test("analysis without authorization is refused and a missing runtime is recorde
     /missing-tool/,
   );
   assert.equal((await api(`/api/projects/${project.id}`)).runs.length, 0);
+});
+
+test("model research without an env key does not call a provider", async () => {
+  if (process.env.REE_MODEL_API_KEY) return;
+  await api("/api/research", { method: "PUT", body: { enabled: true } });
+  const project = await api("/api/projects", {
+    method: "POST",
+    body: { name: "Model", question: "Where does this feature start?" },
+  });
+  const researched = await api(`/api/projects/${project.id}/research`, {
+    method: "POST",
+    body: { model: true },
+  });
+  const session = researched.research_sessions.at(-1);
+  assert.equal(session.remote_calls, "refused");
+  assert.equal(session.cost.status, "unknown");
+  await api("/api/research", { method: "PUT", body: { enabled: false } });
 });
 
 test("research is off by default and local stages do not claim a model ran", async () => {

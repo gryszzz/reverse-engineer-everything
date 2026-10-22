@@ -29,10 +29,16 @@ import {
 } from "../evidence-explorer.mjs";
 import { cancelStaticAnalysis, startStaticAnalysis } from "./analysis.mjs";
 import {
-  createBuild,
-  ingestOpportunity,
-  readOpportunityBoard,
-} from "./product-flow.mjs";
+  claimRows,
+  claimTimeline,
+  moduleComparisons,
+  planOwnedNativeProbe,
+  rebuildPlan,
+  rebuildTimeline,
+  spawnOwnedNativeProbe,
+  writeRebuild,
+} from "./rebuild.mjs";
+import { appendTimeline, readTimeline } from "./theater.mjs";
 import {
   compareEdgeIds,
   compareSummaries,
@@ -58,8 +64,23 @@ import {
   countStudioVerifications,
 } from "./readiness.mjs";
 import { renderStudioReport } from "./report.mjs";
+import { factsFromEvidence } from "./diff.mjs";
+import { diffArtifactPair } from "./diff-lab.mjs";
+import { lessonCatalog, renderLesson } from "./lessons.mjs";
 import { runLocalResearch } from "./research.mjs";
+import {
+  askWithEvidence,
+  completeWithFetch,
+  publicModelSettings,
+} from "./research-model.mjs";
 import { readRecordedSource } from "./source.mjs";
+import {
+  ownedTraceArgv,
+  ownedTraceScenario,
+  projectProcessCapture,
+  spawnOwnedTrace,
+  traceRuntimeReady,
+} from "./trace.mjs";
 
 const PUBLIC = fileURLToPath(new URL("./public/", import.meta.url));
 const FILES = new Map([
@@ -70,6 +91,7 @@ const FILES = new Map([
   ["/graph-view.js", ["graph-view.js", "text/javascript; charset=utf-8"]],
   ["/format.js", ["format.js", "text/javascript; charset=utf-8"]],
   ["/flow.js", ["flow.js", "text/javascript; charset=utf-8"]],
+  ["/explain.js", ["explain.js", "text/javascript; charset=utf-8"]],
 ]);
 const REMOTE_REASON =
   "Remote model calls are refused. No Evidence, source, or project text is uploaded.";
@@ -198,23 +220,29 @@ function researchPath(root) {
 
 function readResearchConfig(root) {
   const path = researchPath(root);
-  if (!existsSync(path))
+  if (!existsSync(path)) {
+    const model = publicModelSettings();
     return {
       enabled: false,
-      key_configured: false,
+      key_configured: model.configured,
       remote_calls: "refused",
       remote_reason: REMOTE_REASON,
+      model,
     };
+  }
   const stat = statSync(path);
   if (!stat.isFile() || stat.size > 65536)
     throw studioError("research.json must be a file of at most 64 KiB.");
   const parsed = JSON.parse(readFileSync(path, "utf8"));
+  const model = publicModelSettings();
   return {
     enabled: parsed.enabled === true,
     key_configured:
-      typeof parsed.api_key === "string" && parsed.api_key.length > 0,
+      model.configured ||
+      (typeof parsed.api_key === "string" && parsed.api_key.length > 0),
     remote_calls: "refused",
     remote_reason: REMOTE_REASON,
+    model,
   };
 }
 
@@ -360,6 +388,44 @@ function summaryOf(run) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
+function completedRun(project, artifactId) {
+  return [...project.runs]
+    .reverse()
+    .find(
+      (run) => run.artifact_id === artifactId && run.status === "completed",
+    );
+}
+
+function evidenceFor(run) {
+  if (!run?.output_dir) return null;
+  const path = join(run.output_dir, "evidence.json");
+  if (!existsSync(path) || statSync(path).size > 8_000_000) return null;
+  try {
+    return loadEvidence(path);
+  } catch {
+    return null;
+  }
+}
+
+function diffLab(project, body) {
+  const left = project.artifacts.find(
+    (artifact) => artifact.id === body.left_artifact_id,
+  );
+  const right = project.artifacts.find(
+    (artifact) => artifact.id === body.right_artifact_id,
+  );
+  if (!left || !right)
+    throw studioError("Choose two artifacts in this project.", 404);
+  if (left.id === right.id)
+    throw studioError("Choose two different artifacts.", 409);
+  return diffArtifactPair({
+    left: { path: left.path, label: left.intake?.label ?? left.path },
+    right: { path: right.path, label: right.intake?.label ?? right.path },
+    leftRecord: evidenceFor(completedRun(project, left.id)),
+    rightRecord: evidenceFor(completedRun(project, right.id)),
+  });
+}
+
 function projectDiff(project, leftId, rightId) {
   const left = requireRun(project, leftId);
   const right = requireRun(project, rightId);
@@ -404,10 +470,13 @@ async function handleApi(context) {
     );
     return { seen: true };
   }
-  if (method === "GET" && pathname === "/api/board")
+  if (method === "GET" && pathname === "/api/board") {
+    const { readOpportunityBoard } = await import("./product-flow.mjs");
     return readOpportunityBoard(store.root);
+  }
   if (method === "POST" && pathname === "/api/board") {
     try {
+      const { ingestOpportunity } = await import("./product-flow.mjs");
       return ingestOpportunity(store.root, body);
     } catch (error) {
       if (error?.status) throw error;
@@ -417,8 +486,18 @@ async function handleApi(context) {
       );
     }
   }
-  if (method === "POST" && pathname === "/api/builds")
+  if (method === "POST" && pathname === "/api/builds") {
+    const { createBuild } = await import("./product-flow.mjs");
     return createBuild(store.root, body);
+  }
+  if (method === "GET" && pathname === "/api/lessons")
+    return { lessons: lessonCatalog() };
+  const lessonMatch = pathname.match(/^\/api\/lessons\/([a-z0-9-]+)$/u);
+  if (method === "GET" && lessonMatch) {
+    const lesson = await renderLesson(lessonMatch[1]);
+    if (!lesson) throw studioError("Unknown lesson.", 404);
+    return lesson;
+  }
   if (method === "GET" && pathname === "/api/readiness")
     return assessStudioReadiness({
       verifiedCounts: countStudioVerifications(store),
@@ -551,6 +630,194 @@ async function handleApi(context) {
       throw studioError("That analysis is not running.", 409);
     return store.read(projectId);
   }
+  const timeline = rest.match(/^\/runs\/(run_[a-f0-9]{16})\/timeline$/u);
+  if (method === "GET" && timeline) {
+    const run = store
+      .read(projectId)
+      .runs.find((item) => item.id === timeline[1]);
+    if (!run) throw studioError("Unknown run.", 404);
+    return { events: readTimeline(run.output_dir) };
+  }
+  const rebuildPreview = rest.match(
+    /^\/runs\/(run_[a-f0-9]{16})\/rebuild\/preview$/u,
+  );
+  if (method === "POST" && rebuildPreview) {
+    const project = store.read(projectId);
+    const run = requireRun(project, rebuildPreview[1]);
+    const record = evidenceRecord(run);
+    const artifact = project.artifacts.find(
+      (item) => item.id === run.artifact_id,
+    );
+    return {
+      ...rebuildPlan(record, body.output),
+      comparisons: artifact ? moduleComparisons(record, artifact.path) : [],
+    };
+  }
+  const rebuildWrite = rest.match(/^\/runs\/(run_[a-f0-9]{16})\/rebuild$/u);
+  if (method === "POST" && rebuildWrite) {
+    if (body.approved !== true)
+      throw studioError(
+        "Check the box to write the reconstructed module map.",
+        403,
+      );
+    const run = requireRun(store.read(projectId), rebuildWrite[1]);
+    const written = writeRebuild(evidenceRecord(run), body.output, body.digest);
+    for (const event of rebuildTimeline(written))
+      appendTimeline(run.output_dir, event);
+    return written;
+  }
+  if (method === "POST" && rest === "/trace") {
+    if (body.approved !== true)
+      throw studioError("Check the box to run the owned process capture.", 403);
+    if (!traceRuntimeReady())
+      throw studioError(
+        "The built runtime is absent, so capture-process was not started.",
+        409,
+      );
+    const project = store.read(projectId);
+    if (project.trace?.status === "running")
+      throw studioError("A trace is already running.", 409);
+    const scenarioPath = join(store.root, "trace-scenario.json");
+    const scenario = ownedTraceScenario();
+    writeFileSync(scenarioPath, `${JSON.stringify(scenario, null, 2)}\n`);
+    const labels = [];
+    for (const run of project.runs) {
+      if (run.status !== "completed") continue;
+      const facts = factsFromEvidence(evidenceFor(run));
+      for (const file of facts.evidence_files ?? []) labels.push(file);
+    }
+    const startedAt = new Date().toISOString();
+    store.update(projectId, (current) => {
+      current.trace = {
+        status: "running",
+        separate_from_static_evidence: true,
+        started_at: startedAt,
+        finished_at: null,
+        argv: ownedTraceArgv(scenarioPath),
+        projection: null,
+        error: null,
+      };
+      return current;
+    });
+    const child = spawnOwnedTrace(scenarioPath, engineChildEnv());
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk) => {
+      if (stdout.length < 8_000_000) stdout += chunk;
+    });
+    child.stderr?.on("data", (chunk) => {
+      if (stderr.length < 8_000) stderr += chunk;
+    });
+    const timer = setTimeout(() => child.kill("SIGTERM"), 20_000);
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      let projection = null;
+      let error = null;
+      try {
+        const parsed = JSON.parse(stdout);
+        if (parsed?.error)
+          error =
+            typeof parsed.message === "string" ? parsed.message : parsed.error;
+        else projection = projectProcessCapture(parsed, labels);
+      } catch {
+        error = `Capture exited ${code} signal ${signal}. ${stderr.slice(0, 400)}`;
+      }
+      if (!projection && !error)
+        error = `Capture exited ${code} signal ${signal}.`;
+      store.update(projectId, (current) => {
+        current.trace = {
+          ...current.trace,
+          status: projection ? "completed" : "failed",
+          finished_at: new Date().toISOString(),
+          projection,
+          error,
+        };
+        return current;
+      });
+    });
+    return store.read(projectId);
+  }
+  if (method === "POST" && rest === "/native-probe") {
+    if (body.approved !== true)
+      throw studioError(
+        "Check the box to run the owned native reconstruction probe.",
+        403,
+      );
+    const project = store.read(projectId);
+    const artifact = project.artifacts.find(
+      (item) => item.id === body.artifact_id,
+    );
+    if (!artifact) throw studioError("Unknown artifact.", 404);
+    const plan = planOwnedNativeProbe(artifact.path, body.output);
+    if (project.native_probe?.status === "running")
+      throw studioError("A native probe is already running.", 409);
+    const timelineDir = project.runs.find(
+      (item) =>
+        item.artifact_id === artifact.id &&
+        item.status === "completed" &&
+        item.output_dir,
+    )?.output_dir;
+    const startedAt = new Date().toISOString();
+    store.update(projectId, (current) => {
+      current.native_probe = {
+        status: "running",
+        artifact_id: artifact.id,
+        output: plan.output,
+        argv: plan.argv,
+        started_at: startedAt,
+        finished_at: null,
+        claims: [],
+        note: plan.note,
+      };
+      return current;
+    });
+    if (timelineDir)
+      appendTimeline(timelineDir, {
+        source: "verify-reconstruction",
+        phase: "native-probe",
+        message: "Started the owned native reconstruction probe.",
+      });
+    const child = spawnOwnedNativeProbe(plan, { env: engineChildEnv() });
+    const timer = setTimeout(() => child.kill("SIGTERM"), 300000);
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      let claims = [];
+      let error = null;
+      try {
+        const summaryPath = join(plan.output, "summary.json");
+        if (existsSync(summaryPath))
+          claims = claimRows(JSON.parse(readFileSync(summaryPath, "utf8")));
+        else error = `Owned probe exited ${code} signal ${signal}.`;
+      } catch (cause) {
+        error =
+          cause instanceof Error
+            ? cause.message
+            : "Could not read the probe summary.";
+      }
+      if (timelineDir) {
+        for (const event of claimTimeline(claims))
+          appendTimeline(timelineDir, event);
+        if (error)
+          appendTimeline(timelineDir, {
+            source: "verify-reconstruction",
+            phase: "native-probe",
+            message: error,
+          });
+      }
+      store.update(projectId, (current) => {
+        if (!current.native_probe) return current;
+        current.native_probe = {
+          ...current.native_probe,
+          status: error ? "failed" : "completed",
+          finished_at: new Date().toISOString(),
+          claims,
+          error,
+        };
+        return current;
+      });
+    });
+    return store.read(projectId);
+  }
   const evidence = rest.match(/^\/runs\/(run_[a-f0-9]{16})\/evidence$/u);
   if (method === "GET" && evidence) {
     const run = requireRun(store.read(projectId), evidence[1]);
@@ -619,6 +886,8 @@ async function handleApi(context) {
       readRecordedSource(record, query.get("edge_id") ?? "", artifact.path),
     );
   }
+  if (method === "POST" && rest === "/diff-lab")
+    return diffLab(store.read(projectId), body);
   if (method === "GET" && rest === "/diff")
     return projectDiff(
       store.read(projectId),
@@ -648,7 +917,7 @@ async function handleApi(context) {
     const experiment =
       [...project.experiments].reverse().find((item) => item.observation) ??
       null;
-    const result = runLocalResearch({
+    let result = runLocalResearch({
       enabled: true,
       keyConfigured: config.key_configured,
       project,
@@ -656,6 +925,44 @@ async function handleApi(context) {
       diff,
       experiment,
     });
+    if (body.model === true) {
+      const evidenceIds =
+        typeof record?.evidence_id === "string" ? [record.evidence_id] : [];
+      const passages = result.stages
+        .flatMap((item) => item.facts)
+        .filter((fact) => typeof fact === "string")
+        .join("\n");
+      const model = await askWithEvidence({
+        question: project.question || "",
+        evidenceIds,
+        passages,
+        complete: completeWithFetch,
+      });
+      const stages = [...result.stages, ...model.stages];
+      result = {
+        ...result,
+        remote_calls: model.remote_calls,
+        remote_reason: model.remote_reason,
+        cost: model.cost,
+        stages,
+        facts: stages.flatMap((item) =>
+          item.facts.map((fact) => ({ stage: item.id, fact })),
+        ),
+        hypotheses: stages.flatMap((item) =>
+          item.hypotheses.map((hypothesis) => ({
+            stage: item.id,
+            hypothesis,
+          })),
+        ),
+        unknowns: stages.flatMap((item) =>
+          item.unknowns.map((unknown) => ({ stage: item.id, unknown })),
+        ),
+        tool_calls:
+          result.tool_calls +
+          model.stages.filter((item) => item.tool_call).length,
+        tool_call_budget: 16,
+      };
+    }
     if (result.tool_calls > result.tool_call_budget)
       throw studioError("Research exceeded its tool-call budget.", 409);
     const session = {

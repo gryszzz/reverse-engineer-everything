@@ -16,7 +16,11 @@ export function mountGraph(container, payload, onSelect) {
   if (!payload.edges || payload.edges.length === 0) {
     container.append(
       note,
-      el("p", { class: "empty" }, "This window has no recorded relationships."),
+      el(
+        "p",
+        { class: "empty" },
+        "This window has no recorded relationships. Widen the filter or load another Evidence run. Missing edges are omitted, not drawn.",
+      ),
     );
     return;
   }
@@ -69,10 +73,47 @@ export function mountGraph(container, payload, onSelect) {
     const label = svgEl("text", { x: 12, y: 27 });
     label.textContent = node.label.slice(0, 22);
     group.append(label);
+    group.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onSelect({
+        kind: "node",
+        id: node.id,
+        label: node.label,
+        node_kind: node.kind,
+        group: node.group,
+      });
+    });
     viewport.append(group);
   }
   svg.append(viewport);
-  frame.append(svg);
+  const minimap = svgEl("svg", {
+    viewBox: `0 0 ${width} ${height}`,
+    class: "minimap",
+    "aria-hidden": "true",
+  });
+  for (const edge of payload.edges) {
+    const from = pos.get(edge.source.id);
+    const to = pos.get(edge.target.id);
+    if (!from || !to) continue;
+    minimap.append(
+      svgEl("path", {
+        d: `M ${from.x + 150} ${from.y + 22} C ${from.x + 190} ${from.y + 22}, ${to.x - 40} ${to.y + 22}, ${to.x} ${to.y + 22}`,
+        class: "edge-line",
+      }),
+    );
+  }
+  for (const point of pos.values())
+    minimap.append(
+      svgEl("rect", {
+        x: point.x,
+        y: point.y,
+        width: 168,
+        height: 44,
+        rx: 8,
+        class: "node-shape",
+      }),
+    );
+  frame.append(svg, minimap);
   const table = el("table", { class: "data" });
   table.append(
     el("caption", {}, "Recorded relationships in this window"),

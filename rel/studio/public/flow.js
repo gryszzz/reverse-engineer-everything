@@ -4,9 +4,13 @@ export const primaryFlow = [
   ["findings", "Findings"],
   ["board", "Board"],
   ["build", "Build"],
+  ["lessons", "Lessons"],
+  ["diff-lab", "Diff Lab"],
+  ["trace-lab", "Trace Lab"],
 ];
 
 export const advancedLabs = [
+  ["rebuild", "Evidence rebuild"],
   ["overview", "Overview"],
   ["intake", "Intake"],
   ["readiness", "Readiness"],
