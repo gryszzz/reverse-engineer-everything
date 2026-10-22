@@ -18,9 +18,19 @@ export function el(tag, attrs = {}, children = []) {
 }
 
 export function statusClass(value) {
-  if (value === "completed" || value === "present" || value === "implemented")
+  if (
+    value === "completed" ||
+    value === "present" ||
+    value === "implemented" ||
+    value === "ready"
+  )
     return "ok";
-  if (value === "failed" || value === "missing" || value === "unsupported")
+  if (
+    value === "failed" ||
+    value === "missing" ||
+    value === "missing-tool" ||
+    value === "unsupported"
+  )
     return "bad";
   if (value === "running" || value === "recorded-in-this-studio") return "live";
   return "muted";

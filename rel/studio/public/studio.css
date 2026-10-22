@@ -276,6 +276,56 @@ dd {
   border-collapse: collapse;
   margin-top: 0.8rem;
 }
+.drop,
+.door-drop {
+  border: 1px dashed var(--cyan);
+  border-radius: 12px;
+  padding: 1rem;
+  margin: 0.8rem 0;
+  background: rgba(92, 225, 255, 0.05);
+}
+.door {
+  background:
+    linear-gradient(180deg, rgba(23, 28, 37, 0.96), rgba(16, 19, 24, 0.96))
+      padding-box,
+    linear-gradient(120deg, rgba(92, 225, 255, 0.85), rgba(185, 166, 255, 0.75))
+      border-box;
+  border: 1px solid transparent;
+  box-shadow:
+    0 0 0 1px rgba(92, 225, 255, 0.18),
+    0 22px 70px rgba(92, 225, 255, 0.08);
+}
+.eyebrow {
+  margin: 0 0 0.35rem;
+  color: var(--violet);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+}
+.door-drop {
+  min-height: 9rem;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  font-size: 1.35rem;
+  border-radius: 18px;
+  background: radial-gradient(
+    420px 140px at 50% 0%,
+    rgba(185, 166, 255, 0.18),
+    transparent 70%
+  );
+}
+.status-live[data-phase="running"],
+.status-live[data-phase="fetching"],
+.status-live[data-phase="copying"] {
+  color: var(--cyan);
+}
+.file-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  align-items: center;
+}
 .data th,
 .data td {
   border-bottom: 1px solid var(--line);
@@ -301,6 +351,25 @@ dd {
   .top {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .status-live[data-phase="running"]::before,
+  .status-live[data-phase="fetching"]::before,
+  .status-live[data-phase="copying"]::before {
+    content: "";
+    display: inline-block;
+    width: 0.55rem;
+    height: 0.55rem;
+    margin-right: 0.45rem;
+    border-radius: 50%;
+    background: var(--cyan);
+    animation: ree-pulse 1.2s ease-in-out infinite;
+  }
+}
+@keyframes ree-pulse {
+  50% {
+    opacity: 0.35;
   }
 }
 @media (prefers-reduced-motion: reduce) {
