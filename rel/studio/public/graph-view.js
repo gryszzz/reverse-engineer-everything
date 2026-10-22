@@ -16,7 +16,11 @@ export function mountGraph(container, payload, onSelect) {
   if (!payload.edges || payload.edges.length === 0) {
     container.append(
       note,
-      el("p", { class: "empty" }, "This window has no recorded relationships."),
+      el(
+        "p",
+        { class: "empty" },
+        "This window has no recorded relationships. Widen the filter or load another Evidence run. Missing edges are omitted, not drawn.",
+      ),
     );
     return;
   }
@@ -69,6 +73,16 @@ export function mountGraph(container, payload, onSelect) {
     const label = svgEl("text", { x: 12, y: 27 });
     label.textContent = node.label.slice(0, 22);
     group.append(label);
+    group.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onSelect({
+        kind: "node",
+        id: node.id,
+        label: node.label,
+        node_kind: node.kind,
+        group: node.group,
+      });
+    });
     viewport.append(group);
   }
   svg.append(viewport);

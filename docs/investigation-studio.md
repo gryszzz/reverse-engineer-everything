@@ -95,7 +95,15 @@ The studio can run the existing engine commands for JavaScript and ASAR, PE reso
 
 **Research** is off until you enable it. The stages SCOUT, MAPPER, TRACER, ANALYST, DIFF, VERIFIER, and REPORTER restate intake, Evidence summaries, and saved comparisons. Remote model calls stay refused even if `research.json` contains a key. The key is not shown in the UI and is not sent anywhere by this build.
 
+## Explain this and the first run
+
+Click **Explain this** on a finding, a theater module, or a graph node. The text is a local template. It quotes the stored label, relationship, and Evidence id, and it lists what is unknown. It does not call a model. A sentence with no Evidence id is withheld from the facts list.
+
+The first visit shows a three-step tour. `?` opens shortcuts. `1` through `4` jump to the front door, theater, rebuild, and findings when focus is not in a field. After a drop or a saved project with artifacts, **What can I do with this?** lists the ready routes and says which views restate Evidence. Simple Mode, the first ready route, research off, and authorization off are the defaults.
+
 ## Limits
+
+- Explain this does not describe runtime behavior and does not invent a function body.
 
 - One static analysis at a time in a data directory, with a three-minute timeout.
 - Evidence browsing follows the existing 64 MiB explorer limit.

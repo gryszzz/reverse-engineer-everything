@@ -1,3 +1,4 @@
+import { explainSubject } from "./explain.js";
 import { el, statusClass } from "./format.js";
 import { advancedLabs, navigation, primaryFlow } from "./flow.js";
 import { mountGraph } from "./graph-view.js";
@@ -31,6 +32,11 @@ const state = {
   board: null,
   build: null,
   onboardingSeen: true,
+  explain: null,
+  tour: false,
+  tourStep: 0,
+  shortcuts: false,
+  capabilities: false,
 };
 
 function visibleViews() {
@@ -173,6 +179,10 @@ function shell() {
           state.paletteQuery = "";
           draw();
         }),
+        button("Shortcuts", () => {
+          state.shortcuts = true;
+          draw();
+        }),
         button(advanced ? "Advanced" : "Simple", async () => {
           if (!state.project) return;
           state.project = await api(`/api/projects/${state.project.id}`, {
@@ -229,9 +239,12 @@ function shell() {
         onboardingCard(),
         flowStepper(),
         panel(),
+        explainCard(),
       ]),
     ]),
     state.palette ? palette() : null,
+    state.shortcuts ? shortcutSheet() : null,
+    state.tour ? tourCard() : null,
   );
 }
 
@@ -319,6 +332,11 @@ function doorPanel() {
     ),
     el(
       "p",
+      { class: "note" },
+      "Simple Mode is the default. The first ready route is selected for you. Authorization stays off until you tick it. Research stays off.",
+    ),
+    el(
+      "p",
       { class: "status-live", role: "status", "data-phase": state.phase },
       phaseText(),
     ),
@@ -351,6 +369,7 @@ function doorPanel() {
             : null,
         ])
       : null,
+    state.capabilities && artifact ? capabilitiesPanel(artifact) : null,
     el("label", { class: "check" }, [
       checkbox,
       state.linkPlan
@@ -365,6 +384,46 @@ function doorPanel() {
     mode() === "advanced"
       ? button("Use the owned JavaScript fixture", () => addOwned())
       : null,
+  ]);
+}
+
+function capabilitiesPanel(artifact) {
+  const routes = artifact.intake?.routes ?? [];
+  const ready = routes.filter((route) => route.status === "ready");
+  const blocked = routes.filter((route) => route.status !== "ready");
+  const lines = [
+    ready.length
+      ? `Run ${ready.map((route) => route.label).join(", ")}. That route reads the target. It does not launch it.`
+      : "No route is ready. Open Readiness in Advanced Mode to see which tool is missing. The studio will not invent a result.",
+  ];
+  if (
+    artifact.intake?.kind === "javascript" ||
+    ready.some((route) => /javascript/i.test(route.label))
+  )
+    lines.push(
+      "After a JavaScript analysis, Analyze replays the engine’s progress and Findings lists saved sentences.",
+    );
+  lines.push(
+    "Choose Explain this on a finding, module, or graph node. With no model configured, the text is a local template over stored fields.",
+  );
+  lines.push(
+    "Evidence rebuild, under Advanced and after a JavaScript Evidence run, writes a module map. It does not copy source. Build, on the simple path, scaffolds a new folder from a behavior spec.",
+  );
+  if (blocked.length)
+    lines.push(
+      `${blocked.length} route${blocked.length === 1 ? " is" : "s are"} not ready on this machine.`,
+    );
+  return el("article", { class: "card capabilities", id: "capabilities" }, [
+    el("h3", {}, "What can I do with this?"),
+    el(
+      "ul",
+      {},
+      lines.map((line) => el("li", {}, line)),
+    ),
+    button("Hide this panel", () => {
+      state.capabilities = false;
+      draw();
+    }),
   ]);
 }
 
@@ -654,6 +713,16 @@ function theaterPanel() {
             el("li", {}, [
               el("span", { class: "phase" }, event.phase),
               el("span", {}, event.message),
+              event.phase === "module" && event.file
+                ? button("Explain this", () =>
+                    showExplain({
+                      kind: "module",
+                      label: event.file,
+                      node_kind: "javascript-module",
+                      evidence_id: stats.evidence,
+                    }),
+                  )
+                : null,
             ]),
           ),
         )
@@ -663,7 +732,13 @@ function theaterPanel() {
             { class: "empty" },
             "This run has no recorded engine progress lines.",
           )
-        : null,
+        : state.project
+          ? el(
+              "p",
+              { class: "empty" },
+              "The theater is empty because no analysis has written progress yet. Use the front door: drop a target, tick authorization, and press Analyze. A line appears only when the engine emits it.",
+            )
+          : null,
     processEvents.length
       ? el(
           "ol",
@@ -673,7 +748,9 @@ function theaterPanel() {
       : run && events.length === 0
         ? el("p", { class: "empty" }, "This run has no recorded engine events.")
         : null,
-    button("Replay recorded timeline", () => replayTimeline()),
+    button("Replay recorded timeline", () => replayTimeline(), {
+      class: "primary",
+    }),
   ]);
 }
 
@@ -735,6 +812,17 @@ function theaterSvg(graph) {
     label.setAttribute("x", "28");
     label.setAttribute("y", String(y + 21));
     label.textContent = file;
+    const open = () =>
+      showExplain({
+        kind: "module",
+        label: file,
+        node_kind: "javascript-module",
+        evidence_id:
+          state.timeline.find((event) => event.phase === "evidence")
+            ?.evidence_id ?? null,
+      });
+    rect.addEventListener("click", open);
+    label.addEventListener("click", open);
     svg.append(rect, label);
   });
   for (const edge of graph.edges) {
@@ -874,8 +962,10 @@ function rebuildPanel() {
       approved,
       "I approve writing this reconstructed map into the folder above.",
     ]),
-    button("Write rebuild and run the map test", () =>
-      runRebuild(output.value, approved.checked),
+    button(
+      "Write rebuild and run the map test",
+      () => runRebuild(output.value, approved.checked),
+      { class: "primary" },
     ),
     state.rebuildResult
       ? el(
@@ -1025,7 +1115,21 @@ function findingsPanel() {
     ),
     run
       ? runCard(run)
-      : el("p", { class: "empty" }, "No completed analysis yet."),
+      : el(
+          "p",
+          { class: "empty" },
+          "No completed analysis yet. Drop a target on the front door, authorize it, and press Analyze. A finding appears only after Evidence is saved.",
+        ),
+    run
+      ? null
+      : button(
+          "Go to the front door",
+          () => {
+            state.view = "door";
+            draw();
+          },
+          { class: "primary" },
+        ),
     holder,
     state.edge ? edgeDetail() : null,
     state.source ? sourceDetail() : null,
@@ -1130,9 +1234,7 @@ function intakePanel() {
       field("File", file),
       field("Folder", folder),
     ]),
-    button("Use the owned JavaScript fixture", () => addOwned(), {
-      class: "primary",
-    }),
+    button("Use the owned JavaScript fixture", () => addOwned()),
     field("Path you are authorized to inspect", path),
     button("Classify path", () => addPath(path.value)),
     el("div", { class: "stack" }, state.project.artifacts.map(artifactCard)),
@@ -1217,6 +1319,16 @@ function runCard(run) {
           "span",
           { class: "note" },
           `${statement.evidence_id} · ${statement.path}`,
+        ),
+        " ",
+        button("Explain this", () =>
+          showExplain({
+            kind: "finding",
+            text: statement.text,
+            evidence_id: statement.evidence_id,
+            path: statement.path,
+            unknowns: run.narrative?.unknowns ?? [],
+          }),
         ),
       ]),
     );
@@ -1331,7 +1443,11 @@ function evidencePanel() {
     }),
     state.evidence
       ? evidenceResult(state.evidence)
-      : el("p", { class: "empty" }, "No Evidence window loaded."),
+      : el(
+          "p",
+          { class: "empty" },
+          "No Evidence window is loaded. Search after a completed run. A hit is a recorded relationship, not a new analysis.",
+        ),
   ]);
 }
 
@@ -1406,6 +1522,13 @@ function graphPanel() {
     button("Load window", () => loadGraph(find.value, basis.value), {
       class: "primary",
     }),
+    state.graph
+      ? null
+      : el(
+          "p",
+          { class: "empty" },
+          "No graph window is loaded. Load one after a completed run. The map shows stored relationships only.",
+        ),
     holder,
     state.edge ? edgeDetail() : null,
     state.source ? sourceDetail() : null,
@@ -1595,6 +1718,7 @@ async function loadProjects() {
 async function openProject(id) {
   state.project = await api(`/api/projects/${id}`);
   state.view = mode() === "advanced" ? "overview" : "door";
+  state.capabilities = state.project.artifacts.length > 0;
   state.error = "";
   draw();
   await refreshProject();
@@ -1623,6 +1747,7 @@ async function addOwned() {
     },
   );
   state.notice = "Owned fixture classified. No analysis has run.";
+  state.capabilities = true;
   draw();
 }
 
@@ -1632,6 +1757,7 @@ async function addPath(path) {
     body: { path },
   });
   state.notice = "Path classified. No analysis has run.";
+  state.capabilities = true;
   draw();
 }
 
@@ -1667,6 +1793,7 @@ async function dropped(fileList) {
   state.phase = "idle";
   state.notice =
     "Drop copied into the studio data directory and classified. No analysis has run.";
+  state.capabilities = true;
   draw();
 }
 
@@ -1708,6 +1835,7 @@ async function frontDoorRun() {
     });
     state.linkInput = "";
     state.linkPlan = null;
+    state.capabilities = true;
   }
   state.phase = "running";
   await analyze(state.project.question || "");
@@ -1800,9 +1928,25 @@ async function loadGraph(find, basis) {
 }
 
 async function selectEdge(edge) {
+  if (edge?.kind === "node") {
+    const nodeKind = edge.node_kind ?? null;
+    showExplain({
+      kind: nodeKind === "javascript-module" ? "module" : "node",
+      id: edge.id,
+      label: edge.label,
+      node_kind: nodeKind,
+      group: edge.group,
+      evidence_id: latestRun()?.evidence_id ?? null,
+    });
+    return;
+  }
   state.edge = edge;
   state.source = null;
-  draw();
+  showExplain({
+    ...edge,
+    kind: "edge",
+    evidence_id: latestRun()?.evidence_id ?? null,
+  });
 }
 
 async function loadSource(edgeId) {
@@ -1883,6 +2027,147 @@ function draw() {
   }
 }
 
+function showExplain(subject) {
+  state.explain = explainSubject(subject);
+  draw();
+}
+
+function explainCard() {
+  const item = state.explain;
+  if (!item) return null;
+  return el("aside", { class: "explain", "aria-label": "Explanation" }, [
+    el("h3", {}, item.title),
+    el("p", { class: "note" }, "Local template. No model was called."),
+    el("p", {}, item.text),
+    explainList("Facts", item.facts, "No stored fact was attached."),
+    explainList(
+      "Hypotheses",
+      item.hypotheses,
+      "None. A template does not guess.",
+    ),
+    explainList("Unknowns", item.unknowns, "None recorded."),
+    item.evidence_ids.length
+      ? el("p", { class: "note" }, `Evidence: ${item.evidence_ids.join(", ")}`)
+      : el("p", { class: "note" }, "No Evidence id."),
+    button("Close explanation", () => {
+      state.explain = null;
+      draw();
+    }),
+  ]);
+}
+
+function explainList(title, items, empty) {
+  return el("div", {}, [
+    el("h4", {}, title),
+    el(
+      "ul",
+      {},
+      (items.length ? items : [empty]).map((line) => el("li", {}, line)),
+    ),
+  ]);
+}
+
+const TOUR = [
+  {
+    title: "Drop a target",
+    body: "The front door copies a file, folder, or an approved link into this studio. Nothing is analyzed until you tick authorization.",
+  },
+  {
+    title: "One primary action",
+    body: "Each screen has one filled button. Here it is Analyze, or Fetch and analyze after you approve a link preview.",
+  },
+  {
+    title: "Read what was saved",
+    body: "Analyze, Findings, and Explain this restate engine progress and Evidence. Board and Build turn a behavior spec into a clean-room folder. A local explanation does not call a model and does not fill an unknown.",
+  },
+];
+
+function tourCard() {
+  const step = TOUR[state.tourStep] ?? TOUR[0];
+  return el(
+    "div",
+    { class: "palette", role: "dialog", "aria-label": "First-run tour" },
+    [
+      el("div", { class: "palette-card" }, [
+        el(
+          "p",
+          { class: "eyebrow" },
+          `Tour ${state.tourStep + 1} of ${TOUR.length}`,
+        ),
+        el("h2", {}, step.title),
+        el("p", {}, step.body),
+        el("div", { class: "top-actions" }, [
+          state.tourStep > 0
+            ? button("Back", () => {
+                state.tourStep -= 1;
+                draw();
+              })
+            : null,
+          state.tourStep < TOUR.length - 1
+            ? button(
+                "Next",
+                () => {
+                  state.tourStep += 1;
+                  draw();
+                },
+                { class: "primary" },
+              )
+            : button("Start on the front door", () => finishTour(), {
+                class: "primary",
+              }),
+          button("Skip tour", () => finishTour()),
+        ]),
+      ]),
+    ],
+  );
+}
+
+function finishTour() {
+  state.tour = false;
+  try {
+    localStorage.setItem("ree-studio-tour-v1", "done");
+  } catch {
+    /* private mode can refuse storage; the tour stays dismissed for this page */
+  }
+  draw();
+}
+
+function shortcutSheet() {
+  const rows = [
+    ["Ctrl or Cmd K", "Open the command list"],
+    ["?", "Open this shortcut list"],
+    ["Escape", "Close the command list, shortcuts, tour, or explanation"],
+    ["1", "Front door"],
+    ["2", "Analyze"],
+    ["3", "Findings"],
+    ["4", "Board"],
+    ["5", "Build"],
+  ];
+  return el(
+    "div",
+    { class: "palette", role: "dialog", "aria-label": "Keyboard shortcuts" },
+    [
+      el("div", { class: "palette-card" }, [
+        el("h2", {}, "Keyboard shortcuts"),
+        el(
+          "ul",
+          {},
+          rows.map(([key, action]) => el("li", {}, `${key}: ${action}`)),
+        ),
+        button("Close", () => {
+          state.shortcuts = false;
+          draw();
+        }),
+      ]),
+    ],
+  );
+}
+
+function typingTarget(target) {
+  const tag = target?.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable;
+}
+
 async function boot() {
   document.addEventListener("keydown", (event) => {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -1891,11 +2176,39 @@ async function boot() {
       state.paletteQuery = "";
       draw();
       document.querySelector("#palette-input")?.focus();
-    } else if (event.key === "Escape" && state.palette) {
-      state.palette = false;
-      draw();
+      return;
     }
+    if (event.key === "Escape") {
+      if (!state.palette && !state.shortcuts && !state.tour && !state.explain)
+        return;
+      const touring = state.tour;
+      state.palette = false;
+      state.shortcuts = false;
+      state.explain = null;
+      if (touring) finishTour();
+      else draw();
+      return;
+    }
+    if (typingTarget(event.target)) return;
+    if (event.key === "?") {
+      state.shortcuts = !state.shortcuts;
+      draw();
+      return;
+    }
+    const viewKeys = {
+      1: "door",
+      2: "analyze",
+      3: "findings",
+      4: "board",
+      5: "build",
+    };
+    if (viewKeys[event.key]) openView(viewKeys[event.key]);
   });
+  try {
+    state.tour = localStorage.getItem("ree-studio-tour-v1") !== "done";
+  } catch {
+    state.tour = false;
+  }
   const session = await api("/api/session");
   token = session.token;
   state.onboardingSeen = session.onboarding_seen === true;
