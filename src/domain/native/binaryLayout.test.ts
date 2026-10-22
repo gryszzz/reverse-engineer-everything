@@ -360,3 +360,62 @@ it.each([
     ].includes(problem),
   );
 });
+
+it("defaults omitted string literals to an empty inventory", () => {
+  expect(binaryLayoutSchema.parse(report()).strings).toEqual([]);
+});
+
+it("keeps a file-backed string literal whose range includes the NUL", () => {
+  const value = report();
+  const section = value.sections[0];
+  if (section === undefined) throw new Error("section missing");
+  const parsed = binaryLayoutSchema.parse({
+    ...value,
+    sections: [
+      ...value.sections,
+      {
+        ...section,
+        index: 1,
+        name: { ...section.name, display: ".rodata" },
+        type: "SHT_PROGBITS",
+        header_location: { offset: "0x40", bytes: "0x40" },
+        address: "0x0",
+        offset: "0x10",
+        size: "0x10",
+        file_backing: "file",
+      },
+    ],
+    strings: [
+      {
+        section_index: 1,
+        value: "abcd",
+        encoding: "utf-8",
+        location: { offset: "0x10", bytes: "0x5" },
+      },
+    ],
+  });
+  expect(parsed.strings[0]?.value).toBe("abcd");
+});
+
+it("rejects a string literal that drops the terminating NUL", () => {
+  const value = report();
+  const section = value.sections[0];
+  if (section === undefined) throw new Error("section missing");
+  section.file_backing = "file";
+  section.type = "SHT_PROGBITS";
+  section.offset = "0x10";
+  section.size = "0x10";
+  expect(
+    binaryLayoutSchema.safeParse({
+      ...value,
+      strings: [
+        {
+          section_index: 0,
+          value: "abcd",
+          encoding: "utf-8",
+          location: { offset: "0x10", bytes: "0x4" },
+        },
+      ],
+    }).success,
+  ).toBe(false);
+});

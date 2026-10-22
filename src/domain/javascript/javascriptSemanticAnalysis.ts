@@ -10,6 +10,7 @@ import {
 import {
   collectSemanticModuleLink,
   collectSemanticCallable,
+  dynamicImportSpecifier,
   semanticImportEqualsSpecifier,
   collectSemanticReferences,
   collectSemanticReferencesSteps,
@@ -1190,6 +1191,8 @@ const bindPattern = (input: BindPatternInput): void => {
         });
       return;
     }
+    const importedSpecifier =
+      projection.length === 0 ? dynamicImportSpecifier(initializer) : null;
     addBinding({
       state,
       scope,
@@ -1199,6 +1202,16 @@ const bindPattern = (input: BindPatternInput): void => {
       definitionNode: pattern,
       initializer,
       projection,
+      ...(importedSpecifier === null
+        ? {}
+        : {
+            directOrigin: {
+              specifier: importedSpecifier,
+              importedPath: [],
+              resolutionMode: "import" as const,
+            },
+            runtimeImport: true,
+          }),
     });
     return;
   }

@@ -71,6 +71,13 @@ import {
 import type { JavaScriptSemanticFileProjection } from "../../domain/javascript/javascriptSemanticFileProjection.js";
 import type { ElectronCallPath } from "../../domain/javascript/electronStaticAnalysisTypes.js";
 import { projectElectronSemanticCallPaths } from "./JavaScriptSemanticGraphElectronProjection.js";
+import { projectSemanticBehaviors } from "./JavaScriptSemanticGraphBehaviors.js";
+import {
+  exportedNamesForCallable,
+  importedCallProperties,
+  linkImportedSemanticCalls,
+  projectSameFileCalls,
+} from "./JavaScriptSemanticGraphCallLinking.js";
 
 interface BuilderInput {
   readonly rootArtifactSha256: string;
@@ -237,6 +244,7 @@ export const createJavaScriptSemanticGraphProjection = (
     rootArtifactSha256: string,
     applicationGraph: BuilderInput["applicationGraph"],
   ): Value => {
+    linkImportedSemanticCalls(state);
     bindSemanticGraphApplicationNodes(state, applicationGraph);
     if (state.roots.size === 0) addFallbackRoot(rootArtifactSha256, state);
     const relations = [...state.relations.values()];
@@ -310,6 +318,8 @@ export const createJavaScriptSemanticGraphProjection = (
         "Request extraction covers fetch, WebSocket, node:http/node:https construction, direct option fields, and exact local response consumers.",
         "Boundary extraction covers unshadowed JSON/global coercions plus parse and validation method candidates.",
         "Resource extraction covers built-in filesystem/network acquisition and exact local close/destroy/end handles.",
+        "Imported calls are linked only when one resolved module exports that name. Class method calls require a unique method on the enclosing class or on the class constructed into the receiver.",
+        "Behavior facts are inferred from direct returns, property reads, and known I/O, network, storage, and process calls. They are not observations and do not prove a branch executes.",
       ],
     });
     state.nodes.clear();
@@ -468,6 +478,7 @@ function* projectFileSteps(
   const callableNodes = new Map<string, JavaScriptSemanticGraphNode>();
   for (const [index, callable] of ir.callables.entries()) {
     if (index % 64 === 0) yield;
+    const exportedNames = exportedNamesForCallable(callable.callableId, ir);
     const node = retainNode(state, file, {
       kind: "function",
       roleKey: `callable:${callable.callableId}`,
@@ -475,7 +486,12 @@ function* projectFileSteps(
       label: callable.name,
       functionNodeId: null,
       // The label is display text; keep the exact name, which may be "".
-      properties: { name: callable.name },
+      properties: {
+        name: callable.name,
+        ...(exportedNames.length === 0
+          ? {}
+          : { exported_names: exportedNames }),
+      },
     });
     if (node !== null) callableNodes.set(callable.callableId, node);
   }
@@ -595,6 +611,7 @@ function* createCallSiteNodes(
       location: call.location,
       label: call.kind,
       functionNodeId: owner,
+      properties: importedCallProperties(call, ir),
     });
     if (node !== null) result.set(call.callSiteId, node);
   }
@@ -724,6 +741,7 @@ const projectCalls = (context: FileContext): void => {
       resolution: context.callResolutions.get(flow.callSiteId) ?? "candidate",
     });
   projectSemanticReturnValues(context);
+  projectSameFileCalls(context);
 };
 
 const createArgumentNode = (
@@ -759,4 +777,5 @@ const FILE_PROJECTION_PASSES: readonly ((
   projectSemanticResources,
   projectSemanticClosureCaptures,
   projectSemanticFrontiers,
+  projectSemanticBehaviors,
 ];

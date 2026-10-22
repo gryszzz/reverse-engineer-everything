@@ -27,6 +27,7 @@ import { range } from "./javascriptStaticAnalysisHelpers.js";
 import {
   propertyName,
   semanticStaticPropertyKey,
+  unwrapJavaScriptExpression,
 } from "./javascriptAstValues.js";
 import {
   isTypeOnlyExportDeclaration,
@@ -70,6 +71,22 @@ export const collectSemanticCallable = (input: CollectCallableInput): void => {
   state.callableNodesById.set(callableId, node);
 };
 
+/**
+ * Specifier of a direct `import("...")` binding, including one `await`.
+ * A computed source is not a specifier.
+ */
+export const dynamicImportSpecifier = (
+  node: t.Node | null | undefined,
+): string | null => {
+  if (node == null) return null;
+  const awaited = t.isAwaitExpression(node) ? node.argument : node;
+  const expression = unwrapJavaScriptExpression(awaited).node;
+  return t.isImportExpression(expression) &&
+    t.isStringLiteral(expression.source)
+    ? expression.source.value
+    : null;
+};
+
 /** Collect one static import/export relationship for later composition. */
 export const collectSemanticModuleLink = (
   node: t.Node,
@@ -77,6 +94,7 @@ export const collectSemanticModuleLink = (
 ): void => {
   if (t.isTSImportEqualsDeclaration(node)) collectImportEquals(node, state);
   else if (t.isImportDeclaration(node)) collectImports(node, state);
+  else if (t.isImportExpression(node)) collectDynamicImport(node, state);
   else if (t.isExportAllDeclaration(node))
     addModuleLink(
       state,
@@ -290,6 +308,27 @@ const callableName = (node: t.Node, parent: t.Node | null): string | null => {
   )
     return parent.id.name;
   return null;
+};
+
+const collectDynamicImport = (
+  node: t.ImportExpression,
+  state: JavaScriptSemanticAnalysisState,
+): void => {
+  const specifier = dynamicImportSpecifier(node);
+  if (specifier === null) return;
+  addModuleLink(
+    state,
+    {
+      kind: "import",
+      specifier,
+      importedName: "*",
+      localName: null,
+      exportedName: null,
+      resolutionMode: "import",
+      location: range(node),
+    },
+    node,
+  );
 };
 
 const collectImports = (

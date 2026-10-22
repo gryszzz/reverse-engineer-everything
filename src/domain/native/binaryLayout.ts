@@ -186,6 +186,20 @@ const binaryLayoutObjectSchema = z.strictObject({
     stderr: z.string(),
     truncated: z.boolean(),
   }),
+  /**
+   * NUL-terminated printable ASCII from file-backed data sections.
+   * Absent on older payloads, where it means the inventory was not produced.
+   */
+  strings: z
+    .array(
+      z.strictObject({
+        section_index: index,
+        value: z.string().regex(/^[\u0020-\u007e]{1,256}$/),
+        encoding: z.literal("utf-8"),
+        location: range,
+      }),
+    )
+    .default([]),
   limitations: z.array(z.string()),
 });
 
@@ -264,6 +278,24 @@ export const binaryLayoutSchema = binaryLayoutObjectSchema.superRefine(
       checkName(section.name, ["sections", index, "name"]);
       if (section.file_backing === "file")
         check(section.offset, section.size, ["sections", index]);
+    }
+    for (const [index, literal] of (value.strings ?? []).entries()) {
+      const section = value.sections[literal.section_index];
+      if (section === undefined || section.file_backing !== "file")
+        context.addIssue({
+          code: "custom",
+          path: ["strings", index, "section_index"],
+          message:
+            "String literals must come from a file-backed section in this image.",
+        });
+      checkLocation(literal.location, ["strings", index, "location"]);
+      if (BigInt(literal.location.bytes) !== BigInt(literal.value.length + 1))
+        context.addIssue({
+          code: "custom",
+          path: ["strings", index, "location", "bytes"],
+          message:
+            "String literal range includes the terminating NUL and excludes nothing else.",
+        });
     }
     for (const [index, segment] of value.segments.entries()) {
       if (segment.index !== index)

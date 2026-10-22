@@ -48,13 +48,19 @@ function analyze(target, outDir) {
   return readJson(join(outDir, "evidence.json"));
 }
 
-function compileElf(source, destination) {
+function compileElf(source, destination, stripSymbols = false) {
   const child = spawnSync(
     "gcc",
     ["-nostdlib", "-static", "-O0", "-Wl,-e,entry", "-o", destination, source],
     { encoding: "utf8" },
   );
   requireOk(child, "gcc");
+  if (stripSymbols) {
+    const stripped = spawnSync("strip", ["--strip-all", destination], {
+      encoding: "utf8",
+    });
+    requireOk(stripped, "strip");
+  }
   return destination;
 }
 
@@ -148,6 +154,7 @@ async function runCase(spec, thresholds) {
       const binary = compileElf(
         join(repoRoot, spec.source),
         join(work, "fixture"),
+        spec.strip === true,
       );
       const inspected = inspectElf(binary);
       if (inspected.blocked) {

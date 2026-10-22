@@ -57,7 +57,8 @@ for exact upstream profiles, bounds and verification coverage.
 ## Offline ELF layout
 
 Use `inspect_binary_layout` with an explicit local ELF path for file-backed
-sections, symbols, relocations, linkage names, and static mitigation inferences
+sections, symbols, relocations, linkage names, static mitigation inferences,
+and bounded `.rodata` / `.data` string literals
 without opening a disassembler target. When that complete record is already
 retained, call `inspect_analysis_view` for a summary, mitigations or linkage
 facet, one section or symbol, or a stable page. Do not re-run the decoder to

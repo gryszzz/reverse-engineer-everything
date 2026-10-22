@@ -149,6 +149,7 @@ const layoutSummary = (layout: BinaryLayout) => ({
     segments: layout.segments.length,
     symbols: layout.symbols.length,
     relocations: layout.relocations.length,
+    strings: layout.strings.length,
   },
   limitation_count: layout.limitations.length,
 });

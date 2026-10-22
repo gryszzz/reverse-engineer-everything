@@ -94,6 +94,73 @@ def symbol_value_meaning(raw, image_type, sections):
     return "linked-virtual-address"
 
 
+# Printable ASCII only. The bound is part of the report, not a claim that
+# longer, non-ASCII, or unscanned literals are absent.
+MAX_STRING_LITERALS = 256
+MAX_STRING_LITERAL_LENGTH = 256
+MIN_STRING_LITERAL_LENGTH = 4
+MAX_STRING_LITERAL_SCAN = 1024 * 1024
+STRING_LITERAL_BOUND = (
+    "NUL-terminated printable ASCII literals of 4 to 256 bytes are read from "
+    "file-backed .rodata, .rodata.*, and .data, at most 256 strings and 1 MiB "
+    "per section. Symbol names and other sections are not string literals."
+)
+STRING_LITERAL_OMISSION = (
+    "Additional string literals were omitted by the length, count, or scan "
+    "bound and are not claimed absent."
+)
+
+
+def section_holds_string_literals(display):
+    return (
+        display == ".rodata"
+        or display.startswith(".rodata.")
+        or display == ".data"
+    )
+
+
+def collect_string_literals(content, spans):
+    """Bounded NUL-terminated literals. `spans` are (section index, file offset, size)."""
+    literals = []
+    omitted = False
+    length = len(content)
+    for index, offset, size in spans:
+        if size > MAX_STRING_LITERAL_SCAN:
+            omitted = True
+        scan_end = offset + min(size, MAX_STRING_LITERAL_SCAN)
+        cursor = offset
+        while cursor < scan_end:
+            if len(literals) >= MAX_STRING_LITERALS:
+                omitted = True
+                return literals, True
+            byte = content[cursor]
+            if byte < 0x20 or byte > 0x7E:
+                cursor += 1
+                continue
+            end = cursor + 1
+            while end < scan_end and 0x20 <= content[end] <= 0x7E:
+                end += 1
+            if end >= scan_end or content[end] != 0:
+                # No terminator inside the scanned window: do not invent a literal.
+                if end >= scan_end:
+                    omitted = True
+                    break
+                cursor = end + 1
+                continue
+            literal_length = end - cursor
+            if literal_length > MAX_STRING_LITERAL_LENGTH:
+                omitted = True
+            elif literal_length >= MIN_STRING_LITERAL_LENGTH:
+                literals.append({
+                    "section_index": index,
+                    "value": content[cursor:end].decode("ascii"),
+                    "encoding": "utf-8",
+                    "location": location(cursor, literal_length + 1, length),
+                })
+            cursor = end + 1
+    return literals, omitted
+
+
 def relocation_target(image_type, section_index, offset, sections):
     if image_type != "ET_REL":
         return {"kind": "linked-virtual-address", "address": address(offset)}
@@ -176,7 +243,7 @@ def inspect_elf(path, cache):
             all_sections = list(image.iter_sections())
             shstrings = image.get_section(section_name_index) if all_sections and section_name_index != 0 else None
             sections, segments, symbols, relocations, packed_relatives = [], [], [], [], []
-            needed, interpreters = [], []
+            needed, interpreters, literal_spans = [], [], []
             for index, section in enumerate(all_sections):
                 h = section.header
                 backing = h.sh_type not in ("SHT_NOBITS", "SHT_NULL")
@@ -189,6 +256,9 @@ def inspect_elf(path, cache):
                     "flags": address(h.sh_flags), "link": h.sh_link, "info": h.sh_info,
                     "entry_size": address(h.sh_entsize), "file_backing": "file" if backing else "none",
                 })
+                display_name = section.name or ""
+                if backing and section_holds_string_literals(display_name):
+                    literal_spans.append((index, int(h.sh_offset), int(h.sh_size)))
                 if h.sh_type in ("SHT_SYMTAB", "SHT_DYNSYM"):
                     if h.sh_entsize < image.structs.Elf_Sym.sizeof():
                         raise LayoutFailure("format", "ELF symbol entry is smaller than the decoded Elf64_Sym structure.")
@@ -273,6 +343,7 @@ def inspect_elf(path, cache):
                     if end < 0:
                         raise LayoutFailure("format", "ELF interpreter lacks a reported terminator.")
                     interpreters.append({"display": raw[:end].decode("utf-8", "replace"), "bytes_base64": base64.b64encode(raw[:end]).decode("ascii"), "location": location(h.p_offset, end + 1, length), "unknown_reason": None})
+            string_literals, strings_omitted = collect_string_literals(content, literal_spans)
             return {
                 "format": "elf", "architecture": {"machine": image.header.e_machine, "bits": image.bits, "byte_order": image.endian},
                 "image_type": image.header.e_type,
@@ -284,6 +355,7 @@ def inspect_elf(path, cache):
                     "plt": [{"display_name": name, "address": address(value)} for name, value in image.plt.items()],
                     "convenience_maps_completeness": "unknown", "runtime_library_paths": None},
                 "mitigations": {"evidence_kind": "inferred", "position_independent": image.pie, "nx_indicator": image.nx, "executable_stack_indicator": image.execstack, "stack_canary_indicator": image.canary, "relro": image.relro},
+                "strings": string_literals,
                 "limitations": [
                     "PT_NULL payload fields are unused and retain their reported numbers without file-byte or permission claims. Zero-file-size segments provide no file bytes.",
                     "SHN_XINDEX symbol values remain unresolved in this upstream representation; an external index table does not establish a resolved index in this report.",
@@ -295,6 +367,8 @@ def inspect_elf(path, cache):
                     "GOT/PLT are derived upstream convenience maps; PLT inference can emulate selected instructions in Unicorn. They do not establish target runtime behavior; aliases may collapse and warnings may indicate incomplete coverage. Their completeness is unknown.",
                     "Mitigations are upstream static heuristics, not runtime protection. ET_DYN does not prove an executable; absent canary symbols do not prove every function unprotected.",
                     "This profile inspects ELF EXEC/DYN/REL layout only. It does not analyze recorded cores, resolve loaded libraries, launch the target as a host process or start a debugger.",
+                    STRING_LITERAL_BOUND,
+                    *([STRING_LITERAL_OMISSION] if strings_omitted else []),
                     "Symbol/relocation inventories reflect original section tables. A sectionless image can still report dynamic dependency names; missing tables do not prove absence of dynamic symbols or relocations.",
                     *(["Absent section-name table: section-dependent RELRO/canary heuristics may be incomplete; protection coverage is unknown."] if all_sections and section_name_index == 0 else []),
                     *(["Sectionless images lack the .dynamic section and symbol tables used by upstream heuristics. RELRO/canary indicators may be incomplete; their values remain reported static candidates, with protection coverage unknown."] if not all_sections else []),
