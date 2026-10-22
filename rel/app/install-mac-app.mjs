@@ -81,6 +81,8 @@ function placeAlias({ platform, destination, desktop, alias }) {
       {
         encoding: "utf8",
         timeout: 15000,
+        // Finder's AppleScript ignores SIGTERM while a permission dialog is up.
+        killSignal: "SIGKILL",
       },
     );
     if (
