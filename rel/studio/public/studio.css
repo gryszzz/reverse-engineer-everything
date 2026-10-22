@@ -339,6 +339,32 @@ dd {
 .empty {
   color: var(--muted);
 }
+.stepper {
+  display: flex;
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+  flex-wrap: wrap;
+}
+.stepper .current .step {
+  border-color: var(--cyan);
+}
+.onboarding,
+.palette {
+  border: 1px solid var(--line);
+  background: var(--raise);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.palette {
+  position: sticky;
+  top: 0.5rem;
+}
+.timeline {
+  display: grid;
+  gap: 0.35rem;
+}
 @media (max-width: 800px) {
   .layout {
     flex-direction: column;

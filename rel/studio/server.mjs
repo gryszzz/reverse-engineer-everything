@@ -29,6 +29,11 @@ import {
 } from "../evidence-explorer.mjs";
 import { cancelStaticAnalysis, startStaticAnalysis } from "./analysis.mjs";
 import {
+  createBuild,
+  ingestOpportunity,
+  readOpportunityBoard,
+} from "./product-flow.mjs";
+import {
   compareEdgeIds,
   compareSummaries,
   applicationEdgeIds,
@@ -64,6 +69,7 @@ const FILES = new Map([
   ["/studio.js", ["studio.js", "text/javascript; charset=utf-8"]],
   ["/graph-view.js", ["graph-view.js", "text/javascript; charset=utf-8"]],
   ["/format.js", ["format.js", "text/javascript; charset=utf-8"]],
+  ["/flow.js", ["flow.js", "text/javascript; charset=utf-8"]],
 ]);
 const REMOTE_REASON =
   "Remote model calls are refused. No Evidence, source, or project text is uploaded.";
@@ -387,9 +393,32 @@ async function handleApi(context) {
       uploads: "local-copy",
       links: "approved-fetch",
       accounts: "none",
+      onboarding_seen: existsSync(join(store.root, "onboarding.json")),
     };
   if (context.headerToken !== token)
     throw studioError("Missing studio token.", 401);
+  if (method === "POST" && pathname === "/api/onboarding") {
+    writeFileSync(
+      join(store.root, "onboarding.json"),
+      `${JSON.stringify({ seen_at: new Date().toISOString() })}\n`,
+    );
+    return { seen: true };
+  }
+  if (method === "GET" && pathname === "/api/board")
+    return readOpportunityBoard(store.root);
+  if (method === "POST" && pathname === "/api/board") {
+    try {
+      return ingestOpportunity(store.root, body);
+    } catch (error) {
+      if (error?.status) throw error;
+      throw studioError(
+        error instanceof Error ? error.message : "Board ingest failed.",
+        400,
+      );
+    }
+  }
+  if (method === "POST" && pathname === "/api/builds")
+    return createBuild(store.root, body);
   if (method === "GET" && pathname === "/api/readiness")
     return assessStudioReadiness({
       verifiedCounts: countStudioVerifications(store),

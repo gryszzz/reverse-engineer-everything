@@ -1,4 +1,5 @@
 import { el, statusClass } from "./format.js";
+import { advancedLabs, navigation, primaryFlow } from "./flow.js";
 import { mountGraph } from "./graph-view.js";
 
 const state = {
@@ -21,26 +22,15 @@ const state = {
   phase: "idle",
   linkInput: "",
   linkPlan: null,
+  board: null,
+  build: null,
+  onboardingSeen: true,
+  palette: false,
+  paletteQuery: "",
 };
 
-const views = [
-  ["overview", "Overview"],
-  ["intake", "Intake"],
-  ["readiness", "Readiness"],
-  ["evidence", "Evidence"],
-  ["graph", "Graph"],
-  ["research", "Research"],
-  ["experiment", "Experiment"],
-  ["report", "Report"],
-];
-
 function visibleViews() {
-  if (mode() !== "advanced")
-    return [
-      ["door", "Front door"],
-      ["findings", "Findings"],
-    ];
-  return [["door", "Front door"], ...views, ["findings", "Findings"]];
+  return navigation(mode());
 }
 
 function phaseText() {
@@ -131,7 +121,23 @@ async function refreshProject() {
   if (busy) setTimeout(() => refreshProject().then(draw).catch(setError), 800);
 }
 
+function navButton(id, label) {
+  return button(label, () => openView(id), {
+    class: state.view === id ? "nav current" : "nav",
+    "aria-current": state.view === id ? "page" : undefined,
+  });
+}
+
+async function openView(id) {
+  state.view = id;
+  state.palette = false;
+  if (id === "board") state.board = await api("/api/board");
+  if (id === "analyze" && state.project) await refreshProject();
+  draw();
+}
+
 function shell() {
+  if (!visibleViews().some(([id]) => id === state.view)) state.view = "door";
   const root = document.querySelector("#app");
   root.replaceChildren();
   const advanced = mode() === "advanced";
@@ -163,19 +169,22 @@ function shell() {
     el("div", { class: "layout" }, [
       el("nav", { class: "rail", "aria-label": "Studio" }, [
         el("p", { class: "rail-label" }, "Workspace"),
-        ...visibleViews().map(([id, label]) =>
-          button(
-            label,
-            () => {
-              state.view = id;
-              draw();
-            },
-            {
-              class: state.view === id ? "nav current" : "nav",
-              "aria-current": state.view === id ? "page" : undefined,
-            },
-          ),
-        ),
+        ...primaryFlow.map(([id, label]) => navButton(id, label)),
+        ...(advanced
+          ? [
+              el("p", { class: "rail-label" }, "Advanced"),
+              ...advancedLabs.map(([id, label]) => navButton(id, label)),
+            ]
+          : [
+              button("Show advanced labs", async () => {
+                if (!state.project) return;
+                state.project = await api(`/api/projects/${state.project.id}`, {
+                  method: "PATCH",
+                  body: { mode: "advanced" },
+                });
+                draw();
+              }),
+            ]),
         el("p", { class: "rail-label" }, "Projects"),
         ...state.projects.map((project) =>
           button(project.name || project.id, () => openProject(project.id), {
@@ -190,7 +199,10 @@ function shell() {
         state.notice
           ? el("p", { class: "banner", role: "status" }, state.notice)
           : null,
+        onboardingCard(),
+        flowStepper(),
         panel(),
+        state.palette ? palette() : null,
       ]),
     ]),
   );
@@ -198,6 +210,9 @@ function shell() {
 
 function panel() {
   if (state.view === "readiness") return readinessPanel();
+  if (state.view === "analyze") return analyzePanel();
+  if (state.view === "board") return boardPanel();
+  if (state.view === "build") return buildPanel();
   if (state.view === "door" || !state.project) return doorPanel();
   if (state.view === "findings") return findingsPanel();
   if (state.view === "intake") return intakePanel();
@@ -339,6 +354,241 @@ function linkPlanCard(plan) {
     plan.available === false
       ? el("p", { class: "bad" }, plan.unavailable_reason)
       : null,
+  ]);
+}
+
+function flowStepper() {
+  return el(
+    "ol",
+    { class: "stepper" },
+    primaryFlow.map(([id, label]) =>
+      el(
+        "li",
+        { class: state.view === id ? "current" : "" },
+        button(label, () => openView(id), { class: "step" }),
+      ),
+    ),
+  );
+}
+
+function onboardingCard() {
+  if (state.onboardingSeen) return null;
+  return el("section", { class: "card onboarding" }, [
+    el("h2", {}, "First run"),
+    el(
+      "p",
+      {},
+      "Drop a file or paste a link you are allowed to fetch. Analyze runs one ready engine route and records the events that route actually emits. Findings quote saved Evidence. Board lists Scout records and behavior specs you ingest. Build writes a clean-room folder and a dry-run handoff.",
+    ),
+    button("Hide this introduction", async () => {
+      await api("/api/onboarding", { method: "POST", body: {} });
+      state.onboardingSeen = true;
+      draw();
+    }),
+  ]);
+}
+
+function palette() {
+  const query = state.paletteQuery.trim().toLowerCase();
+  const choices = visibleViews().filter(([, label]) =>
+    label.toLowerCase().includes(query),
+  );
+  const input = el("input", {
+    id: "palette-input",
+    placeholder: "Jump to a view",
+    value: state.paletteQuery,
+    oninput: (event) => {
+      state.paletteQuery = event.target.value;
+      draw();
+    },
+    onkeydown: (event) => {
+      if (event.key === "Enter" && choices[0]) {
+        event.preventDefault();
+        openView(choices[0][0]);
+      }
+    },
+  });
+  queueMicrotask(() => document.querySelector("#palette-input")?.focus());
+  return el(
+    "div",
+    { class: "palette", role: "dialog", "aria-label": "Views" },
+    [
+      input,
+      el(
+        "ul",
+        {},
+        choices.map(([id, label]) =>
+          el(
+            "li",
+            {},
+            button(label, () => openView(id)),
+          ),
+        ),
+      ),
+      choices.length === 0
+        ? el("p", { class: "empty" }, "No view matches that text.")
+        : null,
+    ],
+  );
+}
+
+function analyzePanel() {
+  const runs = state.project?.runs ?? [];
+  const run = runs[runs.length - 1] ?? null;
+  const events = run?.events ?? [];
+  return el("section", { class: "panel" }, [
+    el("h2", {}, "Analyze"),
+    el(
+      "p",
+      {},
+      "The timeline lists events this studio recorded from the engine process: start, the first output chunk, and exit. It does not add stages the engine did not emit.",
+    ),
+    !state.project
+      ? el(
+          "p",
+          { class: "empty" },
+          "No project yet. Drop a file on the front door.",
+        )
+      : null,
+    state.project && !run
+      ? el(
+          "p",
+          { class: "empty" },
+          "No analysis has started. Choose Analyze on the front door after you authorize the target.",
+        )
+      : null,
+    run ? el("p", {}, `${run.route_id ?? run.kind} is ${run.status}.`) : null,
+    events.length
+      ? el(
+          "ol",
+          { class: "timeline" },
+          events.map((event) =>
+            el(
+              "li",
+              {},
+              `${event.at} ${event.kind}${event.route_id ? " " + event.route_id : ""}${event.bytes ? " " + event.bytes + " bytes" : ""}${event.evidence_id ? " " + event.evidence_id : ""}${event.code !== undefined && event.code !== null ? " exit " + event.code : ""}`,
+            ),
+          ),
+        )
+      : run
+        ? el("p", { class: "empty" }, "This run has no recorded engine events.")
+        : null,
+  ]);
+}
+
+function boardPanel() {
+  const input = el("textarea", {
+    id: "board-json",
+    rows: "8",
+    placeholder: "Paste a Scout target or a behavior spec JSON object.",
+  });
+  const scout = state.board?.scout ?? [];
+  const specs = state.board?.specs ?? [];
+  return el("section", { class: "panel" }, [
+    el("h2", {}, "Board"),
+    el(
+      "p",
+      {},
+      "Scout scores stay the integers in the file. A behavior spec is listed by coverage and has no market score.",
+    ),
+    !state.board || (scout.length === 0 && specs.length === 0)
+      ? el(
+          "p",
+          { class: "empty" },
+          "No opportunities ingested. Paste a Scout target or an outside-in spec.",
+        )
+      : null,
+    scout.length
+      ? el(
+          "ul",
+          {},
+          scout.map((item) =>
+            el(
+              "li",
+              {},
+              `${item.target_name}: ${item.listing.scores.total}/25, confidence ${item.listing.confidence}. ${item.listing.note}`,
+            ),
+          ),
+        )
+      : null,
+    specs.length
+      ? el(
+          "ul",
+          {},
+          specs.map((item) =>
+            el(
+              "li",
+              {},
+              `${item.target_name}: ${item.listing.coverage.features} features. ${item.listing.note}`,
+            ),
+          ),
+        )
+      : null,
+    input,
+    button("Ingest", async () => {
+      const value = JSON.parse(input.value);
+      state.board = await api("/api/board", { method: "POST", body: value });
+      state.notice = "Ingested. Scores were not invented.";
+      draw();
+    }),
+  ]);
+}
+
+function buildPanel() {
+  const name = el("input", {
+    id: "build-name",
+    placeholder: "New product name",
+  });
+  const spec = el("textarea", {
+    id: "build-spec",
+    rows: "8",
+    placeholder: "Paste a ree.outside-in.behavior-spec.v1 object.",
+  });
+  const result = state.build;
+  return el("section", { class: "panel" }, [
+    el("h2", {}, "Build"),
+    el(
+      "p",
+      {},
+      "Writes a new folder in the studio data directory. Source is a feature registry. Quotes are not copied. The handoff is a dry run: Blast is not notified, Guard is not called, and Vault is not copied.",
+    ),
+    !result
+      ? el(
+          "p",
+          { class: "empty" },
+          "No scaffold yet. A declaration match is not a running product.",
+        )
+      : el("article", { class: "card" }, [
+          el("p", {}, `Build ${result.build_id}`),
+          el(
+            "p",
+            {},
+            `Accounted ${result.verify.accounted} of ${result.verify.total}.`,
+          ),
+          el(
+            "p",
+            {},
+            result.handoff_dir
+              ? `Handoff ${result.handoff_dir}`
+              : result.handoff_error,
+          ),
+          el(
+            "p",
+            { class: "note" },
+            "Dry run. Launch still needs Guard PASS and Tony's go-ahead.",
+          ),
+        ]),
+    field("Product name", name),
+    spec,
+    button("Scaffold and verify", async () => {
+      state.build = await api("/api/builds", {
+        method: "POST",
+        body: { product_name: name.value, spec: JSON.parse(spec.value) },
+      });
+      state.notice =
+        "Scaffold written. Features are declared, not implemented.";
+      draw();
+    }),
   ]);
 }
 
@@ -1212,8 +1462,21 @@ function draw() {
 }
 
 async function boot() {
+  document.addEventListener("keydown", (event) => {
+    const meta = event.metaKey || event.ctrlKey;
+    if (meta && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      state.palette = !state.palette;
+      state.paletteQuery = "";
+      draw();
+    } else if (event.key === "Escape" && state.palette) {
+      state.palette = false;
+      draw();
+    }
+  });
   const session = await api("/api/session");
   token = session.token;
+  state.onboardingSeen = session.onboarding_seen === true;
   state.readiness = await api("/api/readiness");
   state.researchConfig = await api("/api/research");
   await loadProjects();

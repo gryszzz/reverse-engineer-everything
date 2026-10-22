@@ -54,7 +54,20 @@ function finishRun(store, projectId, runId, patch) {
   return store.update(projectId, (project) => {
     const run = project.runs.find((item) => item.id === runId);
     if (!run) return project;
-    Object.assign(run, patch, { finished_at: new Date().toISOString() });
+    const event = patch.event;
+    const next = { ...patch };
+    delete next.event;
+    Object.assign(run, next, { finished_at: new Date().toISOString() });
+    if (event) run.events = [...(run.events ?? []), event];
+    return project;
+  });
+}
+
+function pushEvent(store, projectId, runId, event) {
+  store.update(projectId, (project) => {
+    const run = project.runs.find((item) => item.id === runId);
+    if (!run) return project;
+    run.events = [...(run.events ?? []), event];
     return project;
   });
 }
@@ -178,6 +191,14 @@ export function startStaticAnalysis({
       summary: null,
       narrative: null,
       error: null,
+      events: [
+        {
+          at: new Date().toISOString(),
+          kind: "started",
+          route_id: chosen.id,
+          provider: chosen.provider,
+        },
+      ],
     };
     store.update(projectId, (current) => {
       current.runs.push(run);
@@ -204,12 +225,23 @@ export function startStaticAnalysis({
     children.set(runId, child);
     let stdout = "";
     let stderr = "";
+    let notedOutput = false;
     const timer = setTimeout(() => {
       stopReason.set(runId, "timeout");
       child.kill("SIGTERM");
     }, TIMEOUT_MS);
     child.stdout.on("data", (chunk) => {
       if (stdout.length < 8_000_000) stdout += chunk.toString("utf8");
+      if (!notedOutput) {
+        notedOutput = true;
+        void withStudioLock(store.root, () => {
+          pushEvent(store, projectId, runId, {
+            at: new Date().toISOString(),
+            kind: "engine-output",
+            bytes: Buffer.byteLength(chunk),
+          });
+        });
+      }
     });
     child.stderr.on("data", (chunk) => {
       if (stderr.length < 16000) stderr += chunk.toString("utf8");
@@ -291,6 +323,18 @@ function finishJavascript(
     narrative,
     provider: completed ? (parsed?.provider ?? null) : null,
     error: completed ? null : errorText,
+    event: {
+      at: new Date().toISOString(),
+      kind: "exited",
+      code,
+      signal,
+      status: completed
+        ? "completed"
+        : reason === "cancelled"
+          ? "cancelled"
+          : "failed",
+      evidence_id: completed ? evidenceId : null,
+    },
   });
 }
 
@@ -342,5 +386,13 @@ function finishEngine(
     narrative,
     provider: completed ? (parsed.provider ?? null) : null,
     error: completed ? null : errorText,
+    event: {
+      at: new Date().toISOString(),
+      kind: "exited",
+      code,
+      signal,
+      status,
+      evidence_id: completed ? evidenceId : null,
+    },
   });
 }
