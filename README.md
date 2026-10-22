@@ -60,7 +60,7 @@ The studio is a loopback page served from this checkout. Simple Mode is the fron
 | **Projects**     | The rail lists projects in the data directory. A drop or a link plan creates one named Investigation, with the question "What is this, in plain language?" Choosing a name resumes it.                   |
 | **Front door**   | "Drop a file, folder, or paste a link." A drop is copied and classified. A link shows a fetch plan before any request.                                                                                   |
 | **Theater**      | Recorded engine progress and Evidence facts while a JavaScript analysis runs, then a replay of that saved timeline.                                                                                      |
-| **Rebuild**      | A preview of recovered module identities beside reconstructed stubs, with the text difference. Writing needs approval. Behavior stays unverified.                                                       |
+| **Rebuild**      | A preview of recovered module identities beside reconstructed stubs, with the text difference. Writing needs approval. Behavior stays unverified.                                                        |
 | **Findings**     | One sentence per saved fact. Each sentence names the Evidence id and path. Unknowns stay listed.                                                                                                         |
 | **Overview**     | Artifact, run, and experiment counts, plus the latest Evidence id.                                                                                                                                       |
 | **Intake**       | Heading "Artifact intake." Classifies a drop, a path, or the owned JavaScript fixture. It does not launch the target. You pick a ready route.                                                            |
@@ -356,9 +356,9 @@ The finite planner ranks caller-supplied predictions. It does not invent hypothe
 
 These items are planned. They are not commands, views, or routes in this checkout.
 
-| Planned                 | What exists instead                                                                                     |
-| ----------------------- | ------------------------------------------------------------------------------------------------------- |
-| **Actions and exports** | The report view can save its Markdown beside the project. There is no general action or export palette. |
+| Planned                  | What exists instead                                                                                     |
+| ------------------------ | ------------------------------------------------------------------------------------------------------- |
+| **Actions and exports**  | The report view can save its Markdown beside the project. There is no general action or export palette. |
 | **Headless `ree serve`** | The loopback server command is `node ree.mjs studio`. There is no `ree serve` command.                  |
 
 ## Limitations
