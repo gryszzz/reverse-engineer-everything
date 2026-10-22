@@ -90,6 +90,7 @@ const FILES = new Map([
   ["/studio.js", ["studio.js", "text/javascript; charset=utf-8"]],
   ["/graph-view.js", ["graph-view.js", "text/javascript; charset=utf-8"]],
   ["/format.js", ["format.js", "text/javascript; charset=utf-8"]],
+  ["/flow.js", ["flow.js", "text/javascript; charset=utf-8"]],
   ["/explain.js", ["explain.js", "text/javascript; charset=utf-8"]],
 ]);
 const REMOTE_REASON =
@@ -458,9 +459,37 @@ async function handleApi(context) {
       uploads: "local-copy",
       links: "approved-fetch",
       accounts: "none",
+      onboarding_seen: existsSync(join(store.root, "onboarding.json")),
     };
   if (context.headerToken !== token)
     throw studioError("Missing studio token.", 401);
+  if (method === "POST" && pathname === "/api/onboarding") {
+    writeFileSync(
+      join(store.root, "onboarding.json"),
+      `${JSON.stringify({ seen_at: new Date().toISOString() })}\n`,
+    );
+    return { seen: true };
+  }
+  if (method === "GET" && pathname === "/api/board") {
+    const { readOpportunityBoard } = await import("./product-flow.mjs");
+    return readOpportunityBoard(store.root);
+  }
+  if (method === "POST" && pathname === "/api/board") {
+    try {
+      const { ingestOpportunity } = await import("./product-flow.mjs");
+      return ingestOpportunity(store.root, body);
+    } catch (error) {
+      if (error?.status) throw error;
+      throw studioError(
+        error instanceof Error ? error.message : "Board ingest failed.",
+        400,
+      );
+    }
+  }
+  if (method === "POST" && pathname === "/api/builds") {
+    const { createBuild } = await import("./product-flow.mjs");
+    return createBuild(store.root, body);
+  }
   if (method === "GET" && pathname === "/api/lessons")
     return { lessons: lessonCatalog() };
   const lessonMatch = pathname.match(/^\/api\/lessons\/([a-z0-9-]+)$/u);

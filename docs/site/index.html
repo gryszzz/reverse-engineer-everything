@@ -101,10 +101,14 @@
       <section class="wrap" id="studio">
         <h2>Investigation Studio</h2>
         <p class="lede">
-          The page labels are Front door, Findings, Overview, Intake, Readiness,
-          Evidence, Graph, Research, Experiment, and Report. Projects sit in the
-          rail. Summary diff is an API and a research stage, not a separate
-          navigation item.
+          Simple Mode labels are Front door, Analyze, Findings, Board, Build,
+          Lessons, Diff Lab, and Trace Lab. Analyze is the recorded engine
+          timeline. Lessons walk owned fixtures and do not execute them. Diff
+          Lab compares two artifacts already in the project. Trace Lab runs the
+          owned bridge query only after approval. Advanced adds Evidence
+          rebuild, Overview, Intake, Readiness, Evidence, Graph, Research,
+          Experiment, and Report. Projects sit in the rail. Summary diff is an
+          API and a research stage, not a separate navigation item.
         </p>
         <div class="table-wrap">
           <table>
@@ -127,6 +131,21 @@
                 <td>
                   Copy and classify a drop. A link lists URLs, byte limit, time
                   limit, and destination before the fetch.
+                </td>
+              </tr>
+              <tr>
+                <td>Analyze</td>
+                <td>
+                  Recorded engine progress and Evidence facts. Replay walks the
+                  saved timeline. It does not invent stages.
+                </td>
+              </tr>
+              <tr>
+                <td>Board and Build</td>
+                <td>
+                  Ingest a Scout target or an outside-in spec, then scaffold a
+                  clean-room folder and a dry-run handoff. Scores are not
+                  invented and original source is not copied.
                 </td>
               </tr>
               <tr>
@@ -514,8 +533,9 @@ node ree.mjs studio --open</code></pre>
       <section class="wrap" id="roadmap">
         <h2>Roadmap</h2>
         <p class="lede">
-          The theater and the rebuild are in this checkout. The other two are
-          not views or commands yet.
+          The theater, the evidence rebuild, and the clean-room build are in
+          this checkout. Actions and exports, and headless
+          <code>ree serve</code>, are not commands yet.
         </p>
         <div class="grid">
           <article class="card">
@@ -530,9 +550,20 @@ node ree.mjs studio --open</code></pre>
             <p class="pill live">In this checkout</p>
             <h3>Rebuild Studio</h3>
             <p>
-              Recovered module identities sit beside reconstructed stubs. The
-              engine does not record a numeric match score, so verification
-              stays unverified. Source text is not copied.
+              Advanced, labeled Evidence rebuild. Recovered module identities
+              sit beside reconstructed stubs. The engine does not record a
+              numeric match score, so verification stays unverified. Source text
+              is not copied.
+            </p>
+          </article>
+          <article class="card">
+            <p class="pill live">In this checkout</p>
+            <h3>Clean-room Build</h3>
+            <p>
+              Board ingests a Scout target or an outside-in spec and does not
+              invent scores. Build writes a new folder, declaration tests, and a
+              dry-run handoff. It does not copy original source, notify Blast,
+              call Guard, or copy into Vault.
             </p>
           </article>
           <article class="card">

@@ -37,9 +37,9 @@ The bundle is unsigned and not notarized. If macOS blocks the first open, right-
 
 ## Theater and rebuild
 
-While a JavaScript analysis runs, the studio reads `rea_progress` lines from the engine's stderr and appends them to `timeline.jsonl`. The Theater view shows those lines, the active provider, elapsed time, and a file list that grows only when a progress line names a file. After Evidence is written, the timeline adds the Evidence id, recovered module identities, and inferred imports. Replay walks that saved file. It does not synthesize events.
+While a JavaScript analysis runs, the studio reads `rea_progress` lines from the engine's stderr and appends them to `timeline.jsonl`. The Analyze view is that timeline: those lines, the active provider, elapsed time, and a file list that grows only when a progress line names a file. The eyebrow still says Investigation Theater. After Evidence is written, the timeline adds the Evidence id, recovered module identities, and inferred imports. Replay walks that saved file. It does not synthesize events.
 
-Rebuild previews a module map from those identities. The preview also reads each recovered file inside the artifact and places that text beside the stub that would be written, with a text diff where they differ. That comparison is display-only. The engine does not record a numeric match score for this route, so the verification label stays unverified. Writing requires approval and a new directory outside the checkout. The files are stubs: recovered identity, reconstructed implementation, unverified behavior. The included test checks the stubs against the map. It does not compare program behavior. Each written stub is appended to the same timeline.
+Evidence rebuild, under Advanced, previews a module map from those identities. The preview also reads each recovered file inside the artifact and places that text beside the stub that would be written, with a text diff where they differ. That comparison is display-only. The engine does not record a numeric match score for this route, so the verification label stays unverified. Writing requires approval and a new directory outside the checkout. The files are stubs: recovered identity, reconstructed implementation, unverified behavior. The included test checks the stubs against the map. It does not compare program behavior. Each written stub is appended to the same timeline.
 
 The native action runs `scripts/verify/reconstruction/c-process-probe.mjs` only when an added artifact is `experiments/ree-investigation-boundary`. It does not need a JavaScript Evidence run. That harness compiles and captures the owned fixture, then records `verify-reconstruction` claim statuses. Another path is refused. The expected statuses are `control.terminal: pass` and `counterexample.terminal: fail`. The overall failure is the expected result because the candidate is deliberately wrong.
 
@@ -57,8 +57,10 @@ In the studio, Simple Mode opens on one front door: **Drop a file, folder, or pa
 2. Or paste a link and choose **Show what will be fetched**. That lists the URL, byte limit, time limit, and destination. It does not use the network. **Fetch and analyze** runs only after you tick authorization and the digest still matches. The saved bytes are not executed.
 3. Tick the authorization box. The studio picks a ready route. If none is ready, it says so and does not invent a run.
 4. When the run finishes, Findings shows one plain-English sentence per saved fact. Each sentence names the Evidence id and path. Unknowns stay listed. The map shows stored relationships only.
+5. Board accepts a Scout target or an outside-in spec. It does not invent scores.
+6. Build asks for a new product name and a behavior spec, then writes a clean-room folder, declaration tests, and a dry-run handoff. It does not implement the features or copy original source. Evidence rebuild, in Advanced, is a different action: stubs from recovered module identities, not this scaffold.
 
-Advanced Mode keeps intake, readiness, the exact command, Evidence search, the graph, research, the owned probe, and the report. From there, **Use the owned JavaScript fixture** classifies `experiments/rel-first-lab` without analyzing it. A static run reads source and does not launch the fixture. Search Evidence for `search.mjs` or `cli.mjs`. Inferred graph edges are static relationships, not captured executions.
+Advanced Mode keeps Evidence rebuild, intake, readiness, the exact command, Evidence search, the graph, research, the owned probe, and the report. From there, **Use the owned JavaScript fixture** classifies `experiments/rel-first-lab` without analyzing it. A static run reads source and does not launch the fixture. Search Evidence for `search.mjs` or `cli.mjs`. Inferred graph edges are static relationships, not captured executions.
 
 The same analysis from the terminal:
 
@@ -101,7 +103,7 @@ The first visit shows a three-step tour. `?` opens shortcuts. `1` through `4` ju
 
 ## Trace Lab
 
-Trace Lab runs `capture-process` for `experiments/rel-first-lab/cli.mjs` with the query `bridge` after you check the box. The record stays on the project trace, not in `evidence.json`. Filesystem rows are checkpoint effects for that directory. Network and IPC stay not-recorded. A matching path is the same name in the static record and the checkpoint, which does not show that the module ran. Linux and macOS need a native PTY. Windows capture is unavailable. A missing runtime refuses the launch.
+Trace Lab runs `capture-process` for `experiments/rel-first-lab/cli.mjs` with the query `bridge` after you check the box. Press T to open it. The record stays on the project trace, not in `evidence.json`. Filesystem rows are checkpoint effects for that directory. Network and IPC stay not-recorded. A matching path is the same name in the static record and the checkpoint, which does not show that the module ran. Linux and macOS need a native PTY. Windows capture is unavailable. A missing runtime refuses the launch.
 
 ## Diff Lab
 
