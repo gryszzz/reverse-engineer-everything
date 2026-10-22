@@ -35,8 +35,20 @@ export function renderStudioReport(project) {
     lines.push(
       `- ${safe(run.id)} ${safe(run.status)}; Evidence ${safe(run.evidence_id)}; nodes ${safe(run.summary?.counts?.nodes)}; edges ${safe(run.summary?.counts?.edges)}.`,
     );
+    if (run.provider?.id)
+      lines.push(
+        `  Provider: ${safe(run.provider.name || run.provider.id)} (${safe(run.provider.id)}).`,
+      );
     if (run.command?.argv)
       lines.push(`  Command: \`${run.command.argv.join(" ")}\``);
+    for (const statement of run.narrative?.statements ?? [])
+      lines.push(
+        `  - ${safe(statement.text)} (${safe(statement.evidence_id)} ${safe(statement.path)})`,
+      );
+    if ((run.narrative?.unknowns ?? []).length > 0) {
+      lines.push("  Unknowns:");
+      lines.push(...bullet(run.narrative.unknowns).map((item) => `  ${item}`));
+    }
     lines.push(...bullet(run.summary?.limitations).map((item) => `  ${item}`));
   }
   lines.push("", "## Runtime experiments");
@@ -67,8 +79,9 @@ export function renderStudioReport(project) {
   lines.push(
     "",
     "## Limits",
-    "- The studio currently executes static analysis only for JavaScript or Electron directories and ASAR files.",
-    "- Ghidra, IDA, Hopper, Apktool, JADX, and JEB are not launched from this studio.",
+    "- A route runs only when its status is ready and the request sets authorized to true.",
+    "- IDA, Hopper, Rizin, radare2, JEB, firmware tools, browser debuggers, packet capture, SQLite, and capture-process are not launched from this studio.",
+    "- Ghidra runs only when GHIDRA_INSTALL_DIR is set, and only as inspect --provider ghidra.",
     "- Hypothesis statements in an experiment are caller-declared predictions, not engine discoveries.",
     "",
   );

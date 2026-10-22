@@ -2,7 +2,9 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { diagnoseMac, supportsSqliteInspection } from "../mac-doctor.mjs";
+import { assessRoutes, collectRouteFacts } from "./engine-routes.mjs";
 import { repositoryRoot } from "./paths.mjs";
+import { setupOffers } from "./setup-offers.mjs";
 
 const commandPresent = (command) => {
   const result = spawnSync("/usr/bin/which", [command], {
@@ -48,18 +50,31 @@ export function assessStudioReadiness({
     Number.isSafeInteger(verifiedCounts[id]) && verifiedCounts[id] > 0
       ? "recorded-in-this-studio"
       : "not-recorded";
+  const facts = collectRouteFacts({ root });
+  const engineRoutes = assessRoutes(facts).map((route) => ({
+    id: route.id,
+    label: route.label,
+    status: route.status,
+    engine: route.engine,
+    studio: route.studio,
+    prerequisites:
+      route.status === "ready"
+        ? "present"
+        : route.status === "missing-tool"
+          ? "missing"
+          : route.status === "unsupported"
+            ? "not-applicable"
+            : route.status,
+    configured:
+      route.status === "ready"
+        ? "configured"
+        : route.status === "unsupported"
+          ? "not-applicable"
+          : "not-configured",
+    verified_on_host: recorded(route.id),
+    notes: route.detail,
+  }));
   const routes = [
-    {
-      id: "javascript-static",
-      label: "JavaScript / Electron static analysis",
-      engine: "implemented",
-      studio: "implemented",
-      prerequisites: prerequisite(runtimeBuilt),
-      configured: "not-applicable",
-      verified_on_host: recorded("javascript-static"),
-      notes:
-        "The studio runs the existing static analyzer. It parses source and does not launch the target. A completed studio run in this data directory is a local record, not a certification.",
-    },
     {
       id: "sqlite",
       label: "SQLite snapshot inspection",
@@ -74,48 +89,28 @@ export function assessStudioReadiness({
         "The engine has a read-only SQLite route. This studio does not invoke it. Node support is not a completed database inspection.",
     },
     {
-      id: "ghidra",
-      label: "Ghidra native analysis",
-      engine: "implemented",
-      studio: "not-supported",
-      prerequisites: prerequisite(tools.ghidra),
-      configured: "unknown",
-      verified_on_host: "not-recorded",
-      notes:
-        "PATH detection does not see every macOS app bundle, confirm a license, or prove a decompilation. The studio does not launch Ghidra.",
-    },
-    {
       id: "ida",
       label: "IDA native analysis",
       engine: "implemented",
-      studio: "not-supported",
+      studio: "unsupported",
+      status: "unsupported",
       prerequisites: prerequisite(tools.ida),
-      configured: "unknown",
+      configured: "not-applicable",
       verified_on_host: "not-recorded",
       notes:
-        "IDA is bring-your-own and read-only in REA. A missing command is not proof the GUI is absent. The studio does not attach to IDA.",
+        "IDA is bring-your-own and read-only in REA. The studio does not attach to IDA.",
     },
     {
       id: "hopper",
       label: "Hopper native analysis",
       engine: "implemented",
-      studio: "not-supported",
+      studio: "unsupported",
+      status: "unsupported",
       prerequisites: prerequisite(tools.hopper),
       configured: "unknown",
       verified_on_host: "not-recorded",
       notes:
         "Hopper is commonly a Mac app rather than a PATH command. This check does not verify it, and the studio does not launch it.",
-    },
-    {
-      id: "android",
-      label: "Android package inspection",
-      engine: "implemented",
-      studio: "not-supported",
-      prerequisites: prerequisite(tools.jadx || tools.apktool),
-      configured: "unknown",
-      verified_on_host: "not-recorded",
-      notes:
-        "JADX or Apktool on PATH only means a command name resolved. JEB was not verified. The studio does not inventory APKs.",
     },
     {
       id: "jeb",
@@ -137,17 +132,6 @@ export function assessStudioReadiness({
       verified_on_host: "not-recorded",
       notes:
         "Binwalk or Unblob on PATH is not a completed extraction. The studio does not extract firmware.",
-    },
-    {
-      id: "wasm",
-      label: "WebAssembly inspection",
-      engine: "implemented",
-      studio: "not-supported",
-      prerequisites: prerequisite(tools.wabt),
-      configured: "unknown",
-      verified_on_host: "not-recorded",
-      notes:
-        "WABT tools are caller-supplied. This check does not validate a module.",
     },
     {
       id: "pcap",
@@ -214,10 +198,16 @@ export function assessStudioReadiness({
       "recorded-in-this-studio counts completed Investigation Studio actions in this data directory. It is not a CI result, provider certification, or proof about another machine.",
     limits: [
       "A readiness check does not analyze a target or install software.",
+      "An install runs only after the page shows the exact argv and the request repeats its digest with approved true.",
       "PATH checks miss Mac app bundles and do not verify licenses or versions.",
       "Studio support is narrower than the REA engine.",
     ],
-    routes,
+    routes: [...engineRoutes, ...routes],
+    setup: setupOffers({
+      platform: facts.platform,
+      brew: facts.brew,
+      apktoolReady: facts.apktool.state === "ready",
+    }),
   };
 }
 
@@ -230,9 +220,12 @@ export function countStudioVerifications(store) {
   for (const summary of store.list()) {
     if (summary.error) continue;
     const project = store.read(summary.id);
-    counts["javascript-static"] += project.runs.filter(
-      (run) => run.status === "completed" && run.evidence_id,
-    ).length;
+    for (const run of project.runs) {
+      if (run.status !== "completed" || !run.evidence_id) continue;
+      const key =
+        run.kind === "static-javascript" ? "javascript-static" : run.kind;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
     counts["owned-fixture-probe"] += project.experiments.filter(
       (experiment) =>
         experiment.status === "completed" && experiment.observation,

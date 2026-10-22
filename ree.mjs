@@ -256,7 +256,7 @@ try {
         console.log("REE Investigation Studio");
         console.log("Open this local address: " + started.url);
         console.log("Projects and Evidence stay in: " + started.dataDir);
-        console.log("Loopback only. No account and no upload.");
+        console.log("Loopback only. No account and no remote upload.");
         console.log("Press Ctrl+C to stop.");
       }
       if (settings.open) openStudioInBrowser(started.url);
