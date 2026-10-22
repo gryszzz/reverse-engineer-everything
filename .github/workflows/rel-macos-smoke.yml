@@ -15,6 +15,7 @@ on:
       - "ree.mjs"
       - "rel.mjs"
       - "Start-REE.command"
+      - "Start-REE-Studio.command"
       - "Start-REL.command"
       - "FIRST_10_MINUTES.md"
       - "rel/**"
@@ -50,11 +51,14 @@ jobs:
       - name: Verify Finder launcher executable mode and macOS shell syntax
         run: |
           test -x Start-REE.command
+          test -x Start-REE-Studio.command
           /bin/zsh -n Start-REE.command
+          /bin/zsh -n Start-REE-Studio.command
       - name: Run deterministic Mac readiness checks and local visual lab tests
         run: |
           node --test rel/mac-doctor.test.mjs
           node --test rel/lab-server.test.mjs
+          node --test rel/studio/graph.test.mjs rel/studio/studio.test.mjs
       - run: npm ci
       - name: Build native-host REA runtime on macOS
         run: npm run build:cached
@@ -77,6 +81,8 @@ jobs:
         run: node --test rel/codex-mcp.test.mjs
       - name: Verify static analysis and saved relationships on macOS
         run: node --test rel/analyze-static.test.mjs
+      - name: Verify Investigation Studio UI-to-engine analysis
+        run: node --test rel/studio/studio-engine.test.mjs
       - name: Run real source-owned REA analysis
         run: node ree.mjs demo --run --out "$RUNNER_TEMP/rel-mac-evidence"
       - name: Verify evidence exploration on Mac
