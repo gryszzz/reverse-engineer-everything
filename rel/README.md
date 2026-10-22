@@ -29,6 +29,15 @@ For an authorized extracted JavaScript application, use `node ree.mjs analyze /a
 
 Public documentation collection is a separate opt-in command, `node ree.mjs outside-in`. It does not run the target, fetch its source, or change `inspect`. See [outside-in](outside-in/README.md).
 
+The build pipeline reads a Scout JSON target or one of those behavior specs. It does not rescore Scout's 1–5 integers, and it does not invent market scores for a spec. `rebuild` writes a new folder outside this repository: a feature registry, declaration tests, and a provenance log. It does not copy original code. `verify` reports each feature as `accounted` only when that id is declared. `handoff` writes `handoff.json` and `README.md` for Blast, a Guard submission, and a Vault manifest. It does not notify Blast, call Guard, or copy files into Vault. On a machine that has `/home/box/shared`, the Blast files go to `/home/box/shared/ree-to-blast/<build_id>/`. Otherwise pass `--blast-dir`.
+
+```sh
+node ree.mjs opportunities ingest target.json --out /tmp/ree-board
+node ree.mjs rebuild --spec /tmp/spec/behavior-spec.json --name "Board Kit" --out /tmp/board-kit
+node ree.mjs verify --project /tmp/board-kit
+node ree.mjs handoff --project /tmp/board-kit --blast-dir /tmp/ree-blast
+```
+
 ## Retained Evidence and selected views
 
 Both `demo --run` and `analyze` require a new output directory with an existing

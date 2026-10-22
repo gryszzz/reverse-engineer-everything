@@ -37,6 +37,11 @@ const help = [
   "                                                Static JavaScript/Electron folder or ASAR",
   "node ree.mjs outside-in --name NAME --url URL --out DIR [--json]",
   "                                                Public-docs behavior spec; no target source",
+  "node ree.mjs opportunities ingest FILE --out DIR",
+  "node ree.mjs opportunities list --data DIR",
+  "node ree.mjs rebuild --spec FILE --name NAME --out DIR",
+  "node ree.mjs verify --project DIR",
+  "node ree.mjs handoff --project DIR [--blast-dir DIR] [--scout FILE]",
   "node ree.mjs codex                              Check Codex project setup",
   "node ree.mjs doctor [--json]                    Read-only Mac readiness check",
   "",
@@ -155,6 +160,11 @@ try {
   if (args[0] === "outside-in") {
     const { runOutsideInCommand } = await import("./rel/outside-in/cli.mjs");
     process.exitCode = await runOutsideInCommand(args.slice(1));
+  } else if (
+    ["opportunities", "rebuild", "verify", "handoff"].includes(args[0])
+  ) {
+    const { runPipelineCommand } = await import("./rel/pipeline/cli.mjs");
+    process.exitCode = await runPipelineCommand(args);
   } else if (
     args.length === 0 ||
     args.includes("--help") ||
