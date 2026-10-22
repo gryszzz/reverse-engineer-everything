@@ -29,6 +29,17 @@ import {
 } from "../evidence-explorer.mjs";
 import { cancelStaticAnalysis, startStaticAnalysis } from "./analysis.mjs";
 import {
+  claimRows,
+  claimTimeline,
+  moduleComparisons,
+  planOwnedNativeProbe,
+  rebuildPlan,
+  rebuildTimeline,
+  spawnOwnedNativeProbe,
+  writeRebuild,
+} from "./rebuild.mjs";
+import { appendTimeline, readTimeline } from "./theater.mjs";
+import {
   compareEdgeIds,
   compareSummaries,
   applicationEdgeIds,
@@ -520,6 +531,123 @@ async function handleApi(context) {
   if (method === "POST" && cancelRun) {
     if (!cancelStaticAnalysis(store.root, cancelRun[1]))
       throw studioError("That analysis is not running.", 409);
+    return store.read(projectId);
+  }
+  const timeline = rest.match(/^\/runs\/(run_[a-f0-9]{16})\/timeline$/u);
+  if (method === "GET" && timeline) {
+    const run = store
+      .read(projectId)
+      .runs.find((item) => item.id === timeline[1]);
+    if (!run) throw studioError("Unknown run.", 404);
+    return { events: readTimeline(run.output_dir) };
+  }
+  const rebuildPreview = rest.match(
+    /^\/runs\/(run_[a-f0-9]{16})\/rebuild\/preview$/u,
+  );
+  if (method === "POST" && rebuildPreview) {
+    const project = store.read(projectId);
+    const run = requireRun(project, rebuildPreview[1]);
+    const record = evidenceRecord(run);
+    const artifact = project.artifacts.find(
+      (item) => item.id === run.artifact_id,
+    );
+    return {
+      ...rebuildPlan(record, body.output),
+      comparisons: artifact ? moduleComparisons(record, artifact.path) : [],
+    };
+  }
+  const rebuildWrite = rest.match(/^\/runs\/(run_[a-f0-9]{16})\/rebuild$/u);
+  if (method === "POST" && rebuildWrite) {
+    if (body.approved !== true)
+      throw studioError(
+        "Check the box to write the reconstructed module map.",
+        403,
+      );
+    const run = requireRun(store.read(projectId), rebuildWrite[1]);
+    const written = writeRebuild(evidenceRecord(run), body.output, body.digest);
+    for (const event of rebuildTimeline(written))
+      appendTimeline(run.output_dir, event);
+    return written;
+  }
+  if (method === "POST" && rest === "/native-probe") {
+    if (body.approved !== true)
+      throw studioError(
+        "Check the box to run the owned native reconstruction probe.",
+        403,
+      );
+    const project = store.read(projectId);
+    const artifact = project.artifacts.find(
+      (item) => item.id === body.artifact_id,
+    );
+    if (!artifact) throw studioError("Unknown artifact.", 404);
+    const plan = planOwnedNativeProbe(artifact.path, body.output);
+    if (project.native_probe?.status === "running")
+      throw studioError("A native probe is already running.", 409);
+    const timelineDir = project.runs.find(
+      (item) =>
+        item.artifact_id === artifact.id &&
+        item.status === "completed" &&
+        item.output_dir,
+    )?.output_dir;
+    const startedAt = new Date().toISOString();
+    store.update(projectId, (current) => {
+      current.native_probe = {
+        status: "running",
+        artifact_id: artifact.id,
+        output: plan.output,
+        argv: plan.argv,
+        started_at: startedAt,
+        finished_at: null,
+        claims: [],
+        note: plan.note,
+      };
+      return current;
+    });
+    if (timelineDir)
+      appendTimeline(timelineDir, {
+        source: "verify-reconstruction",
+        phase: "native-probe",
+        message: "Started the owned native reconstruction probe.",
+      });
+    const child = spawnOwnedNativeProbe(plan, { env: engineChildEnv() });
+    const timer = setTimeout(() => child.kill("SIGTERM"), 300000);
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      let claims = [];
+      let error = null;
+      try {
+        const summaryPath = join(plan.output, "summary.json");
+        if (existsSync(summaryPath))
+          claims = claimRows(JSON.parse(readFileSync(summaryPath, "utf8")));
+        else error = `Owned probe exited ${code} signal ${signal}.`;
+      } catch (cause) {
+        error =
+          cause instanceof Error
+            ? cause.message
+            : "Could not read the probe summary.";
+      }
+      if (timelineDir) {
+        for (const event of claimTimeline(claims))
+          appendTimeline(timelineDir, event);
+        if (error)
+          appendTimeline(timelineDir, {
+            source: "verify-reconstruction",
+            phase: "native-probe",
+            message: error,
+          });
+      }
+      store.update(projectId, (current) => {
+        if (!current.native_probe) return current;
+        current.native_probe = {
+          ...current.native_probe,
+          status: error ? "failed" : "completed",
+          finished_at: new Date().toISOString(),
+          claims,
+          error,
+        };
+        return current;
+      });
+    });
     return store.read(projectId);
   }
   const evidence = rest.match(/^\/runs\/(run_[a-f0-9]{16})\/evidence$/u);

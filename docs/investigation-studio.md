@@ -35,6 +35,14 @@ The bundle is unsigned and not notarized. If macOS blocks the first open, right-
 
 `node ree.mjs app build --layout-only` assembles the bundle without the WebKit window. Tests and non-mac hosts use that form. It is not the install path on a Mac.
 
+## Theater and rebuild
+
+While a JavaScript analysis runs, the studio reads `rea_progress` lines from the engine's stderr and appends them to `timeline.jsonl`. The Theater view shows those lines, the active provider, elapsed time, and a file list that grows only when a progress line names a file. After Evidence is written, the timeline adds the Evidence id, recovered module identities, and inferred imports. Replay walks that saved file. It does not synthesize events.
+
+Rebuild previews a module map from those identities. The preview also reads each recovered file inside the artifact and places that text beside the stub that would be written, with a text diff where they differ. That comparison is display-only. The engine does not record a numeric match score for this route, so the verification label stays unverified. Writing requires approval and a new directory outside the checkout. The files are stubs: recovered identity, reconstructed implementation, unverified behavior. The included test checks the stubs against the map. It does not compare program behavior. Each written stub is appended to the same timeline.
+
+The native action runs `scripts/verify/reconstruction/c-process-probe.mjs` only when an added artifact is `experiments/ree-investigation-boundary`. It does not need a JavaScript Evidence run. That harness compiles and captures the owned fixture, then records `verify-reconstruction` claim statuses. Another path is refused. The expected statuses are `control.terminal: pass` and `counterexample.terminal: fail`. The overall failure is the expected result because the candidate is deliberately wrong.
+
 ## Build, then analyze the owned fixture
 
 ```sh

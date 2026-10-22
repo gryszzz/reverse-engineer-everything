@@ -21,6 +21,12 @@ const state = {
   phase: "idle",
   linkInput: "",
   linkPlan: null,
+  timeline: [],
+  replayTo: null,
+  palette: false,
+  paletteQuery: "",
+  rebuildPlan: null,
+  rebuildResult: null,
 };
 
 const views = [
@@ -35,12 +41,14 @@ const views = [
 ];
 
 function visibleViews() {
-  if (mode() !== "advanced")
-    return [
-      ["door", "Front door"],
-      ["findings", "Findings"],
-    ];
-  return [["door", "Front door"], ...views, ["findings", "Findings"]];
+  const headline = [
+    ["door", "Front door"],
+    ["theater", "Theater"],
+    ["rebuild", "Rebuild"],
+    ["findings", "Findings"],
+  ];
+  if (mode() !== "advanced") return headline;
+  return [...headline, ...views];
 }
 
 function phaseText() {
@@ -117,18 +125,24 @@ async function refreshProject() {
   if (runningId && state.view === "door") {
     const updated = state.project.runs.find((run) => run.id === runningId);
     if (updated?.status === "completed") {
-      state.view = "findings";
+      state.view = "theater";
       state.phase = "idle";
-      state.notice = "Analysis finished. The summary uses the saved Evidence.";
-      await loadGraph("", "");
-      return;
+      state.notice =
+        "Analysis finished. The timeline is recorded engine progress and Evidence.";
     }
   }
-  const busy = [...state.project.runs, ...state.project.experiments].some(
-    (item) => item.status === "running",
-  );
+  const busy =
+    [...state.project.runs, ...state.project.experiments].some(
+      (item) => item.status === "running",
+    ) || state.project.native_probe?.status === "running";
   if (!busy && state.phase === "running") state.phase = "idle";
-  if (busy) setTimeout(() => refreshProject().then(draw).catch(setError), 800);
+  const watched =
+    state.project.runs.find((run) => run.status === "running") ?? latestRun();
+  if (watched)
+    state.timeline = (
+      await api(`/api/projects/${state.project.id}/runs/${watched.id}/timeline`)
+    ).events;
+  if (busy) setTimeout(() => refreshProject().then(draw).catch(setError), 400);
 }
 
 function shell() {
@@ -150,6 +164,11 @@ function shell() {
       ]),
       el("div", { class: "top-actions" }, [
         el("span", { class: "pill" }, "127.0.0.1"),
+        button("Commands", () => {
+          state.palette = true;
+          state.paletteQuery = "";
+          draw();
+        }),
         button(advanced ? "Advanced" : "Simple", async () => {
           if (!state.project) return;
           state.project = await api(`/api/projects/${state.project.id}`, {
@@ -193,12 +212,15 @@ function shell() {
         panel(),
       ]),
     ]),
+    state.palette ? palette() : null,
   );
 }
 
 function panel() {
   if (state.view === "readiness") return readinessPanel();
   if (state.view === "door" || !state.project) return doorPanel();
+  if (state.view === "theater") return theaterPanel();
+  if (state.view === "rebuild") return rebuildPanel();
   if (state.view === "findings") return findingsPanel();
   if (state.view === "intake") return intakePanel();
   if (state.view === "evidence") return evidencePanel();
@@ -278,6 +300,7 @@ function doorPanel() {
       { class: "status-live", role: "status", "data-phase": state.phase },
       phaseText(),
     ),
+    stageRow(),
     drop,
     el("div", { class: "file-row" }, [
       field("File", file),
@@ -340,6 +363,428 @@ function linkPlanCard(plan) {
       ? el("p", { class: "bad" }, plan.unavailable_reason)
       : null,
   ]);
+}
+
+function shownEvents() {
+  if (state.replayTo === null) return state.timeline;
+  return state.timeline.slice(0, state.replayTo);
+}
+
+function theaterStats(events) {
+  const files = events.filter(
+    (event) => event.phase === "parse_javascript_source",
+  );
+  const latest = files.at(-1);
+  const evidence = events.find((event) => event.phase === "evidence");
+  const modules = new Set(
+    events
+      .filter((event) => event.phase === "module" && event.file)
+      .map((event) => event.file),
+  );
+  return {
+    files: files.length,
+    fileTotal: latest?.file_total ?? null,
+    modules: modules.size,
+    edges: events.filter((event) => event.phase === "edge").length,
+    evidence: evidence?.evidence_id ?? null,
+    provider: events.find((event) => event.provider)?.provider ?? "unrecorded",
+  };
+}
+
+function elapsedLabel(events) {
+  if (events.length === 0) return "0.0s";
+  const start = Date.parse(events[0].at);
+  const running = state.project?.runs?.some((run) => run.status === "running");
+  const end = running ? Date.now() : Date.parse(events.at(-1).at);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return "0.0s";
+  return `${((end - start) / 1000).toFixed(1)}s`;
+}
+
+function theaterGraph(events) {
+  const files = [];
+  for (const event of events) {
+    if (event.file && !files.includes(event.file)) files.push(event.file);
+  }
+  const edges = events.filter(
+    (event) => event.phase === "edge" && event.to && files.includes(event.from),
+  );
+  return { files, edges };
+}
+
+function theaterPanel() {
+  const events = shownEvents();
+  const stats = theaterStats(events);
+  const graph = theaterGraph(events);
+  const holder = el("div", { class: "theater-graph", id: "theater-graph" });
+  holder.append(theaterSvg(graph));
+  return el("section", { class: "panel theater" }, [
+    el("p", { class: "eyebrow" }, "Investigation Theater"),
+    el("h2", {}, "What the engine is doing"),
+    el(
+      "p",
+      {},
+      "Each line is an engine progress event or a fact read from written Evidence. Nothing here is simulated.",
+    ),
+    el("div", { class: "stats" }, [
+      stat("Provider", stats.provider),
+      stat("Elapsed", elapsedLabel(events)),
+      stat(
+        "Files parsed",
+        stats.fileTotal
+          ? `${stats.files}/${stats.fileTotal}`
+          : String(stats.files),
+      ),
+      stat("Modules", String(stats.modules)),
+      stat("Edges", String(stats.edges)),
+      stat(
+        "Evidence",
+        stats.evidence ? stats.evidence.slice(0, 12) + "…" : "not yet",
+      ),
+    ]),
+    stageRow(),
+    holder,
+    el(
+      "ol",
+      { class: "timeline" },
+      events.map((event) =>
+        el("li", {}, [
+          el("span", { class: "phase" }, event.phase),
+          el("span", {}, event.message),
+        ]),
+      ),
+    ),
+    button("Replay recorded timeline", () => replayTimeline()),
+  ]);
+}
+
+function stat(label, value) {
+  return el("div", {}, [el("dt", {}, label), el("dd", {}, value)]);
+}
+
+function stageRow() {
+  const stages = [
+    ["copying", "Copy"],
+    ["planning", "Plan"],
+    ["fetching", "Fetch"],
+    ["running", "Analyze"],
+  ];
+  return el(
+    "ol",
+    { class: "stages" },
+    stages.map(([id, label]) =>
+      el(
+        "li",
+        { class: state.phase === id ? "current" : "", "data-stage": id },
+        label,
+      ),
+    ),
+  );
+}
+
+function theaterSvg(graph) {
+  const height = Math.max(120, graph.files.length * 42 + 24);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", `0 0 640 ${height}`);
+  svg.setAttribute("class", "graph");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Modules named by recorded progress");
+  const title = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  title.setAttribute("x", "16");
+  title.setAttribute("y", "20");
+  title.setAttribute("fill", "#b9a6ff");
+  title.textContent =
+    graph.files.length === 0
+      ? "No parsed file has been reported yet."
+      : "Files the engine reported while parsing.";
+  svg.append(title);
+  const yOf = new Map();
+  graph.files.forEach((file, index) => {
+    const y = 36 + index * 42;
+    yOf.set(file, y);
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", "16");
+    rect.setAttribute("y", String(y));
+    rect.setAttribute("width", "220");
+    rect.setAttribute("height", "32");
+    rect.setAttribute("rx", "8");
+    rect.setAttribute("class", "node-shape");
+    const label = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "text",
+    );
+    label.setAttribute("x", "28");
+    label.setAttribute("y", String(y + 21));
+    label.textContent = file;
+    svg.append(rect, label);
+  });
+  for (const edge of graph.edges) {
+    const from = yOf.get(edge.from);
+    const to = yOf.get(edge.to);
+    if (from === undefined || to === undefined) continue;
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute(
+      "d",
+      `M 236 ${from + 16} C 300 ${from + 16}, 300 ${to + 16}, 236 ${to + 16}`,
+    );
+    path.setAttribute("class", "edge-line");
+    svg.append(path);
+  }
+  const minimap = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  minimap.setAttribute("viewBox", `0 0 640 ${height}`);
+  minimap.setAttribute("class", "minimap");
+  minimap.setAttribute("aria-hidden", "true");
+  for (const y of yOf.values()) {
+    const mark = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    mark.setAttribute("x", "16");
+    mark.setAttribute("y", String(y));
+    mark.setAttribute("width", "220");
+    mark.setAttribute("height", "32");
+    mark.setAttribute("class", "node-shape");
+    minimap.append(mark);
+  }
+  const frame = document.createElement("div");
+  frame.className = "graph-frame";
+  frame.append(svg, minimap);
+  return frame;
+}
+
+function replayTimeline() {
+  if (state.timeline.length === 0) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    state.replayTo = null;
+    draw();
+    return;
+  }
+  state.replayTo = 0;
+  const step = () => {
+    if (state.replayTo === null) return;
+    state.replayTo += 1;
+    draw();
+    if (state.replayTo < state.timeline.length) setTimeout(step, 180);
+    else state.replayTo = null;
+  };
+  step();
+}
+
+function rebuildPanel() {
+  const output = el("input", {
+    id: "rebuild-output",
+    placeholder: "/tmp/ree-rebuild",
+  });
+  const approved = el("input", { type: "checkbox", id: "rebuild-approved" });
+  const plan = state.rebuildPlan;
+  return el("section", { class: "panel" }, [
+    el("p", { class: "eyebrow" }, "Rebuild Studio"),
+    el("h2", {}, "Original identities and a reconstructed map"),
+    el(
+      "p",
+      {},
+      "The preview lists recovered module identities from Evidence. Writing creates stubs only. It does not copy source, and it does not claim the result behaves like the original.",
+    ),
+    field("New output folder outside this checkout", output),
+    button("Preview rebuild", () => previewRebuild(output.value)),
+    plan
+      ? el("article", { class: "card" }, [
+          el("p", {}, plan.statement),
+          el("table", { class: "data" }, [
+            el(
+              "caption",
+              {},
+              "Original identity compared with the file that will be written",
+            ),
+            el(
+              "thead",
+              {},
+              el(
+                "tr",
+                {},
+                ["Module", "Identity", "Implementation", "Verification"].map(
+                  (name) => el("th", {}, name),
+                ),
+              ),
+            ),
+            el(
+              "tbody",
+              {},
+              plan.modules.map((module) =>
+                el("tr", {}, [
+                  el("td", {}, module.file),
+                  el("td", {}, module.identity),
+                  el("td", {}, module.implementation),
+                  el("td", {}, module.verification),
+                ]),
+              ),
+            ),
+          ]),
+          ...(plan.comparisons ?? []).map((row) =>
+            el("details", { class: "compare-row" }, [
+              el(
+                "summary",
+                {},
+                `${row.file}: identity ${row.identity}, rebuilt ${row.implementation}, verification ${row.verification}, engine match ${row.engine_match}, text ${row.text_relation}`,
+              ),
+              row.original_excerpt
+                ? el("div", { class: "compare" }, [
+                    el("div", {}, [
+                      el("h4", {}, "Original, read for display"),
+                      el("pre", { class: "mono" }, row.original_excerpt),
+                    ]),
+                    el("div", {}, [
+                      el("h4", {}, "Reconstructed stub"),
+                      el("pre", { class: "mono" }, row.rebuilt_text),
+                    ]),
+                  ])
+                : el(
+                    "p",
+                    {},
+                    "The original file was not available beside this recovered identity.",
+                  ),
+              row.diff
+                ? el("pre", { class: "mono diff" }, row.diff)
+                : el(
+                    "p",
+                    { class: "note" },
+                    "No text mismatch to show. Engine verification remains unverified.",
+                  ),
+            ]),
+          ),
+        ])
+      : null,
+    el("label", { class: "check" }, [
+      approved,
+      "I approve writing this reconstructed map into the folder above.",
+    ]),
+    button("Write rebuild and run the map test", () =>
+      runRebuild(output.value, approved.checked),
+    ),
+    state.rebuildResult
+      ? el(
+          "p",
+          { class: state.rebuildResult.map_test === "green" ? "ok" : "bad" },
+          [
+            `Map test ${state.rebuildResult.map_test}. Behavior remains ${state.rebuildResult.behavior}.`,
+          ],
+        )
+      : null,
+    el("h3", {}, "Owned native fixture"),
+    el(
+      "p",
+      { class: "note" },
+      "The native probe runs only when the artifact is experiments/ree-investigation-boundary. It uses the existing reconstruction verifier. Claim results stay pass, fail, or unknown.",
+    ),
+    field(
+      "New probe output folder",
+      el("input", { id: "probe-output", placeholder: "/tmp/ree-native-probe" }),
+    ),
+    button("Run owned native probe", () => runNativeProbe()),
+    nativeClaims(),
+  ]);
+}
+
+function nativeClaims() {
+  const probe = state.project?.native_probe;
+  if (!probe) return null;
+  return el("article", { class: "card" }, [
+    el("h3", {}, `Native probe ${probe.status}`),
+    el("p", {}, probe.note || probe.error || ""),
+    el(
+      "ul",
+      {},
+      (probe.claims ?? []).map((claim) =>
+        el("li", {}, `${claim.name}: ${claim.status} (${claim.scope})`),
+      ),
+    ),
+  ]);
+}
+
+async function previewRebuild(output) {
+  const run = latestRun();
+  if (!run) throw new Error("Complete an analysis before rebuilding.");
+  state.rebuildPlan = await api(
+    `/api/projects/${state.project.id}/runs/${run.id}/rebuild/preview`,
+    { method: "POST", body: { output } },
+  );
+  state.rebuildResult = null;
+  draw();
+}
+
+async function runRebuild(output, approved) {
+  if (!approved) throw new Error("Check the box to write the rebuild.");
+  if (!state.rebuildPlan) throw new Error("Preview the rebuild first.");
+  const run = latestRun();
+  state.rebuildResult = await api(
+    `/api/projects/${state.project.id}/runs/${run.id}/rebuild`,
+    {
+      method: "POST",
+      body: { output, approved: true, digest: state.rebuildPlan.digest },
+    },
+  );
+  state.notice = `Rebuild map test ${state.rebuildResult.map_test}. Behavior is unverified.`;
+  state.timeline = (
+    await api(`/api/projects/${state.project.id}/runs/${run.id}/timeline`)
+  ).events;
+  draw();
+}
+
+async function runNativeProbe() {
+  const artifact = state.project?.artifacts?.at(-1);
+  if (!artifact)
+    throw new Error("Add the owned C fixture before the native probe.");
+  const output = document.querySelector("#probe-output")?.value ?? "";
+  const approved =
+    document.querySelector("#rebuild-approved")?.checked === true;
+  if (!approved)
+    throw new Error("Check the box to run the owned native probe.");
+  state.project = await api(`/api/projects/${state.project.id}/native-probe`, {
+    method: "POST",
+    body: { artifact_id: artifact.id, output, approved: true },
+  });
+  state.notice = "Owned native probe started.";
+  draw();
+  await refreshProject();
+  draw();
+}
+
+function palette() {
+  const query = state.paletteQuery.toLowerCase();
+  const items = visibleViews().filter(([, label]) =>
+    label.toLowerCase().includes(query),
+  );
+  const input = el("input", {
+    id: "palette-input",
+    placeholder: "Jump to a view",
+    value: state.paletteQuery,
+    oninput: (event) => {
+      state.paletteQuery = event.target.value;
+      draw();
+      document.querySelector("#palette-input")?.focus();
+    },
+  });
+  return el(
+    "div",
+    { class: "palette", role: "dialog", "aria-label": "Commands" },
+    [
+      el("div", { class: "palette-card" }, [
+        input,
+        el(
+          "ul",
+          {},
+          items.map(([id, label]) =>
+            el(
+              "li",
+              {},
+              button(label, () => {
+                state.view = id;
+                state.palette = false;
+                draw();
+              }),
+            ),
+          ),
+        ),
+        el("p", { class: "note" }, "Esc closes. Ctrl+K or Cmd+K opens."),
+      ]),
+    ],
+  );
 }
 
 function findingsPanel() {
@@ -1090,6 +1535,8 @@ async function analyze(question) {
     },
   });
   state.notice = "Static analysis started.";
+  state.view = "theater";
+  state.replayTo = null;
   draw();
   await refreshProject();
   draw();
@@ -1212,6 +1659,18 @@ function draw() {
 }
 
 async function boot() {
+  document.addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();
+      state.palette = !state.palette;
+      state.paletteQuery = "";
+      draw();
+      document.querySelector("#palette-input")?.focus();
+    } else if (event.key === "Escape" && state.palette) {
+      state.palette = false;
+      draw();
+    }
+  });
   const session = await api("/api/session");
   token = session.token;
   state.readiness = await api("/api/readiness");
