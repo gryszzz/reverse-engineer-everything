@@ -103,7 +103,7 @@ The first visit shows a three-step tour. `?` opens shortcuts. `1` through `4` ju
 
 ## Trace Lab
 
-Trace Lab runs `capture-process` for `experiments/rel-first-lab/cli.mjs` with the query `bridge` after you check the box. The record stays on the project trace, not in `evidence.json`. Filesystem rows are checkpoint effects for that directory. Network and IPC stay not-recorded. A matching path is the same name in the static record and the checkpoint, which does not show that the module ran. Linux and macOS need a native PTY. Windows capture is unavailable. A missing runtime refuses the launch.
+Trace Lab runs `capture-process` for `experiments/rel-first-lab/cli.mjs` with the query `bridge` after you check the box. Press T to open it. The record stays on the project trace, not in `evidence.json`. Filesystem rows are checkpoint effects for that directory. Network and IPC stay not-recorded. A matching path is the same name in the static record and the checkpoint, which does not show that the module ran. Linux and macOS need a native PTY. Windows capture is unavailable. A missing runtime refuses the launch.
 
 ## Diff Lab
 
