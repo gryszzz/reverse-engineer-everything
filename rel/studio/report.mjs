@@ -80,7 +80,7 @@ export function renderStudioReport(project) {
     "",
     "## Limits",
     "- A route runs only when its status is ready and the request sets authorized to true.",
-    "- IDA, Hopper, Rizin, radare2, JEB, firmware tools, browser debuggers, packet capture, SQLite, and capture-process are not launched from this studio.",
+    "- IDA, Hopper, Rizin, radare2, JEB, firmware tools, browser debuggers, packet capture, and SQLite are not launched from this studio. capture-process runs only for the owned rel-first-lab trace after approval, and that record stays separate from static Evidence.",
     "- Ghidra runs only when GHIDRA_INSTALL_DIR is set, and only as inspect --provider ghidra.",
     "- Hypothesis statements in an experiment are caller-declared predictions, not engine discoveries.",
     "",
