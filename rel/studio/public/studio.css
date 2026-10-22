@@ -19,7 +19,8 @@
   --space-5: 24px;
   --space-6: 32px;
   --radius: 10px;
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+  --font:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
     "Segoe UI", sans-serif;
   --mono: ui-monospace, "SF Mono", ui-monospace, Menlo, Consolas, monospace;
 }
