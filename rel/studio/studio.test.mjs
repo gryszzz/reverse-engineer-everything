@@ -278,6 +278,23 @@ test("analysis without authorization is refused and a missing runtime is recorde
   assert.equal((await api(`/api/projects/${project.id}`)).runs.length, 0);
 });
 
+test("model research without an env key does not call a provider", async () => {
+  if (process.env.REE_MODEL_API_KEY) return;
+  await api("/api/research", { method: "PUT", body: { enabled: true } });
+  const project = await api("/api/projects", {
+    method: "POST",
+    body: { name: "Model", question: "Where does this feature start?" },
+  });
+  const researched = await api(`/api/projects/${project.id}/research`, {
+    method: "POST",
+    body: { model: true },
+  });
+  const session = researched.research_sessions.at(-1);
+  assert.equal(session.remote_calls, "refused");
+  assert.equal(session.cost.status, "unknown");
+  await api("/api/research", { method: "PUT", body: { enabled: false } });
+});
+
 test("research is off by default and local stages do not claim a model ran", async () => {
   const config = await api("/api/research");
   assert.equal(config.enabled, false);

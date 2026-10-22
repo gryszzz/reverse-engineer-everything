@@ -91,7 +91,7 @@ The studio can run the existing engine commands for JavaScript and ASAR, PE reso
 
 **Report** and summary diff compare saved records. They do not create a new engine verdict.
 
-**Research** is off until you enable it. The stages SCOUT, MAPPER, TRACER, ANALYST, DIFF, VERIFIER, and REPORTER restate intake, Evidence summaries, and saved comparisons. Remote model calls stay refused even if `research.json` contains a key. The key is not shown in the UI and is not sent anywhere by this build.
+**Research** is off until you enable it. The local stages SCOUT, MAPPER, TRACER, ANALYST, DIFF, VERIFIER, and REPORTER restate intake, Evidence summaries, and saved comparisons. A model call also needs `REE_MODEL_API_KEY` and the checkbox. OpenAI-compatible endpoints are the default, including xAI when `REE_MODEL_PROVIDER=xai`. Anthropic uses `REE_MODEL_PROVIDER=anthropic`. The request contains retrieved passages, not the project at large. The verifier drops a fact that does not cite a retrieved Evidence id. Cost is unknown unless the response includes usage and `REE_MODEL_USD_PER_MILLION` is set. A computed cost above `REE_MODEL_BUDGET_USD` (default 0.05) discards the claims. A key stored only in `research.json` is still not sent.
 
 ## Explain this and the first run
 
