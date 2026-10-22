@@ -1,3 +1,4 @@
+// Loaded as /theme.js. The studio content-security policy blocks inline scripts.
 try {
   const stored = localStorage.getItem("ree-studio-theme");
   const theme =
