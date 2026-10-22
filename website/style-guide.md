@@ -305,6 +305,8 @@ Follow the PR review and CI process, then publish using the existing manual
 same verified artifact to Cloudflare and GitHub Pages and checks both published
 commit markers. Use `pages` only for an explicitly requested publication while
 Cloudflare credentials are being configured.
-Ordinary commits should not publish the site. After deployment, check both live
+Ordinary commits should not publish the REA website. The path-filtered REE
+landing-page workflow is a separate publisher and shares the same GitHub Pages
+site. After deployment, check both live
 pages and confirm they match the reviewed version. The legacy VitePress build
 remains separate from the Pages publisher.

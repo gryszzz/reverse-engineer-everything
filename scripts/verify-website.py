@@ -1,4 +1,4 @@
-"""Check website references, search metadata and the sole production publisher."""
+"""Check website references, search metadata and the known Pages publishers."""
 
 from html.parser import HTMLParser
 from pathlib import Path
@@ -383,8 +383,16 @@ def check_site(site):
 
 
 def check_publisher(root):
-    """Detect a second Pages action that could replace the website."""
-    expected = root / ".github/workflows/website-pages.yml"
+    """Allow the two known Pages workflows and reject any other deploy action.
+
+    ``website-pages.yml`` is the manual REA website publisher.
+    ``ree-pages.yml`` publishes the REE landing page on main.
+    Both call ``actions/deploy-pages``, so they share one GitHub Pages site.
+    """
+    expected = [
+        root / ".github/workflows/ree-pages.yml",
+        root / ".github/workflows/website-pages.yml",
+    ]
     workflows = root / ".github/workflows"
     deploy_action = re.compile(
         r"^\s*-?\s*uses:\s*['\"]?actions/deploy-pages@", re.MULTILINE
@@ -395,9 +403,12 @@ def check_publisher(root):
         if path.suffix in (".yml", ".yaml")
         and deploy_action.search(path.read_text(encoding="utf-8"))
     ]
-    if publishers != [expected]:
+    if publishers != expected:
         actual = ", ".join(str(path.relative_to(root)) for path in publishers) or "none"
-        return [f"Pages must have one publisher, website-pages.yml; found: {actual}"]
+        return [
+            "Pages publishers must be .github/workflows/ree-pages.yml and "
+            f".github/workflows/website-pages.yml; found: {actual}"
+        ]
     return []
 
 
@@ -453,7 +464,7 @@ def main():
     print(
         f"Verified search/sharing metadata, robots.txt and the sitemap for {indexable} indexable pages."
     )
-    print("website-pages.yml is the sole GitHub Pages publisher.")
+    print("Pages publishers are ree-pages.yml and website-pages.yml.")
     return 0
 
 

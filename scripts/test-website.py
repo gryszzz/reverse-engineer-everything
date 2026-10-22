@@ -248,6 +248,26 @@ class WebsiteMaintenanceChecks(unittest.TestCase):
                         server.shutdown()
                         worker.join()
 
+    def test_pages_publishers_are_the_rea_site_and_the_ree_landing_page(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workflows = root / ".github/workflows"
+            workflows.mkdir(parents=True)
+            marker = "uses: actions/deploy-pages@v4\n"
+            rea = workflows / "website-pages.yml"
+            ree = workflows / "ree-pages.yml"
+            rea.write_text(marker)
+            ree.write_text(marker)
+            self.assertEqual(VERIFY.check_publisher(root), [])
+            extra = workflows / "extra-pages.yml"
+            extra.write_text(marker)
+            self.assertTrue(
+                any("found:" in error for error in VERIFY.check_publisher(root))
+            )
+            extra.unlink()
+            rea.write_text("uses: actions/checkout@v4\n")
+            self.assertTrue(VERIFY.check_publisher(root))
+
 
 class WebsiteTranslationChecks(unittest.TestCase):
     """Exercise source edits, translated evidence and language editions at their consumers."""

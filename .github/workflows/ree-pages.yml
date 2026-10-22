@@ -1,0 +1,73 @@
+name: Publish REE landing page
+
+# Publishes docs/site to GitHub Pages on main.
+# website-pages.yml is the manual publisher for the REA website and also
+# calls deploy-pages. The two workflows share one GitHub Pages site, so a
+# manual REA website publish replaces this landing page until the next run.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/site/**"
+      - "docs/assets/ree-banner.svg"
+      - "docs/assets/studio/**"
+      - ".github/workflows/ree-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ree-pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  assemble:
+    name: Assemble landing page
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Assemble the static site
+        run: |
+          set -eu
+          dest="build/ree-pages"
+          rm -rf "$dest"
+          mkdir -p "$dest/assets/studio"
+          cp -a docs/site/. "$dest/"
+          rm -rf "$dest/assets"
+          mkdir -p "$dest/assets/studio"
+          cp docs/assets/ree-banner.svg "$dest/assets/ree-banner.svg"
+          cp docs/assets/studio/* "$dest/assets/studio/"
+          test -f "$dest/index.html"
+          test -f "$dest/styles.css"
+          test -f "$dest/assets/studio/graph.png"
+          test -f "$dest/assets/studio/front-door.gif"
+          test ! -L "$dest/assets/studio/graph.png"
+      - name: Configure Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+      - name: Upload the landing page
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
+        with:
+          path: build/ree-pages
+
+  deploy:
+    name: Deploy landing page
+    needs: assemble
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
