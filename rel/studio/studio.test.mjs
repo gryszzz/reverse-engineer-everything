@@ -74,6 +74,17 @@ async function settle(projectId) {
   throw new Error("Studio work did not finish.");
 }
 
+test("lessons stay on owned fixtures and an unknown id is 404", async () => {
+  const catalog = await api("/api/lessons");
+  assert.equal(catalog.lessons.length, 4);
+  const lesson = await api("/api/lessons/compare-versions");
+  assert.match(lesson.steps[0].observation.note, /Behavior is unknown/);
+  await assert.rejects(
+    () => api("/api/lessons/nope"),
+    (error) => error.status === 404,
+  );
+});
+
 test("the studio binds only to loopback and serves its own page", async () => {
   assert.equal(studio.server.address().address, "127.0.0.1");
   const page = await fetch(studio.url);

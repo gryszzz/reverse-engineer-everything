@@ -125,7 +125,7 @@ function spec() {
 test("simple navigation keeps labs behind advanced", () => {
   assert.deepEqual(
     navigation("simple").map(([, label]) => label),
-    ["Front door", "Analyze", "Findings", "Board", "Build"],
+    ["Front door", "Analyze", "Findings", "Board", "Build", "Lessons"],
   );
   assert.equal(
     navigation("advanced").some(([id]) => id === "graph"),

@@ -37,6 +37,9 @@ const state = {
   tourStep: 0,
   shortcuts: false,
   capabilities: false,
+  lessonCatalog: null,
+  lesson: null,
+  lessonStep: 0,
 };
 
 function visibleViews() {
@@ -147,6 +150,10 @@ function openView(id) {
         draw();
       })
       .catch(setError);
+  if (id === "lessons") {
+    loadLessons().catch(setError);
+    return;
+  }
   if (id === "analyze" && state.project) {
     refreshProject().then(draw).catch(setError);
     return;
@@ -257,6 +264,7 @@ function panel() {
   if (state.view === "door" || !state.project) return doorPanel();
   if (state.view === "rebuild") return rebuildPanel();
   if (state.view === "findings") return findingsPanel();
+  if (state.view === "lessons") return lessonsPanel();
   if (state.view === "intake") return intakePanel();
   if (state.view === "evidence") return evidencePanel();
   if (state.view === "graph") return graphPanel();
@@ -1100,6 +1108,83 @@ function palette() {
       ]),
     ],
   );
+}
+
+function lessonsPanel() {
+  if (!state.lessonCatalog)
+    return el("section", { class: "panel" }, [
+      el("h2", {}, "Guided lessons"),
+      el(
+        "p",
+        { class: "empty" },
+        "Lessons use owned fixtures in this checkout. Open the list to read them. A missing tool stays unavailable.",
+      ),
+      button("Load lessons", () => loadLessons(), { class: "primary" }),
+    ]);
+  const lesson = state.lesson;
+  const step = lesson?.steps?.[state.lessonStep];
+  return el("section", { class: "panel" }, [
+    el("h2", {}, "Guided lessons"),
+    el(
+      "p",
+      {},
+      "Each lesson reads an owned fixture. It does not launch a target, and it does not invent tool output.",
+    ),
+    el(
+      "div",
+      { class: "stack" },
+      state.lessonCatalog.lessons.map((item) =>
+        button(item.title, () => openLesson(item.id), {
+          class: lesson?.id === item.id ? "nav current" : "nav",
+        }),
+      ),
+    ),
+    lesson
+      ? el("article", { class: "card" }, [
+          el("h3", {}, lesson.title),
+          el("p", {}, lesson.summary),
+          el("p", { class: "note" }, `Fixture: ${lesson.fixture}`),
+          step
+            ? el("div", {}, [
+                el(
+                  "p",
+                  { class: "eyebrow" },
+                  `Step ${state.lessonStep + 1} of ${lesson.steps.length}`,
+                ),
+                el("h3", {}, step.title),
+                el("p", {}, step.hint),
+                step.observation.status === "unavailable"
+                  ? el("p", { class: "empty" }, step.observation.reason)
+                  : el(
+                      "pre",
+                      { class: "mono" },
+                      step.observation.text || step.observation.note || "",
+                    ),
+                step.observation.note && step.observation.status === "shown"
+                  ? el("p", { class: "note" }, step.observation.note)
+                  : null,
+              ])
+            : null,
+          button(
+            state.lessonStep < lesson.steps.length - 1
+              ? "Next hint"
+              : "Back to the first hint",
+            () => {
+              state.lessonStep =
+                state.lessonStep < lesson.steps.length - 1
+                  ? state.lessonStep + 1
+                  : 0;
+              draw();
+            },
+            { class: "primary" },
+          ),
+        ])
+      : el(
+          "p",
+          { class: "empty" },
+          "Choose a lesson. The steps stay on the fixture named in the catalog.",
+        ),
+  ]);
 }
 
 function findingsPanel() {
@@ -2027,6 +2112,18 @@ function draw() {
   }
 }
 
+async function loadLessons() {
+  state.lessonCatalog = await api("/api/lessons");
+  draw();
+}
+
+async function openLesson(id) {
+  state.lesson = await api(`/api/lessons/${id}`);
+  state.lessonStep = 0;
+  state.view = "lessons";
+  draw();
+}
+
 function showExplain(subject) {
   state.explain = explainSubject(subject);
   draw();
@@ -2142,6 +2239,7 @@ function shortcutSheet() {
     ["3", "Findings"],
     ["4", "Board"],
     ["5", "Build"],
+    ["L", "Lessons"],
   ];
   return el(
     "div",
@@ -2202,6 +2300,10 @@ async function boot() {
       4: "board",
       5: "build",
     };
+    if (event.key.toLowerCase() === "l") {
+      openView("lessons");
+      return;
+    }
     if (viewKeys[event.key]) openView(viewKeys[event.key]);
   });
   try {

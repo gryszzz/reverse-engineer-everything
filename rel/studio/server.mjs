@@ -64,6 +64,7 @@ import {
   countStudioVerifications,
 } from "./readiness.mjs";
 import { renderStudioReport } from "./report.mjs";
+import { lessonCatalog, renderLesson } from "./lessons.mjs";
 import { runLocalResearch } from "./research.mjs";
 import { readRecordedSource } from "./source.mjs";
 
@@ -430,6 +431,14 @@ async function handleApi(context) {
   if (method === "POST" && pathname === "/api/builds") {
     const { createBuild } = await import("./product-flow.mjs");
     return createBuild(store.root, body);
+  }
+  if (method === "GET" && pathname === "/api/lessons")
+    return { lessons: lessonCatalog() };
+  const lessonMatch = pathname.match(/^\/api\/lessons\/([a-z0-9-]+)$/u);
+  if (method === "GET" && lessonMatch) {
+    const lesson = await renderLesson(lessonMatch[1]);
+    if (!lesson) throw studioError("Unknown lesson.", 404);
+    return lesson;
   }
   if (method === "GET" && pathname === "/api/readiness")
     return assessStudioReadiness({

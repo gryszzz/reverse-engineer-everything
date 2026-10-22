@@ -101,6 +101,10 @@ Click **Explain this** on a finding, a theater module, or a graph node. The text
 
 The first visit shows a three-step tour. `?` opens shortcuts. `1` through `4` jump to the front door, theater, rebuild, and findings when focus is not in a field. After a drop or a saved project with artifacts, **What can I do with this?** lists the ready routes and says which views restate Evidence. Simple Mode, the first ready route, research off, and authorization off are the defaults.
 
+## Lessons
+
+The Lessons view has four walks: Your first binary, How Electron apps are built, Reading disassembly, and Comparing versions. They read `experiments/ree-fixtures`, `experiments/rel-first-lab`, and the two C files in `experiments/ree-investigation-boundary`. They do not execute those programs. `objdump` output is labeled as tool stdout. If `objdump` is missing, the step says so and shows no listing.
+
 ## Limits
 
 - Explain this does not describe runtime behavior and does not invent a function body.

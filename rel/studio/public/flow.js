@@ -4,6 +4,7 @@ export const primaryFlow = [
   ["findings", "Findings"],
   ["board", "Board"],
   ["build", "Build"],
+  ["lessons", "Lessons"],
 ];
 
 export const advancedLabs = [
