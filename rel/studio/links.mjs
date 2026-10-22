@@ -133,7 +133,7 @@ function describe(text, gitAvailable) {
       note: "A shallow clone is stored under this project's links directory. It is not executed.",
     };
   }
-  if (text.startsWith('https://')) {
+  if (text.startsWith("https://")) {
     const url = publicUrl(text);
     if (isNpmPackagePage(url)) return npmPlan(text, packageFromNpmPage(url));
     if (isDirectFile(url))

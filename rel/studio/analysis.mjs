@@ -95,9 +95,12 @@ export function selectRoute(artifact, routeId, facts = collectRouteFacts()) {
       "No engine route applies to this artifact. Nothing was started.",
       409,
     );
-  const chosen = routeId ? routeById(routes, routeId) : bestReadyRoute(routes);
-  if (!chosen)
+  const requested = routeId ? routeById(routes, routeId) : null;
+  if (routeId && !requested)
     throw studioError("That route does not apply to this artifact.", 404);
+  // A route can apply and still be missing its tool. Report that status
+  // instead of treating "none ready" as "does not apply".
+  const chosen = requested ?? bestReadyRoute(routes) ?? routes[0];
   if (chosen.status !== "ready") {
     const listed = routes
       .map((route) => `${route.id}: ${route.status}`)

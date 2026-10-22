@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { selectRoute } from "./analysis.mjs";
 import { assessRoutes, artifactFamily } from "./engine-routes.mjs";
 import { narrateEvidence } from "./narrative.mjs";
 import { projectEngineGraph } from "./engine-window.mjs";
@@ -72,6 +73,24 @@ test("route status follows the engine contract instead of PATH guesses", () => {
   assert.match(radare.detail, /no radare2 provider/);
   const wabt = assessRoutes(facts).find((route) => route.id === "wasm");
   assert.match(wabt.detail, /does not install WABT/);
+});
+
+test("an applicable route with no runtime reports missing-tool and starts nothing", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ree-missing-runtime-"));
+  const target = join(directory, "app.js");
+  writeFileSync(target, "export const value = 1;\n");
+  try {
+    assert.throws(
+      () =>
+        selectRoute({ path: target, intake: { kind: "javascript" } }, null, {
+          ...facts,
+          runtime: false,
+        }),
+      /JavaScript \/ Electron \/ ASAR is missing-tool[\s\S]*Nothing was started/,
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("family detection uses headers and does not treat every binary as EVM", () => {
