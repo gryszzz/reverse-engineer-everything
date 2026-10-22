@@ -12,7 +12,11 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { startStudio } from "./server.mjs";
-import { parseProgressLine, readTimeline } from "./theater.mjs";
+import {
+  evidenceTimeline,
+  parseProgressLine,
+  readTimeline,
+} from "./theater.mjs";
 import {
   moduleComparisons,
   planOwnedNativeProbe,
@@ -60,6 +64,15 @@ function sampleRecord() {
     },
   };
 }
+
+test("statistics do not call bundler registrations source modules", () => {
+  const stats = evidenceTimeline(sampleRecord()).find(
+    (event) => event.phase === "statistics",
+  );
+  assert.match(stats.message, /2 source modules/);
+  assert.match(stats.message, /Bundler registrations: 0/);
+  assert.doesNotMatch(stats.message, /\b0 modules\b/);
+});
 
 test("progress lines keep the engine phase and parsed file", () => {
   const event = parseProgressLine(

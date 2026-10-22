@@ -30,7 +30,14 @@ test("evidence becomes a bounded, explicitly static report", () => {
   assert.equal(summary.counts.edges, 1);
   assert.equal(summary.relationships.imports, 1);
   assert.equal(summary.counts.parse_failures, 0);
+  assert.equal(summary.counts.modules, 3);
+  assert.equal(summary.counts.source_modules, 0);
   assert.match(markdownReport(summary), /not runtime proof/);
+  assert.match(
+    markdownReport(summary),
+    /Bundler registrations in statistics: 3/,
+  );
+  assert.match(markdownReport(summary), /Source modules recovered: 0/);
 });
 
 test("fail closed on error payload and missing or mismatched graphs", () => {

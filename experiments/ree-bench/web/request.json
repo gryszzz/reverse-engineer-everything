@@ -1,0 +1,10 @@
+{
+  "target": {
+    "name": "Bench Boards",
+    "urls": ["https://bench.test/"]
+  },
+  "docs": [
+    { "url": "https://bench.test/openapi.yaml", "kind": "openapi" },
+    { "url": "https://bench.test/sdk/README.md", "kind": "sdk-readme" }
+  ]
+}

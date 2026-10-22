@@ -345,19 +345,20 @@ node rel/evidence-explorer.mjs "$OUT/evidence.json" --find cli.mjs --limit 12
 
 Beginner REE commands:
 
-| Command                                                   | What it does                                      |
-| --------------------------------------------------------- | ------------------------------------------------- |
-| `node ree.mjs doctor`                                     | Read-only host and toolchain report               |
-| `node ree.mjs inspect TARGET`                             | Classify. Do not analyze                          |
-| `node ree.mjs analyze TARGET --authorized --out DIR`      | Static JavaScript / Electron                      |
-| `node ree.mjs demo`                                       | Preview the owned lab                             |
-| `node ree.mjs demo --run --out DIR`                       | Analyze the owned lab and run its checks          |
-| `node ree.mjs studio`                                     | Loopback Investigation Studio                     |
-| `node ree.mjs app build`                                  | Build unsigned `REE.app` on macOS                 |
-| `node ree.mjs app install`                                | Copy it to `~/Applications` and alias the Desktop |
-| `node ree.mjs outside-in --name NAME --url URL --out DIR` | Public-docs behavior spec. No target source       |
-| `node ree.mjs lab`                                        | Visual lesson, separate from the studio           |
-| `node ree.mjs codex`                                      | Check this checkout's Codex project files         |
+| Command                                                   | What it does                                          |
+| --------------------------------------------------------- | ----------------------------------------------------- |
+| `node ree.mjs doctor`                                     | Read-only host and toolchain report                   |
+| `node ree.mjs inspect TARGET`                             | Classify. Do not analyze                              |
+| `node ree.mjs analyze TARGET --authorized --out DIR`      | Static JavaScript / Electron                          |
+| `node ree.mjs demo`                                       | Preview the owned lab                                 |
+| `node ree.mjs demo --run --out DIR`                       | Analyze the owned lab and run its checks              |
+| `node ree.mjs studio`                                     | Loopback Investigation Studio                         |
+| `node ree.mjs app build`                                  | Build unsigned `REE.app` on macOS                     |
+| `node ree.mjs app install`                                | Copy it to `~/Applications` and alias the Desktop     |
+| `node ree.mjs outside-in --name NAME --url URL --out DIR` | Public-docs behavior spec. No target source           |
+| `node ree.mjs bench`                                      | Score owned fixtures against handwritten ground truth |
+| `node ree.mjs lab`                                        | Visual lesson, separate from the studio               |
+| `node ree.mjs codex`                                      | Check this checkout's Codex project files             |
 
 The engine commands and MCP tools are unchanged. Representative pairs:
 

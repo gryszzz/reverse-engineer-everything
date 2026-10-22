@@ -1,0 +1,124 @@
+{
+  "cases": [
+    {
+      "id": "js-app",
+      "kind": "javascript",
+      "target": "experiments/ree-bench/js-app",
+      "expected": {
+        "module": ["catalog.mjs", "filter.mjs", "main.mjs"],
+        "function": [
+          "catalog.mjs:itemById",
+          "filter.mjs:filterByTag",
+          "main.mjs:run"
+        ],
+        "import": [
+          "filter.mjs->catalog.mjs",
+          "main.mjs->catalog.mjs",
+          "main.mjs->filter.mjs"
+        ],
+        "call": [
+          "filter.mjs:filterByTag->catalog.mjs:itemById",
+          "main.mjs:run->filter.mjs:filterByTag"
+        ],
+        "string": ["alpha-item"],
+        "behavior": [
+          "itemById returns the item whose id matches, or null",
+          "filterByTag returns that item in a one-item list, or an empty list",
+          "run calls filterByTag with ITEM_TAG"
+        ]
+      }
+    },
+    {
+      "id": "ts-app",
+      "kind": "javascript",
+      "target": "experiments/ree-bench/ts-app",
+      "expected": {
+        "module": ["catalog.ts", "filter.ts", "main.ts"],
+        "function": [
+          "catalog.ts:itemById",
+          "filter.ts:filterByTag",
+          "main.ts:run"
+        ],
+        "import": [
+          "filter.ts->catalog.ts",
+          "main.ts->catalog.ts",
+          "main.ts->filter.ts"
+        ],
+        "call": [
+          "filter.ts:filterByTag->catalog.ts:itemById",
+          "main.ts:run->filter.ts:filterByTag"
+        ],
+        "string": ["beta-item"],
+        "behavior": [
+          "itemById returns the item whose id matches, or null",
+          "filterByTag returns that item in a one-item list, or an empty list",
+          "run calls filterByTag with ITEM_TAG"
+        ]
+      }
+    },
+    {
+      "id": "archive",
+      "kind": "archive",
+      "members": "experiments/ree-bench/js-app",
+      "expected": {
+        "module": ["catalog.mjs", "filter.mjs", "main.mjs"],
+        "function": [
+          "catalog.mjs:itemById",
+          "filter.mjs:filterByTag",
+          "main.mjs:run"
+        ],
+        "import": [
+          "filter.mjs->catalog.mjs",
+          "main.mjs->catalog.mjs",
+          "main.mjs->filter.mjs"
+        ],
+        "call": [
+          "filter.mjs:filterByTag->catalog.mjs:itemById",
+          "main.mjs:run->filter.mjs:filterByTag"
+        ],
+        "string": ["alpha-item"],
+        "behavior": [
+          "itemById returns the item whose id matches, or null",
+          "filterByTag returns that item in a one-item list, or an empty list",
+          "run calls filterByTag with ITEM_TAG"
+        ]
+      }
+    },
+    {
+      "id": "native",
+      "kind": "elf",
+      "source": "experiments/ree-bench/native/fixture.c",
+      "expected": {
+        "function": ["add_one", "entry"],
+        "string": ["ree-bench-marker"]
+      }
+    },
+    {
+      "id": "web",
+      "kind": "outside-in",
+      "fixture": "experiments/ree-bench/web",
+      "request": "experiments/ree-bench/web/request.json",
+      "expected": {
+        "endpoint": [
+          "GET /boards listBoards",
+          "POST /boards createBoard boardName"
+        ],
+        "string": [
+          "Local boards for the accuracy bench.",
+          "People can open one board together.",
+          "List boards",
+          "Create a board",
+          "People create a board from the client.",
+          "boardName"
+        ],
+        "behavior": [
+          "Local boards for the accuracy bench.",
+          "Shared boards",
+          "Create a board",
+          "People can open one board together.",
+          "People create a board from the client."
+        ]
+      }
+    }
+  ]
+}

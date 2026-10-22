@@ -1,0 +1,35 @@
+{
+  "js-app": {
+    "module": { "precision": 1, "recall": 1 },
+    "function": { "precision": 1, "recall": 1 },
+    "import": { "precision": 1, "recall": 1 },
+    "call": { "precision": 1, "recall": 0 },
+    "string": { "precision": 1, "recall": 1 },
+    "behavior": { "precision": 1, "recall": 0 }
+  },
+  "ts-app": {
+    "module": { "precision": 1, "recall": 1 },
+    "function": { "precision": 1, "recall": 1 },
+    "import": { "precision": 1, "recall": 1 },
+    "call": { "precision": 1, "recall": 0 },
+    "string": { "precision": 1, "recall": 1 },
+    "behavior": { "precision": 1, "recall": 0 }
+  },
+  "archive": {
+    "module": { "precision": 1, "recall": 1 },
+    "function": { "precision": 1, "recall": 1 },
+    "import": { "precision": 1, "recall": 1 },
+    "call": { "precision": 1, "recall": 0 },
+    "string": { "precision": 1, "recall": 1 },
+    "behavior": { "precision": 1, "recall": 0 }
+  },
+  "native": {
+    "function": { "precision": 1, "recall": 1 },
+    "string": { "precision": 1, "recall": 0 }
+  },
+  "web": {
+    "endpoint": { "precision": 1, "recall": 1 },
+    "string": { "precision": 1, "recall": 1 },
+    "behavior": { "precision": 1, "recall": 1 }
+  }
+}

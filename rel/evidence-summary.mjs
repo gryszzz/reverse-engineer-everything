@@ -1,3 +1,5 @@
+import { graphFacts } from "./studio/theater.mjs";
+
 const isObject = (value) =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 const integer = (value) =>
@@ -75,7 +77,10 @@ export function summarizeEvidence(record) {
     counts: {
       nodes: graph.nodes.length,
       edges: graph.edges.length,
+      // Engine statistics.modules counts bundler registrations, not source files.
       modules: integer(statistics.modules),
+      bundler_registrations: integer(statistics.modules),
+      source_modules: graphFacts(record).modules.length,
       files_parsed: integer(statistics.parsed_javascript_files),
       parse_failures: integer(statistics.parse_failures),
     },

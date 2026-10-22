@@ -120,12 +120,23 @@ export function evidenceTimeline(record) {
       evidence_id: record.evidence_id,
     });
   const stats = record?.normalized_result?.statistics;
-  if (stats && Number.isSafeInteger(stats.parsed_javascript_files))
+  if (stats && Number.isSafeInteger(stats.parsed_javascript_files)) {
+    const registrations = Number.isSafeInteger(stats.modules)
+      ? String(stats.modules)
+      : "not recorded";
+    const findings = Number.isSafeInteger(stats.findings)
+      ? String(stats.findings)
+      : "not recorded";
     events.push({
       source: "evidence",
       phase: "statistics",
-      message: `Evidence records ${stats.parsed_javascript_files} parsed JavaScript files, ${stats.modules} modules, and ${stats.findings} findings.`,
+      message:
+        `Evidence records ${stats.parsed_javascript_files} parsed JavaScript files` +
+        ` and ${facts.modules.length} source modules.` +
+        ` Bundler registrations: ${registrations}.` +
+        ` Engine findings counter: ${findings}.`,
     });
+  }
   for (const module of facts.modules.slice(0, 40))
     events.push({
       source: "evidence",
