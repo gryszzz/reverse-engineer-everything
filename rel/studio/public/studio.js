@@ -37,6 +37,7 @@ const state = {
   lesson: null,
   lessonStep: 0,
   diffLab: null,
+  modelOptIn: false,
 };
 
 const views = [
@@ -1645,13 +1646,31 @@ function researchPanel() {
     el(
       "p",
       {},
-      `Local stages are ${config?.enabled ? "on" : "off"}. A configured key is ${config?.key_configured ? "present and unused" : "not present"}.`,
+      `Local stages are ${config?.enabled ? "on" : "off"}. An env model key is ${config?.key_configured ? "set" : "not set"}. A model runs only when local research is on and you check the box.`,
     ),
+    config?.model
+      ? el(
+          "p",
+          { class: "note" },
+          `Provider ${config.model.provider}, model ${config.model.model}, budget ${config.model.budget_usd ?? "unset"} USD. Cost stays unknown unless the provider returns usage and REE_MODEL_USD_PER_MILLION is set.`,
+        )
+      : null,
     button(
       config?.enabled ? "Turn local research off" : "Turn local research on",
       toggleResearch,
     ),
-    button("Run local stages", runResearch, {
+    el("label", { class: "check" }, [
+      el("input", {
+        type: "checkbox",
+        id: "model-opt-in",
+        checked: state.modelOptIn ? "checked" : false,
+        onchange: (event) => {
+          state.modelOptIn = event.target.checked;
+        },
+      }),
+      "Ask the model with retrieved Evidence only. Claims that cite no retrieved id are rejected.",
+    ]),
+    button("Run research", runResearch, {
       class: "primary",
       disabled: !config?.enabled,
     }),
@@ -1665,7 +1684,7 @@ function sessionCard(session) {
     el(
       "p",
       {},
-      `Tool calls ${session.tool_calls} / budget ${session.tool_call_budget}. Remote: ${session.remote_calls}.`,
+      `Tool calls ${session.tool_calls} / budget ${session.tool_call_budget}. Remote: ${session.remote_calls}. Cost: ${session.cost?.status || "not recorded"}${session.cost?.tokens != null ? `, tokens ${session.cost.tokens}` : ""}${session.cost?.usd != null ? `, USD ${session.cost.usd}` : ""}.`,
     ),
     el("h4", {}, "Facts"),
     el(
@@ -2032,9 +2051,11 @@ async function toggleResearch() {
 async function runResearch() {
   state.project = await api(`/api/projects/${state.project.id}/research`, {
     method: "POST",
-    body: {},
+    body: { model: state.modelOptIn === true },
   });
-  state.notice = "Local research stages finished. No model was called.";
+  state.notice = state.modelOptIn
+    ? "Research finished. A model ran only if an env key was set, and uncited claims were rejected."
+    : "Local research stages finished. No model was called.";
   draw();
 }
 
