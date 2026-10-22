@@ -22,9 +22,11 @@
         ],
         "string": ["alpha-item"],
         "behavior": [
-          "itemById returns the item whose id matches, or null",
-          "filterByTag returns that item in a one-item list, or an empty list",
-          "run calls filterByTag with ITEM_TAG"
+          "catalog.mjs:itemById return null",
+          "catalog.mjs:itemById read-property id",
+          "filter.mjs:filterByTag return empty-array",
+          "filter.mjs:filterByTag return array",
+          "main.mjs:run return call"
         ]
       }
     },
@@ -50,9 +52,11 @@
         ],
         "string": ["beta-item"],
         "behavior": [
-          "itemById returns the item whose id matches, or null",
-          "filterByTag returns that item in a one-item list, or an empty list",
-          "run calls filterByTag with ITEM_TAG"
+          "catalog.ts:itemById return null",
+          "catalog.ts:itemById read-property id",
+          "filter.ts:filterByTag return empty-array",
+          "filter.ts:filterByTag return array",
+          "main.ts:run return call"
         ]
       }
     },
@@ -78,9 +82,71 @@
         ],
         "string": ["alpha-item"],
         "behavior": [
-          "itemById returns the item whose id matches, or null",
-          "filterByTag returns that item in a one-item list, or an empty list",
-          "run calls filterByTag with ITEM_TAG"
+          "catalog.mjs:itemById return null",
+          "catalog.mjs:itemById read-property id",
+          "filter.mjs:filterByTag return empty-array",
+          "filter.mjs:filterByTag return array",
+          "main.mjs:run return call"
+        ]
+      }
+    },
+    {
+      "id": "js-calls",
+      "kind": "javascript",
+      "target": "experiments/ree-bench/js-calls",
+      "expected": {
+        "module": ["alias.mjs", "catalog.mjs", "class.mjs", "dynamic.mjs"],
+        "function": [
+          "alias.mjs:run",
+          "catalog.mjs:itemById",
+          "class.mjs:Catalog",
+          "class.mjs:itemById",
+          "class.mjs:lookup",
+          "class.mjs:run",
+          "dynamic.mjs:load"
+        ],
+        "import": ["alias.mjs->catalog.mjs", "dynamic.mjs->catalog.mjs"],
+        "call": [
+          "alias.mjs:run->catalog.mjs:itemById",
+          "class.mjs:lookup->class.mjs:itemById",
+          "class.mjs:run->class.mjs:Catalog",
+          "class.mjs:run->class.mjs:itemById",
+          "dynamic.mjs:load->catalog.mjs:itemById"
+        ],
+        "string": ["gamma-item"],
+        "behavior": [
+          "alias.mjs:run return call",
+          "catalog.mjs:itemById return null",
+          "catalog.mjs:itemById read-property id",
+          "class.mjs:itemById return null",
+          "class.mjs:itemById read-property id",
+          "class.mjs:lookup return call",
+          "class.mjs:run return call",
+          "dynamic.mjs:load return call"
+        ]
+      }
+    },
+    {
+      "id": "js-effects",
+      "kind": "javascript",
+      "target": "experiments/ree-bench/js-effects",
+      "expected": {
+        "module": ["effects.mjs"],
+        "function": [
+          "effects.mjs:launch",
+          "effects.mjs:loadLocal",
+          "effects.mjs:loadRemote",
+          "effects.mjs:remember"
+        ],
+        "call": [],
+        "import": [],
+        "string": [],
+        "behavior": [
+          "effects.mjs:launch side-effect spawn",
+          "effects.mjs:loadLocal io readFile",
+          "effects.mjs:loadLocal return call",
+          "effects.mjs:loadRemote network fetch",
+          "effects.mjs:remember storage localStorage.setItem"
         ]
       }
     },
@@ -90,6 +156,16 @@
       "source": "experiments/ree-bench/native/fixture.c",
       "expected": {
         "function": ["add_one", "entry"],
+        "string": ["ree-bench-marker"]
+      }
+    },
+    {
+      "id": "native-stripped",
+      "kind": "elf",
+      "source": "experiments/ree-bench/native/fixture.c",
+      "strip": true,
+      "expected": {
+        "function": [],
         "string": ["ree-bench-marker"]
       }
     },

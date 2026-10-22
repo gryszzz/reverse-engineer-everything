@@ -136,6 +136,27 @@ export function javascriptFindings(record) {
         resolved.location,
       );
     }
+    if (
+      node.kind === "expression" &&
+      typeof node.properties?.behavior === "string" &&
+      typeof node.properties?.detail === "string"
+    ) {
+      const owner = node.function_node_id
+        ? semanticNodes.get(node.function_node_id)
+        : null;
+      const ownerName = owner?.properties?.name;
+      const module = owner?.identity?.module_path;
+      if (typeof ownerName === "string" && typeof module === "string") {
+        const key = `${module}:${ownerName} ${node.properties.behavior} ${node.properties.detail}`;
+        if (resolved.evidence?.state === "observed")
+          provenance.push({
+            type: "behavior",
+            key,
+            problems: ["behavior is marked observed"],
+          });
+        add("behavior", key, resolved.evidence, resolved.location);
+      }
+    }
   }
 
   for (const relation of semantic?.relations ?? []) {
@@ -157,15 +178,23 @@ export function javascriptFindings(record) {
   }
 
   const notes = [];
-  const callSites = (semantic?.nodes ?? []).filter(
-    (node) => node.kind === "call-site",
+  const linkedCallSites = new Set(
+    (semantic?.relations ?? [])
+      .filter(
+        (relation) =>
+          relation.relation === "calls" && relation.resolution === "resolved",
+      )
+      .map((relation) => relation.source_node_id),
+  );
+  const unresolvedImports = (semantic?.nodes ?? []).filter(
+    (node) =>
+      node.kind === "call-site" &&
+      typeof node.properties?.imported_specifier === "string" &&
+      !linkedCallSites.has(node.node_id),
   ).length;
-  const callEdges = (semantic?.relations ?? []).filter(
-    (relation) => relation.relation === "calls",
-  ).length;
-  if (callSites > 0 && callEdges === 0)
+  if (unresolvedImports > 0)
     notes.push(
-      `Semantic graph has ${callSites} call-site nodes and no calls relations. Direct calls were not given callee edges.`,
+      `${unresolvedImports} imported call sites stayed unresolved. External modules, re-exports, and ambiguous exports are not call edges.`,
     );
   const stats = record?.normalized_result?.statistics;
   const sourceModules = findings.module.length;
@@ -303,7 +332,7 @@ function isFunctionSymbol(type) {
   return type === "STT_FUNC" || type === 2;
 }
 
-/** Function symbols from inspect-binary-layout Evidence. String bytes are not a layout field. */
+/** Function symbols and bounded file-backed string literals from inspect-binary-layout Evidence. */
 export function elfFindings(record) {
   const layout = record?.normalized_result;
   const findings = {
@@ -342,11 +371,22 @@ export function elfFindings(record) {
         problems: ["function symbol has no byte location"],
       });
   }
-  return {
-    findings,
-    provenance,
-    notes: [
-      "inspect-binary-layout returns ELF symbols and sections. It has no string-literal field, so rodata text is not a finding.",
-    ],
-  };
+  const notes = [];
+  if (!Array.isArray(layout?.strings))
+    notes.push(
+      "inspect-binary-layout did not return a strings array, so rodata text is not a finding.",
+    );
+  else
+    for (const literal of layout.strings) {
+      if (typeof literal?.value !== "string" || literal.value.length === 0)
+        continue;
+      findings.string.push(literal.value);
+      if (literal.location?.offset == null || literal.location?.bytes == null)
+        provenance.push({
+          type: "string",
+          key: literal.value,
+          problems: ["string literal has no file offset"],
+        });
+    }
+  return { findings, provenance, notes };
 }

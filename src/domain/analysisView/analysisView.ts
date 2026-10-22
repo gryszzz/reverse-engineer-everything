@@ -275,6 +275,8 @@ const layoutSummarySchema = z.strictObject({
     segments: z.number().int().nonnegative(),
     symbols: z.number().int().nonnegative(),
     relocations: z.number().int().nonnegative(),
+    // Older saved views omit this count. New layout summaries always include it.
+    strings: z.number().int().nonnegative().default(0),
   }),
   limitation_count: z.number().int().nonnegative(),
 });

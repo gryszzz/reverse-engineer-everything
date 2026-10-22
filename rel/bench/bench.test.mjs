@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { extractMarkdown } from "../outside-in/extract-markdown.mjs";
-import { elfFindings } from "./extract.mjs";
+import { elfFindings, javascriptFindings } from "./extract.mjs";
 import { scoreFindings, scorePasses, scoreType } from "./score.mjs";
 
 test("precision is 1 when nothing false is claimed and recall counts misses", () => {
@@ -87,4 +87,95 @@ test("ELF function symbols use the named STT_FUNC type from layout Evidence", ()
   assert.deepEqual(extracted.findings.function.sort(), ["add_one", "entry"]);
   assert.deepEqual(extracted.provenance, []);
   assert.deepEqual(extracted.findings.string, []);
+  assert.match(extracted.notes.join("\n"), /strings array/);
+});
+
+test("ELF string literals keep file offsets and behavior facts stay inferred", () => {
+  const digest = "c".repeat(64);
+  const parent = `ev_${"d".repeat(64)}`;
+  const context = {
+    context_id: "ctx-inferred",
+    state: "inferred",
+    confidence: "high",
+    authority: "static-relationship-inference",
+    artifact: { available: true, sha256: digest },
+    limitations: ["static candidate"],
+  };
+  const observed = {
+    ...context,
+    context_id: "ctx-observed",
+    state: "observed",
+    authority: "ast-static-analysis",
+    limitations: [],
+  };
+  const located = { available: true, value: { kind: "source-range" } };
+  const extracted = javascriptFindings({
+    evidence_id: parent,
+    normalized_result: {
+      semantic_graph: {
+        evidence_contexts: [context, observed],
+        nodes: [
+          {
+            node_id: "fn",
+            kind: "function",
+            identity: { module_path: "app.mjs" },
+            properties: { name: "run" },
+            evidence: { context_id: context.context_id, location: located },
+          },
+          {
+            node_id: "behavior",
+            kind: "expression",
+            function_node_id: "fn",
+            properties: { behavior: "return", detail: "null" },
+            evidence: { context_id: context.context_id, location: located },
+          },
+          {
+            node_id: "observed-behavior",
+            kind: "expression",
+            function_node_id: "fn",
+            properties: { behavior: "network", detail: "fetch" },
+            evidence: { context_id: observed.context_id, location: located },
+          },
+        ],
+        relations: [],
+      },
+    },
+  });
+  assert.deepEqual(extracted.findings.behavior.sort(), [
+    "app.mjs:run network fetch",
+    "app.mjs:run return null",
+  ]);
+  assert.deepEqual(
+    extracted.provenance.filter((item) => item.type === "behavior"),
+    [
+      {
+        type: "behavior",
+        key: "app.mjs:run network fetch",
+        problems: ["behavior is marked observed"],
+      },
+    ],
+  );
+  const elf = elfFindings({
+    evidence_id: parent,
+    normalized_result: {
+      artifact: { sha256: digest },
+      symbols: [],
+      strings: [
+        {
+          value: "ree-bench-marker",
+          location: { offset: "0x2000", bytes: "0x11" },
+        },
+        { value: "missing-range" },
+      ],
+    },
+  });
+  assert.deepEqual(elf.findings.string, ["ree-bench-marker", "missing-range"]);
+  assert.deepEqual(elf.provenance, [
+    {
+      type: "string",
+      key: "missing-range",
+      problems: ["string literal has no file offset"],
+    },
+  ]);
+  assert.deepEqual(elf.notes, []);
 });

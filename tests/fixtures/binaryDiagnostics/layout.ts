@@ -37,6 +37,7 @@ export const binaryLayoutFixture = (
     relro: null,
   },
   diagnostics: { stdout: "producer warning", stderr: "", truncated: false },
+  strings: [],
   limitations: ["Runtime addresses remain unknown."],
 });
 

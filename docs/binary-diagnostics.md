@@ -79,6 +79,11 @@ uses isolated mode and an owned cache. Exact upstream profiles are recorded in
   can emulate selected instructions in Unicorn; its outputs are static candidates.
   Exec syscall tracing observes host process launches. Map completeness
   remains unknown and original upstream warnings are returned inline.
+- File-backed `.rodata`, `.rodata.*`, and `.data` contribute
+  NUL-terminated printable ASCII literals of 4 to 256 bytes, at most 256
+  strings and 1 MiB per section. Each reported range includes the terminating
+  NUL. The bound is always disclosed, and literals omitted by it are not claimed
+  absent. Symbol names and other sections are not string literals.
 - Canary, PIE, NX, executable-stack and RELRO are static inferences. NX and
   executable-stack are separate upstream indicators: on x86-64 an executable
   stack can accompany an unknown (`null`) NX indicator. ET_DYN can be a shared
