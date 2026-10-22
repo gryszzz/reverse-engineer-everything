@@ -86,6 +86,14 @@ test("the studio binds only to loopback and serves its own page", async () => {
   assert.equal(page.headers.get("access-control-allow-origin"), null);
   const hidden = await fetch(origin + "/README.md");
   assert.equal(hidden.status, 404);
+  const explain = await fetch(origin + "/explain.js");
+  assert.equal(explain.status, 200);
+  assert.match(await explain.text(), /local-template/);
+  const script = await fetch(origin + "/studio.js");
+  const source = await script.text();
+  assert.match(source, /What can I do with this\?/);
+  assert.match(source, /Explain this/);
+  assert.match(source, /Keyboard shortcuts/);
 });
 
 test("state-changing requests require the loopback token and JSON", async () => {
