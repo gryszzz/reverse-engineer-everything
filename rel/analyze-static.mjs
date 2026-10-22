@@ -7,8 +7,9 @@ import {
   realpathSync,
   statSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   basename,
   dirname,
@@ -419,28 +420,19 @@ export function investigationReport(record) {
   ].join("\n");
 }
 
-/** Runs only REA's static analyzer; never launches the supplied application. */
-export function runStaticAnalysis(options) {
-  const plan = planStaticAnalysis(
-    options.target,
-    options.out,
-    options.authorized,
-  );
-  mkdirSync(plan.output);
-  const elapsed = runToFile(
-    [
-      cli,
-      "analyze-javascript-application",
-      plan.target,
-      "--summary",
-      "--evidence-out",
-      join(plan.output, "evidence.json"),
-      "--json",
-    ],
-    plan.output,
-    "view-evidence.json",
-    180000,
-  );
+function analysisArgv(plan) {
+  return [
+    cli,
+    "analyze-javascript-application",
+    plan.target,
+    "--summary",
+    "--evidence-out",
+    join(plan.output, "evidence.json"),
+    "--json",
+  ];
+}
+
+function finalizeStaticAnalysis(plan, question, elapsed) {
   const summary = summarizeAnalysisView(
     JSON.parse(readFileSync(join(plan.output, "view-evidence.json"), "utf8")),
   );
@@ -453,12 +445,9 @@ export function runStaticAnalysis(options) {
   const result = {
     ...summary,
     input_path: plan.target,
-    question: options.question ?? null,
-    question_search_terms: questionSearchTerms(options.question),
-    question_evidence_preview: questionEvidencePreviews(
-      evidencePath,
-      options.question,
-    ),
+    question: question ?? null,
+    question_search_terms: questionSearchTerms(question),
+    question_evidence_preview: questionEvidencePreviews(evidencePath, question),
     timing_ms: { analyze_and_project: elapsed },
   };
   writeFileSync(
@@ -478,4 +467,116 @@ export function runStaticAnalysis(options) {
     edges: summary.counts.edges,
     report: join(plan.output, "REE_EVIDENCE_REPORT.md"),
   };
+}
+
+/** Runs only REA's static analyzer; never launches the supplied application. */
+export function runStaticAnalysis(options) {
+  const plan = planStaticAnalysis(
+    options.target,
+    options.out,
+    options.authorized,
+  );
+  mkdirSync(plan.output);
+  const elapsed = runToFile(
+    analysisArgv(plan),
+    plan.output,
+    "view-evidence.json",
+    180000,
+  );
+  return finalizeStaticAnalysis(plan, options.question, elapsed);
+}
+
+/**
+ * Start the same static analyzer and surface each stderr `rea_progress` line.
+ * The child is the engine process. It does not execute the target.
+ */
+export function beginStreamingAnalysis({
+  target,
+  out,
+  authorized,
+  question,
+  onProgress,
+  env = process.env,
+}) {
+  const plan = planStaticAnalysis(target, out, authorized);
+  mkdirSync(plan.output);
+  const stdoutFd = openSync(join(plan.output, "view-evidence.json"), "wx");
+  const stderrFd = openSync(
+    join(plan.output, "view-evidence.json.stderr.txt"),
+    "wx",
+  );
+  const argv = [process.execPath, ...analysisArgv(plan)];
+  const started = performance.now();
+  const child = spawn(argv[0], argv.slice(1), {
+    cwd: repository,
+    stdio: ["ignore", "pipe", "pipe"],
+    env,
+    windowsHide: true,
+  });
+  let pending = "";
+  const takeLines = (chunk) => {
+    try {
+      writeSync(stderrFd, chunk);
+    } catch {
+      // The stderr log is diagnostic. Progress delivery still continues.
+    }
+    pending += chunk.toString("utf8");
+    if (pending.length > 200000) pending = pending.slice(-100000);
+    let newline = pending.indexOf("\n");
+    while (newline >= 0) {
+      const line = pending.slice(0, newline);
+      pending = pending.slice(newline + 1);
+      newline = pending.indexOf("\n");
+      if (onProgress) onProgress(line);
+    }
+  };
+  child.stdout.on("data", (chunk) => {
+    try {
+      writeSync(stdoutFd, chunk);
+    } catch {
+      // A failed stdout write is reported when finalization cannot parse it.
+    }
+  });
+  child.stderr.on("data", takeLines);
+  child.once("close", () => {
+    try {
+      closeSync(stdoutFd);
+    } catch {
+      // The descriptor is closed on process exit as well.
+    }
+    try {
+      closeSync(stderrFd);
+    } catch {
+      // The descriptor is closed on process exit as well.
+    }
+  });
+  const done = new Promise((resolve) => {
+    child.once("close", (code, signal) => {
+      const elapsed = Math.round(performance.now() - started);
+      if (code !== 0 || !existsSync(join(plan.output, "evidence.json"))) {
+        resolve({ ok: false, code, signal, elapsed, plan });
+        return;
+      }
+      try {
+        resolve({
+          ok: true,
+          code,
+          signal,
+          elapsed,
+          plan,
+          result: finalizeStaticAnalysis(plan, question, elapsed),
+        });
+      } catch (error) {
+        resolve({
+          ok: false,
+          code,
+          signal,
+          elapsed,
+          plan,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
+  });
+  return { child, done, plan, argv };
 }

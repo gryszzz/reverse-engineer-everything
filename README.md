@@ -53,12 +53,14 @@ The studio binds to `127.0.0.1` only. It has no account and does not upload Evid
 
 ## Investigation Studio
 
-The studio is a loopback page served from this checkout. Simple Mode is the front door and Findings. Advanced Mode adds the rest of the rail. The labels on the page are the names below.
+The studio is a loopback page served from this checkout. Simple Mode is the front door, the Investigation Theater, the rebuild, and Findings. Advanced Mode adds the rest of the rail. The labels on the page are the names below.
 
 | Surface          | What it does                                                                                                                                                                                             |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Projects**     | The rail lists projects in the data directory. A drop or a link plan creates one named Investigation, with the question "What is this, in plain language?" Choosing a name resumes it.                   |
 | **Front door**   | "Drop a file, folder, or paste a link." A drop is copied and classified. A link shows a fetch plan before any request.                                                                                   |
+| **Theater**      | Recorded engine progress and Evidence facts while a JavaScript analysis runs, then a replay of that saved timeline.                                                                                      |
+| **Rebuild**      | A preview of recovered module identities beside reconstructed stubs, with the text difference. Writing needs approval. Behavior stays unverified.                                                       |
 | **Findings**     | One sentence per saved fact. Each sentence names the Evidence id and path. Unknowns stay listed.                                                                                                         |
 | **Overview**     | Artifact, run, and experiment counts, plus the latest Evidence id.                                                                                                                                       |
 | **Intake**       | Heading "Artifact intake." Classifies a drop, a path, or the owned JavaScript fixture. It does not launch the target. You pick a ready route.                                                            |
@@ -97,6 +99,18 @@ The pictures below are one live session on this Linux checkout, plus a fetch-pla
 <img src="docs/assets/studio/findings.png" alt="Findings after the authorized EVM route on carrier.hex. Evidence ev_c4c8cd75597d5b49c5bae3cfa6389293cf545d2fdcca8950cdf002f5d2967a5a. The bytecode was not executed." width="1200" />
 
 The plan lists `https://github.com/gryszzz/reverse-engineer-everything.git`, limit 33554432 bytes, timeout 60000 ms, and says nothing has been fetched. The drop is `experiments/ree-fixtures/carrier.hex`. The intake label is **Unclassified target**. The ready route is **EVM bytecode interface**. Findings quote Evidence `ev_c4c8cd75597d5b49c5bae3cfa6389293cf545d2fdcca8950cdf002f5d2967a5a` from `evmole@0.9.3`: hex encoding, 5 bytes, no function selectors reported, runtime execution not performed. The bytecode was not executed.
+
+### Theater and rebuild
+
+The theater plays the timeline saved while analyzing `experiments/rel-first-lab`. Each line is an engine progress event or a fact read from written Evidence. Replay walks that file. It does not invent stages. The counters are the recorded provider, elapsed time, parsed files, recovered module identities, and inferred imports.
+
+<img src="docs/assets/studio/theater.gif" alt="Replay of the saved rel-first-lab timeline. The graph starts empty, then shows files as the recorded parse events are played. Evidence is not yet minted in these early frames." width="960" />
+
+<img src="docs/assets/studio/theater.png" alt="Investigation Theater after the owned JavaScript analysis. Provider javascript-static, 7 of 7 files parsed, 7 recovered modules, 40 inferred import edges, and Evidence id ev_45d365f3b6f0be5b." width="1200" />
+
+The rebuild preview reads each recovered file for display and places it beside the reconstructed stub. The engine does not record a numeric match score for this route, so verification stays unverified. The diff is the text difference. Writing the stubs requires approval and does not copy the original source.
+
+<img src="docs/assets/studio/rebuild.png" alt="Rebuild preview for search.mjs. The original export function rank is on the left. The reconstructed stub on the right says no source text was copied. Engine match is not scored and the text is different." width="1200" />
 
 ### Overview and intake
 
@@ -160,6 +174,9 @@ Status words mean only this:
 | EVM bytecode interface                                                                     | Implemented                                                                   | `evmole` 0.9.3 in this checkout. Selectors are inferences. The bytecode is not executed                                               | **Implemented**         |
 | objdump file headers                                                                       | Implemented                                                                   | Runs when `objdump` is on `PATH`                                                                                                      | **Implemented**         |
 | Evidence search and bounded relationship graph                                             | Implemented                                                                   | Uses saved Evidence                                                                                                                   | **Implemented**         |
+| Investigation Theater                                                                      | JavaScript analysis progress on stderr                                        | Shows those `rea_progress` lines and later Evidence facts. Replay uses the saved timeline                                             | **Implemented**         |
+| JavaScript rebuild                                                                         | Evidence graph                                                                | Writes a reconstructed module map and stubs. Source text is not copied. Behavior stays unverified                                     | **Implemented**         |
+| Owned native reconstruction probe                                                          | `verify-reconstruction` through the owned C harness                           | Runs only for `experiments/ree-investigation-boundary` after approval. It does not need a JavaScript run                              | **Implemented**         |
 | Project save / resume, intake, readiness, report, summary diff                             | REE product                                                                   | Implemented                                                                                                                           | **Implemented**         |
 | WebAssembly                                                                                | Implemented                                                                   | Needs absolute `REA_WABT_BIN_DIRECTORY` for WABT 1.0.42. A `wabt` binary on `PATH` is not configured                                  | **Needs configuration** |
 | ELF layout                                                                                 | Implemented                                                                   | Needs absolute `REA_PWNTOOLS_PYTHON` on Linux x64. REE does not install Python                                                        | **Needs configuration** |
@@ -339,18 +356,19 @@ The finite planner ranks caller-supplied predictions. It does not invent hypothe
 
 These items are planned. They are not commands, views, or routes in this checkout.
 
-| Planned                        | What exists instead                                                                                                                         |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Live Investigation Theater** | The experiment lab runs one approved command and stores the capture on the experiment record. The studio does not present a live execution. |
-| **Rebuild Studio**             | `verify-reconstruction` remains an engine CLI command and an MCP tool. The studio does not rebuild a target.                                |
-| **Actions and exports**        | The report view can save its Markdown beside the project. There is no general action or export palette.                                     |
-| **Headless `ree serve`**       | The loopback server command is `node ree.mjs studio`. There is no `ree serve` command.                                                      |
+| Planned                 | What exists instead                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------- |
+| **Actions and exports** | The report view can save its Markdown beside the project. There is no general action or export palette. |
+| **Headless `ree serve`** | The loopback server command is `node ree.mjs studio`. There is no `ree serve` command.                  |
 
 ## Limitations
 
 - There is no separate published REE package, updater, or notarized app.
 - Ghidra runs only as `inspect --provider ghidra` when `GHIDRA_INSTALL_DIR` is already set. IDA, Hopper, Rizin, radare2, and JEB are not launched from the studio. Firmware tools, browser debuggers, packet capture, SQLite, and `capture-process` are not launched from the studio.
 - WebAssembly, ELF layout, and JADX stay not-configured until the documented absolute tool path is set. The studio does not install WABT, Python, JADX, or Ghidra.
+- The Investigation Theater replays recorded engine progress and Evidence. It does not invent stages.
+- A JavaScript rebuild is a module map of recovered identities plus reconstructed stubs. The side-by-side view shows the original text and the text diff. The engine does not record a numeric match score for that route, so verification stays unverified. The map test does not prove behavioral equivalence.
+- The owned native probe is the existing C fixture harness. Its claim statuses are only those `verify-reconstruction` returns. It is not a general decompiler.
 - A static graph edge is not an observed execution.
 - The probe cannot target anything except `experiments/rel-first-lab`, and the command it runs is the `bridge` query.
 - Research has no model cost because no model is called.
