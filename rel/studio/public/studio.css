@@ -510,6 +510,22 @@ dd {
     grid-template-columns: 1fr;
   }
 }
+.explain {
+  margin-top: 1rem;
+  border: 1px solid var(--cyan);
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  background: var(--raise);
+}
+.explain h4 {
+  margin: 0.8rem 0 0.2rem;
+}
+.node {
+  cursor: pointer;
+}
+.capabilities ul {
+  margin: 0.4rem 0 0.8rem;
+}
 @media (prefers-reduced-motion: reduce) {
   * {
     scroll-behavior: auto;
