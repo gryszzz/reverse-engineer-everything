@@ -1,0 +1,14 @@
+{
+  "responses": {
+    "https://blocked.test/robots.txt": {
+      "status": 200,
+      "headers": { "content-type": "text/plain" },
+      "file": "robots.txt"
+    },
+    "https://blocked.test/": {
+      "status": 200,
+      "headers": { "content-type": "text/html" },
+      "file": "home.html"
+    }
+  }
+}

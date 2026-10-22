@@ -209,6 +209,7 @@ Status words mean only this:
 | JavaScript / Electron / ASAR static analysis                                               | Implemented                                                                   | Runs the existing analyze route when it is ready                                                                                      | **Implemented**         |
 | Drop a file or folder                                                                      | REE product                                                                   | Local copy, then the ready route                                                                                                      | **Implemented**         |
 | Approved https link, shallow GitHub/GitLab clone, npm tarball, page and referenced scripts | REE product                                                                   | Opt-in. Size and time limits. URL and sha256 kept. Not executed                                                                       | **Implemented**         |
+| Outside-in public behavior spec                                                            | REE command                                                                   | CLI and programmatic API. Not a studio route. Opt-in public docs only                                                                 | **Implemented**         |
 | PE resource inventory                                                                      | Implemented                                                                   | `inspect-pe-resources` when the file is a PE                                                                                          | **Implemented**         |
 | EVM bytecode interface                                                                     | Implemented                                                                   | `evmole` in this checkout                                                                                                             | **Implemented**         |
 | objdump file headers                                                                       | Implemented                                                                   | Runs when `objdump` is on `PATH`                                                                                                      | **Implemented**         |
@@ -247,6 +248,7 @@ REE does not silently substitute one native engine for another.
 - The owned probe lists its argv, timeout, and file hashes. A digest mismatch is rejected. `approved` must be boolean true. Any other directory is refused. Analysis authorization does not approve the probe.
 - Runtime capture stays on the experiment record. It is not merged into static Evidence.
 - Research does not call a model. A configured key is not returned to the page and is not sent.
+- `outside-in` is opt-in. It fetches only the public http(s) URLs you name, plus `robots.txt`. It does not run during studio startup, `inspect`, or `analyze`. It sends no credentials and does not call a model.
 - Child analysis environments are an allowlist. The ambient environment is not saved as evidence.
 - The app does not install Node, Homebrew, Ghidra, IDA, Hopper, or anything else. If Node is missing, it stops with an explanation.
 
@@ -254,18 +256,19 @@ REE does not silently substitute one native engine for another.
 
 Beginner REE commands:
 
-| Command                                              | What it does                                      |
-| ---------------------------------------------------- | ------------------------------------------------- |
-| `node ree.mjs doctor`                                | Read-only host and toolchain report               |
-| `node ree.mjs inspect TARGET`                        | Classify. Do not analyze                          |
-| `node ree.mjs analyze TARGET --authorized --out DIR` | Static JavaScript / Electron                      |
-| `node ree.mjs demo`                                  | Preview the owned lab                             |
-| `node ree.mjs demo --run --out DIR`                  | Analyze the owned lab and run its checks          |
-| `node ree.mjs studio`                                | Loopback Investigation Studio                     |
-| `node ree.mjs app build`                             | Build unsigned `REE.app` on macOS                 |
-| `node ree.mjs app install`                           | Copy it to `~/Applications` and alias the Desktop |
-| `node ree.mjs lab`                                   | Visual lesson, separate from the studio           |
-| `node ree.mjs codex`                                 | Check this checkout's Codex project files         |
+| Command                                                   | What it does                                      |
+| --------------------------------------------------------- | ------------------------------------------------- |
+| `node ree.mjs doctor`                                     | Read-only host and toolchain report               |
+| `node ree.mjs inspect TARGET`                             | Classify. Do not analyze                          |
+| `node ree.mjs analyze TARGET --authorized --out DIR`      | Static JavaScript / Electron                      |
+| `node ree.mjs demo`                                       | Preview the owned lab                             |
+| `node ree.mjs demo --run --out DIR`                       | Analyze the owned lab and run its checks          |
+| `node ree.mjs studio`                                     | Loopback Investigation Studio                     |
+| `node ree.mjs app build`                                  | Build unsigned `REE.app` on macOS                 |
+| `node ree.mjs app install`                                | Copy it to `~/Applications` and alias the Desktop |
+| `node ree.mjs lab`                                        | Visual lesson, separate from the studio           |
+| `node ree.mjs codex`                                      | Check this checkout's Codex project files         |
+| `node ree.mjs outside-in --name NAME --url URL --out DIR` | Public-docs behavior spec. No target source.      |
 
 The engine commands and MCP tools are unchanged. Representative pairs:
 
@@ -292,6 +295,7 @@ The finite planner ranks caller-supplied predictions. It does not invent hypothe
 - There is no separate published REE package, updater, or notarized app.
 - Ghidra runs only as `inspect --provider ghidra` when `GHIDRA_INSTALL_DIR` is already set. IDA, Hopper, Rizin, radare2, and JEB are not launched. Firmware tools, browser debuggers, packet capture, SQLite, and `capture-process` are not launched.
 - WebAssembly, ELF layout, and JADX stay not-configured until the documented absolute tool path is set. The studio does not install WABT, Python, JADX, or Ghidra.
+- Outside-in does not render JavaScript, follow redirects, or log in. A client-rendered page can produce an empty spec. Boundaries and the stdout contract are in [outside-in](rel/outside-in/README.md).
 - A static graph edge is not an observed execution.
 - The probe cannot target anything except `experiments/rel-first-lab`, and the command it runs is the `bridge` query.
 - Research has no model cost because no model is called.

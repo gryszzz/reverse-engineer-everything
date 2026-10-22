@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Widget Cloud changes</title>
+    <item>
+      <title>Added bulk export</title>
+      <pubDate>Wed, 01 Oct 2025 00:00:00 GMT</pubDate>
+      <description>DISTINCTIVE_CHANGELOG_BODY_should_not_appear_88 and a long note that is not a title.</description>
+    </item>
+    <item>
+      <title>Raised the Free plan daily request cap</title>
+      <pubDate>Mon, 15 Sep 2025 12:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

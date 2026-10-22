@@ -1,0 +1,19 @@
+{
+  "responses": {
+    "https://limited.test/robots.txt": {
+      "status": 200,
+      "headers": { "content-type": "text/plain" },
+      "file": "robots.txt"
+    },
+    "https://limited.test/": {
+      "status": 429,
+      "headers": { "content-type": "text/html", "retry-after": "30" },
+      "file": "home.html"
+    },
+    "https://limited.test/docs": {
+      "status": 200,
+      "headers": { "content-type": "text/html" },
+      "file": "docs.html"
+    }
+  }
+}

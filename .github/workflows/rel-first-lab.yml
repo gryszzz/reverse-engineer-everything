@@ -54,6 +54,8 @@ jobs:
         run: node --test rel/codex-mcp.test.mjs
       - name: Verify REE intake classification and execution boundaries
         run: node --test rel/intake.test.mjs
+      - name: Verify outside-in public documentation mode
+        run: node --test rel/outside-in/outside-in.test.mjs
       - name: Verify authorized static target admission and Codex entry
         run: node --test rel/analyze-static.test.mjs
       - name: Verify report fail-closed behavior

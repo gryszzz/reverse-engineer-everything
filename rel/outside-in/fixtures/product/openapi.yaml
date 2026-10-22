@@ -1,0 +1,40 @@
+openapi: 3.0.3
+info:
+  title: Widgets API
+  version: "1.0.0"
+  description: |
+    A long description that should not be copied verbatim into the behavior spec.
+    DISTINCTIVE_OPENAPI_PROSE_should_stay_out_of_the_spec_77.
+servers:
+  - url: https://api.widgets.test
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+security:
+  - bearerAuth: []
+x-rate-limit:
+  limit: 100
+  window: minute
+paths:
+  /v1/widgets:
+    get:
+      operationId: listWidgets
+      summary: List widgets
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+        "429":
+          description: Too many requests
+    post:
+      operationId: createWidget
+      summary: Create a widget
+      responses:
+        "201":
+          description: Created
