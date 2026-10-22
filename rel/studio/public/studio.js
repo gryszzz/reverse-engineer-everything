@@ -731,7 +731,10 @@ function buildPanel() {
         "One run of experiments/ree-bench/web. The product name is Board Desk. Stages update from the checkpoint file. Guard, Blast, Scale, and Vault stay files. Nothing is submitted or notified.",
       ),
       pipeline
-        ? el("ol", { class: "timeline" }, (pipeline.stages ?? []).map((stage) =>
+        ? el(
+            "ol",
+            { class: "timeline" },
+            (pipeline.stages ?? []).map((stage) =>
               el(
                 "li",
                 {
@@ -745,7 +748,8 @@ function buildPanel() {
                 },
                 `${stage.id} ${stage.status}`,
               ),
-            ))
+            ),
+          )
         : el(
             "p",
             { class: "note" },
