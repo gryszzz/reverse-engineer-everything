@@ -29,6 +29,7 @@ export function installMacApp({
   app = join(repositoryRoot, "build", "REE.app"),
   home = homedir(),
   platform = process.platform,
+  spawn = spawnSync,
 } = {}) {
   const source = resolve(app);
   const plist = join(source, "Contents", "Info.plist");
@@ -62,6 +63,7 @@ export function installMacApp({
     destination,
     desktop,
     alias,
+    spawn,
   });
   return {
     app: destination,
@@ -73,16 +75,19 @@ export function installMacApp({
   };
 }
 
-function placeAlias({ platform, destination, desktop, alias }) {
+function placeAlias({ platform, destination, desktop, alias, spawn }) {
   if (platform === "darwin") {
-    const result = spawnSync(
+    // Finder's Apple Events prompt ignores SIGTERM and can block for as long
+    // as the dialog stays up. Ignore its stdio, kill it if it is still
+    // running after five seconds, and leave a symlink either way.
+    const result = spawn(
       "osascript",
       ["-e", aliasScript, destination, desktop],
       {
         encoding: "utf8",
-        timeout: 15000,
-        // Finder's AppleScript ignores SIGTERM while a permission dialog is up.
+        timeout: 5000,
         killSignal: "SIGKILL",
+        stdio: "ignore",
       },
     );
     if (

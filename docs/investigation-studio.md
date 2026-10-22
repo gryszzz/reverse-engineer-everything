@@ -27,7 +27,7 @@ node ree.mjs app build
 node ree.mjs app install
 ```
 
-`app build` writes `build/REE.app`. It compiles a WebKit window with `swiftc` (Xcode Command Line Tools) and tries both Apple Silicon and Intel. `app install` copies that bundle to `~/Applications/REE.app` and puts an alias named `REE` on the Desktop. Finder creates the alias when it can; otherwise the command leaves a symlink and says so.
+`app build` writes `build/REE.app`. It compiles a WebKit window with `swiftc` from `PATH` or, when that is missing, from `xcrun -f swiftc` and `xcrun --sdk macosx -f swiftc`. It sets `SDKROOT` from `xcrun --sdk macosx --show-sdk-path` and passes `-sdk` to `swiftc`. It tries both Apple Silicon and Intel. A failed build removes the partial bundle it created. `app install` copies that bundle to `~/Applications/REE.app` and puts a Desktop link named `REE`. Finder is given five seconds and is killed if it waits on an Apple Events prompt; the command then leaves a symlink.
 
 Opening the app starts `node ree.mjs studio` from the checkout recorded at build time and shows it in the REE window. Closing the window stops the server. Opening it again while it is running focuses the existing window. If the recorded Node.js binary is gone, the app shows an alert that names `.nvmrc` and `node ree.mjs app build` instead of a blank window. Rebuild after you move the checkout or change Node versions.
 
