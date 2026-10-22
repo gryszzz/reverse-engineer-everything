@@ -17,7 +17,8 @@ export function parseRobots(text) {
     const key = stripped.slice(0, index).trim().toLowerCase();
     const value = stripped.slice(index + 1).trim();
     if (key === "user-agent") {
-      if (!current || current.rules.length > 0 || current.crawlDelay != null) flush();
+      if (!current || current.rules.length > 0 || current.crawlDelay != null)
+        flush();
       current.agents.push(value.toLowerCase());
       continue;
     }
@@ -26,7 +27,8 @@ export function parseRobots(text) {
       current.rules.push({ type: key, path: value });
     } else if (key === "crawl-delay") {
       const seconds = Number(value);
-      if (Number.isFinite(seconds) && seconds >= 0) current.crawlDelay = seconds;
+      if (Number.isFinite(seconds) && seconds >= 0)
+        current.crawlDelay = seconds;
     }
   }
   return groups.filter((group) => group.agents.length > 0);
@@ -58,10 +60,13 @@ export function evaluateRobots(groups, userAgent, pathname) {
   const specific = groups.filter((group) =>
     group.agents.some((agent) => agentMatches(agent, token, userAgent)),
   );
-  const chosen = specific.length ? specific : groups.filter((group) => group.agents.includes("*"));
+  const chosen = specific.length
+    ? specific
+    : groups.filter((group) => group.agents.includes("*"));
   const rules = chosen.flatMap((group) => group.rules);
   const crawlDelaySeconds = chosen.reduce(
-    (max, group) => (group.crawlDelay == null ? max : Math.max(max, group.crawlDelay)),
+    (max, group) =>
+      group.crawlDelay == null ? max : Math.max(max, group.crawlDelay),
     0,
   );
   let matched = null;

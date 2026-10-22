@@ -41,7 +41,9 @@ export function extractHtml(html, quoteMax) {
       origin: "meta-description",
     });
   } else if (description) {
-    unknowns.push(`Meta description was ${description.length} characters and was not copied.`);
+    unknowns.push(
+      `Meta description was ${description.length} characters and was not copied.`,
+    );
   }
 
   for (const block of outline.blocks) {
@@ -61,11 +63,15 @@ export function extractHtml(html, quoteMax) {
       continue;
     }
     if (kind === "limitations") {
-      limitations.push(...statementsFromBlock(block, quoteMax, "stated-limitation", unknowns));
+      limitations.push(
+        ...statementsFromBlock(block, quoteMax, "stated-limitation", unknowns),
+      );
       continue;
     }
     if (kind === "reviews") {
-      reviews.push(...statementsFromBlock(block, quoteMax, "stated-review", unknowns));
+      reviews.push(
+        ...statementsFromBlock(block, quoteMax, "stated-review", unknowns),
+      );
       continue;
     }
     if (block.level >= 2 && !isContainer(block.heading)) {
@@ -73,7 +79,15 @@ export function extractHtml(html, quoteMax) {
       if (feature) features.push(feature);
     }
   }
-  return { features, workflows, integrations, limitations, plans, reviews, unknowns };
+  return {
+    features,
+    workflows,
+    integrations,
+    limitations,
+    plans,
+    reviews,
+    unknowns,
+  };
 }
 
 export function parsePrice(text) {
@@ -111,13 +125,17 @@ export function parsePrice(text) {
 }
 
 function blockKind(block) {
-  const blob = [block.heading, ...block.region.flatMap((region) => [region.id, region.className])]
+  const blob = [
+    block.heading,
+    ...block.region.flatMap((region) => [region.id, region.className]),
+  ]
     .join(" ")
     .toLowerCase();
   if (/\breviews?\b|\bcomplaints?\b|\bfeedback\b/.test(blob)) return "reviews";
   if (/limitation|known issues|caveats?/.test(blob)) return "limitations";
   if (/integrat|works with/.test(blob)) return "integrations";
-  if (/workflow|getting started|get started|how it works|how to/.test(blob)) return "workflow";
+  if (/workflow|getting started|get started|how it works|how to/.test(blob))
+    return "workflow";
   if (/\bpric|\bplans?\b|\btiers?\b|\bbilling\b/.test(blob)) return "pricing";
   if (/features?|capabilities/.test(blob)) return "features";
   return "general";
@@ -139,16 +157,21 @@ function featureFromBlock(block, quoteMax) {
 }
 
 function workflowFromBlock(block, quoteMax, unknowns) {
-  if (isContainer(block.heading) && !block.lists.some((list) => list.ordered)) return null;
+  if (isContainer(block.heading) && !block.lists.some((list) => list.ordered))
+    return null;
   const steps = [];
   for (const list of block.lists.filter((list) => list.ordered)) {
     for (const item of list.items) {
       const quote = shortQuote(item, quoteMax);
       if (quote) steps.push(quote);
-      else unknowns.push(`A workflow step of ${item.length} characters was not copied.`);
+      else
+        unknowns.push(
+          `A workflow step of ${item.length} characters was not copied.`,
+        );
     }
   }
-  if (!block.heading || block.heading.length > quoteMax || steps.length === 0) return null;
+  if (!block.heading || block.heading.length > quoteMax || steps.length === 0)
+    return null;
   return { name: block.heading, steps };
 }
 
@@ -160,7 +183,11 @@ function integrationsFromBlock(block) {
       if (name && name.length <= 80) names.push(name);
     }
   }
-  if (!isContainer(block.heading) && block.heading && block.heading.length <= 80)
+  if (
+    !isContainer(block.heading) &&
+    block.heading &&
+    block.heading.length <= 80
+  )
     names.unshift(block.heading);
   return names.map((name) => ({ name }));
 }
@@ -171,14 +198,22 @@ function statementsFromBlock(block, quoteMax, origin, unknowns) {
     for (const item of list.items) {
       const quote = shortQuote(item, quoteMax);
       if (quote) statements.push({ statement: quote, origin });
-      else unknowns.push(`A ${origin} passage of ${item.length} characters was not copied.`);
+      else
+        unknowns.push(
+          `A ${origin} passage of ${item.length} characters was not copied.`,
+        );
     }
   }
   return statements;
 }
 
 function planFromBlock(block, quoteMax, unknowns) {
-  if (isContainer(block.heading) && !findPrice(block) && block.lists.length === 0) return null;
+  if (
+    isContainer(block.heading) &&
+    !findPrice(block) &&
+    block.lists.length === 0
+  )
+    return null;
   if (!block.heading || block.heading.length > quoteMax) return null;
   const price = findPrice(block);
   const limits = [];

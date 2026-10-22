@@ -6,14 +6,20 @@ import { mediaType } from "./text.mjs";
 
 export function sniffFormat(doc, kind) {
   if (kind === "openapi") return "openapi";
-  if (kind === "graphql") return looksLikeJson(doc.body) ? "graphql-json" : "graphql-sdl";
+  if (kind === "graphql")
+    return looksLikeJson(doc.body) ? "graphql-json" : "graphql-sdl";
   if (kind === "sdk-readme") return "markdown";
   if (kind === "feed") return "feed";
   const type = doc.contentType || mediaType(doc.headers ?? {});
   const url = doc.url.toLowerCase();
   const body = doc.body.trim();
-  if (type.includes("html") || url.endsWith(".html") || url.endsWith(".htm")) return "html";
-  if (type.includes("markdown") || url.endsWith(".md") || url.endsWith(".markdown"))
+  if (type.includes("html") || url.endsWith(".html") || url.endsWith(".htm"))
+    return "html";
+  if (
+    type.includes("markdown") ||
+    url.endsWith(".md") ||
+    url.endsWith(".markdown")
+  )
     return "markdown";
   if (url.endsWith(".graphql") || url.endsWith(".gql")) return "graphql-sdl";
   if (type.includes("yaml") || url.endsWith(".yaml") || url.endsWith(".yml"))
@@ -26,7 +32,8 @@ export function sniffFormat(doc, kind) {
   )
     return sniffJson(body);
   if (/<(rss|feed)\b/i.test(body)) return "feed";
-  if (/^type\s+(Query|Mutation)\b/m.test(body) || /^schema\s*\{/m.test(body)) return "graphql-sdl";
+  if (/^type\s+(Query|Mutation)\b/m.test(body) || /^schema\s*\{/m.test(body))
+    return "graphql-sdl";
   return "text";
 }
 
@@ -55,7 +62,8 @@ export function extractByFormat(doc, format, quoteMax) {
   if (format === "openapi") return { api: extractOpenApi(doc.body) };
   if (format === "graphql-sdl" || format === "graphql-json")
     return { api: extractGraphql(doc.body) };
-  if (format === "markdown") return { markdown: extractMarkdown(doc.body, quoteMax) };
+  if (format === "markdown")
+    return { markdown: extractMarkdown(doc.body, quoteMax) };
   if (format === "feed") return { feed: extractFeed(doc.body, quoteMax) };
   return { unknownFormat: format };
 }

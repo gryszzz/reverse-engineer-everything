@@ -56,7 +56,8 @@ export function collectQuotes(value, quotes = []) {
     return quotes;
   }
   if (!value || typeof value !== "object") return quotes;
-  if (value.attributed_quote === true && typeof value.text === "string") quotes.push(value.text);
+  if (value.attributed_quote === true && typeof value.text === "string")
+    quotes.push(value.text);
   for (const child of Object.values(value)) collectQuotes(child, quotes);
   return quotes;
 }
@@ -90,7 +91,13 @@ export function guardReport(report, sources, options, allowedQuotes) {
 }
 
 export function verbatimRunLength(needle, haystack, threshold) {
-  if (!needle || !haystack || needle.length < threshold || haystack.length < threshold) return 0;
+  if (
+    !needle ||
+    !haystack ||
+    needle.length < threshold ||
+    haystack.length < threshold
+  )
+    return 0;
   if (haystack.includes(needle)) return needle.length;
   let best = 0;
   for (let index = 0; index <= needle.length - threshold;) {
@@ -116,7 +123,9 @@ export function verbatimRunLength(needle, haystack, threshold) {
 
 function walk(value, path, sources, options, findings) {
   if (Array.isArray(value)) {
-    value.forEach((item, index) => walk(item, `${path}/${index}`, sources, options, findings));
+    value.forEach((item, index) =>
+      walk(item, `${path}/${index}`, sources, options, findings),
+    );
     return;
   }
   if (!value || typeof value !== "object") return;
@@ -135,7 +144,9 @@ function walk(value, path, sources, options, findings) {
 
 function skipped(key, path) {
   if (SKIP_KEYS.has(key)) return true;
-  return key === "name" && (path === "/target/name" || path === "/collector/name");
+  return (
+    key === "name" && (path === "/target/name" || path === "/collector/name")
+  );
 }
 
 function consider(holder, key, path, sources, options, findings, quoted) {
@@ -157,7 +168,8 @@ function findRun(needle, sources, threshold) {
   let best = null;
   for (const source of sources) {
     const length = verbatimRunLength(needle, source.body ?? "", threshold);
-    if (length >= threshold && (!best || length > best.length)) best = { length, url: source.url };
+    if (length >= threshold && (!best || length > best.length))
+      best = { length, url: source.url };
   }
   return best;
 }

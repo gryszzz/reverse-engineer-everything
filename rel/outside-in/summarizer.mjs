@@ -15,7 +15,10 @@ export function resolveSummarizer(input) {
     typeof summarizer.id !== "string" ||
     typeof summarizer.summarize !== "function"
   ) {
-    throw new OutsideInError("A summarizer must be an object with id and summarize().", "USAGE");
+    throw new OutsideInError(
+      "A summarizer must be an object with id and summarize().",
+      "USAGE",
+    );
   }
   return summarizer;
 }

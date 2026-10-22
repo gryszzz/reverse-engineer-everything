@@ -18,7 +18,8 @@ export function renderReport(spec) {
     "## Sources",
     "",
   ];
-  if (spec.sources.length === 0) lines.push("No public document was fetched.", "");
+  if (spec.sources.length === 0)
+    lines.push("No public document was fetched.", "");
   for (const source of spec.sources) {
     lines.push(
       `- ${source.role} ${source.url} (HTTP ${source.status}, fetched ${source.fetched_at}, sha256 ${source.sha256}, cache ${source.cache.hit ? "hit" : "miss"})`,
@@ -57,7 +58,9 @@ export function renderReport(spec) {
   }
   for (const endpoint of spec.api.endpoints) {
     const summary = endpoint.summary ? ` "${endpoint.summary.text}".` : "";
-    lines.push(`- ${endpoint.method} ${endpoint.path}.${summary} ${cite(endpoint.citations)}`);
+    lines.push(
+      `- ${endpoint.method} ${endpoint.path}.${summary} ${cite(endpoint.citations)}`,
+    );
   }
   for (const unknown of spec.api.unknowns) lines.push(`- Unknown: ${unknown}`);
   if (
@@ -74,15 +77,23 @@ export function renderReport(spec) {
     const price = plan.price
       ? `${plan.price.display} (${plan.price.amount} ${plan.price.currency}${plan.price.interval ? `/${plan.price.interval}` : ""})`
       : "price not recognized";
-    const limits = plan.limits.length ? ` Limits: ${plan.limits.join("; ")}.` : "";
+    const limits = plan.limits.length
+      ? ` Limits: ${plan.limits.join("; ")}.`
+      : "";
     lines.push(`- ${plan.name}: ${price}.${limits} ${cite(plan.citations)}`);
   }
   lines.push("", "## Integrations", "");
-  writeClaims(lines, spec.integrations, (item) => `- ${item.name}. ${cite(item.citations)}`);
+  writeClaims(
+    lines,
+    spec.integrations,
+    (item) => `- ${item.name}. ${cite(item.citations)}`,
+  );
   lines.push("", "## Stated limitations", "");
   if (spec.limitations.length === 0) lines.push("None recognized.", "");
   for (const item of spec.limitations) {
-    lines.push(`- (${item.origin}) "${item.statement.text}". ${cite(item.citations)}`);
+    lines.push(
+      `- (${item.origin}) "${item.statement.text}". ${cite(item.citations)}`,
+    );
   }
   lines.push("", "## Changelog", "");
   if (spec.changes.length === 0) lines.push("None recognized.", "");
@@ -93,7 +104,9 @@ export function renderReport(spec) {
   lines.push("", "## Omitted material", "");
   if (spec.omitted.length === 0) lines.push("None.", "");
   for (const item of spec.omitted) {
-    lines.push(`- ${item.count} ${item.kind} block(s) omitted. ${cite(item.citations)}`);
+    lines.push(
+      `- ${item.count} ${item.kind} block(s) omitted. ${cite(item.citations)}`,
+    );
   }
   lines.push("", "## Similarity guard", "");
   lines.push(
@@ -130,6 +143,8 @@ function writeClaims(lines, items, render) {
 
 function cite(citations) {
   return citations
-    .map((citation) => `(source: ${citation.url}, fetched ${citation.fetched_at})`)
+    .map(
+      (citation) => `(source: ${citation.url}, fetched ${citation.fetched_at})`,
+    )
     .join(" ");
 }

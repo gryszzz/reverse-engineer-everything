@@ -61,7 +61,10 @@ export function createPublicFetcher(options) {
     const state = hostState(host);
     state.crawlDelayMs = Math.max(state.crawlDelayMs, seconds * 1000);
     if (state.lastRequestAt != null) {
-      state.nextAt = Math.max(state.nextAt, state.lastRequestAt + state.crawlDelayMs);
+      state.nextAt = Math.max(
+        state.nextAt,
+        state.lastRequestAt + state.crawlDelayMs,
+      );
     }
   }
 
@@ -120,7 +123,13 @@ export function createPublicFetcher(options) {
   }
 
   function rememberRobots(robotsUrl, response) {
-    if (response.fromCache || response.blocked || response.missing || response.networkError) return;
+    if (
+      response.fromCache ||
+      response.blocked ||
+      response.missing ||
+      response.networkError
+    )
+      return;
     if (response.status !== 200 && response.status !== 404) return;
     const body = response.body ?? "";
     const headers = lowerHeaders(response.headers ?? {});
@@ -139,7 +148,13 @@ export function createPublicFetcher(options) {
     const decidedAt = now().toISOString();
     const policy = classifyUrl(rawUrl);
     if (!policy.ok) {
-      return fail(policy.redactedUrl, role, policy.reason, policy.detail, decidedAt);
+      return fail(
+        policy.redactedUrl,
+        role,
+        policy.reason,
+        policy.detail,
+        decidedAt,
+      );
     }
     const robots = await fetchRobots(policy.url.origin);
     if (robots.unavailable) {
@@ -147,11 +162,16 @@ export function createPublicFetcher(options) {
         policy.redactedUrl,
         role,
         "robots-unavailable",
-        robots.detail || "robots.txt could not be read. The URL was not fetched.",
+        robots.detail ||
+          "robots.txt could not be read. The URL was not fetched.",
         decidedAt,
       );
     }
-    const decision = evaluateRobots(robots.groups, USER_AGENT, policy.url.pathname);
+    const decision = evaluateRobots(
+      robots.groups,
+      USER_AGENT,
+      policy.url.pathname,
+    );
     noteCrawlDelay(policy.url.host, decision.crawlDelaySeconds);
     if (!decision.allowed) {
       return fail(
@@ -181,13 +201,25 @@ export function createPublicFetcher(options) {
       );
     }
     if (response.missing) {
-      return fail(url, role, "fixture-miss", "No fixture response for this URL.", fetchedAt);
+      return fail(
+        url,
+        role,
+        "fixture-miss",
+        "No fixture response for this URL.",
+        fetchedAt,
+      );
     }
     if (response.networkError) {
       return fail(url, role, "fetch-failed", response.networkError, fetchedAt);
     }
     if (response.status >= 300 && response.status < 400) {
-      return fail(url, role, "redirect", "Redirects are not followed.", fetchedAt);
+      return fail(
+        url,
+        role,
+        "redirect",
+        "Redirects are not followed.",
+        fetchedAt,
+      );
     }
     if (response.status === 429) {
       const retryMs = retryAfterMs(response.headers, now());
@@ -212,18 +244,40 @@ export function createPublicFetcher(options) {
       );
     }
     if (response.status === 402) {
-      return fail(url, role, "paywall", "HTTP 402. Paywalled content is not fetched.", fetchedAt);
+      return fail(
+        url,
+        role,
+        "paywall",
+        "HTTP 402. Paywalled content is not fetched.",
+        fetchedAt,
+      );
     }
     if (response.status < 200 || response.status >= 300) {
-      return fail(url, role, "fetch-failed", `HTTP ${response.status}.`, fetchedAt);
+      return fail(
+        url,
+        role,
+        "fetch-failed",
+        `HTTP ${response.status}.`,
+        fetchedAt,
+      );
     }
     const headers = lowerHeaders(response.headers ?? {});
     const type = response.contentType || mediaType(headers);
     const body = response.body ?? "";
     if (response.tooLarge || Buffer.byteLength(body) > MAX_DOCUMENT_BYTES) {
-      return fail(url, role, "too-large", "The document exceeds the size limit.", fetchedAt);
+      return fail(
+        url,
+        role,
+        "too-large",
+        "The document exceeds the size limit.",
+        fetchedAt,
+      );
     }
-    if (response.binary || contentTypeBlocked(type) || dispositionFilenameBlocked(headers)) {
+    if (
+      response.binary ||
+      contentTypeBlocked(type) ||
+      dispositionFilenameBlocked(headers)
+    ) {
       return fail(
         url,
         role,
@@ -233,7 +287,13 @@ export function createPublicFetcher(options) {
       );
     }
     if (hasCaptcha(body)) {
-      return fail(url, role, "captcha", "A captcha was detected. It was not solved.", fetchedAt);
+      return fail(
+        url,
+        role,
+        "captcha",
+        "A captcha was detected. It was not solved.",
+        fetchedAt,
+      );
     }
     if (markedPaywall(body)) {
       return fail(
@@ -286,11 +346,18 @@ function interpretRobots(response) {
     };
   }
   if (response.networkError) {
-    return { unavailable: true, detail: "robots.txt could not be fetched. Fail closed." };
+    return {
+      unavailable: true,
+      detail: "robots.txt could not be fetched. Fail closed.",
+    };
   }
-  if (response.status === 404) return { groups: [], crawlDelaySeconds: 0, missing: true };
+  if (response.status === 404)
+    return { groups: [], crawlDelaySeconds: 0, missing: true };
   if (response.status === 429) {
-    return { unavailable: true, detail: "robots.txt returned HTTP 429. Fail closed." };
+    return {
+      unavailable: true,
+      detail: "robots.txt returned HTTP 429. Fail closed.",
+    };
   }
   if (response.status < 200 || response.status >= 300) {
     return {
@@ -351,7 +418,12 @@ async function liveGet(url, headers, fetchImpl) {
     }
     const bytes = Buffer.from(await response.arrayBuffer());
     if (bytes.length > MAX_DOCUMENT_BYTES) {
-      return { status: response.status, headers: responseHeaders, tooLarge: true, body: "" };
+      return {
+        status: response.status,
+        headers: responseHeaders,
+        tooLarge: true,
+        body: "",
+      };
     }
     return {
       status: response.status,

@@ -31,7 +31,8 @@ function fromSdl(sdl) {
       });
     }
   }
-  if (endpoints.length === 0) return { error: "No GraphQL Query or Mutation fields were found." };
+  if (endpoints.length === 0)
+    return { error: "No GraphQL Query or Mutation fields were found." };
   return { style: "graphql", servers: [], auth: [], rateLimits: [], endpoints };
 }
 
@@ -43,7 +44,8 @@ function fromIntrospection(data) {
     ...fieldsOf(types.get(schema.queryType?.name), "QUERY"),
     ...fieldsOf(types.get(schema.mutationType?.name), "MUTATION"),
   ];
-  if (endpoints.length === 0) return { error: "GraphQL introspection listed no operations." };
+  if (endpoints.length === 0)
+    return { error: "GraphQL introspection listed no operations." };
   return { style: "graphql", servers: [], auth: [], rateLimits: [], endpoints };
 }
 
@@ -64,5 +66,7 @@ function fieldsOf(type, method) {
 }
 
 function argumentNames(list) {
-  return [...list.matchAll(/([_A-Za-z][_0-9A-Za-z]*)\s*:/g)].map((match) => match[1]);
+  return [...list.matchAll(/([_A-Za-z][_0-9A-Za-z]*)\s*:/g)].map(
+    (match) => match[1],
+  );
 }

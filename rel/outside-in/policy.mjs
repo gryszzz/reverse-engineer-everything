@@ -107,7 +107,9 @@ const CAPTCHA =
   /g-recaptcha|h-captcha|cf-challenge|cdn-cgi\/challenge|recaptcha\/api\.js|data-sitekey/i;
 
 export function extensionBlocked(pathname) {
-  const base = decodeURIComponent(pathname.split("/").pop() ?? "").toLowerCase();
+  const base = decodeURIComponent(
+    pathname.split("/").pop() ?? "",
+  ).toLowerCase();
   if (base.endsWith(".tar.gz") || base.endsWith(".tar.bz2")) return true;
   const dot = base.lastIndexOf(".");
   if (dot <= 0) return false;
@@ -159,9 +161,15 @@ export function isPrivateHost(hostname) {
   )
     return true;
   if (host === "::1" || host === "0:0:0:0:0:0:0:1") return true;
-  if (host.startsWith("fe80:") || host.startsWith("fc") || host.startsWith("fd")) return true;
+  if (
+    host.startsWith("fe80:") ||
+    host.startsWith("fc") ||
+    host.startsWith("fd")
+  )
+    return true;
   const parts = host.split(".");
-  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part))) return false;
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part)))
+    return false;
   const nums = parts.map(Number);
   if (nums.some((num) => num > 255)) return false;
   const [a, b] = nums;
@@ -179,7 +187,8 @@ export function redactUrl(value) {
     url.username = "";
     url.password = "";
     for (const key of [...url.searchParams.keys()]) {
-      if (SECRET_PARAMS.has(key.toLowerCase())) url.searchParams.set(key, "REDACTED");
+      if (SECRET_PARAMS.has(key.toLowerCase()))
+        url.searchParams.set(key, "REDACTED");
     }
     return url.toString();
   } catch {
@@ -247,7 +256,10 @@ export function classifyUrl(value) {
 
 export function markedPaywall(html) {
   const tags = String(html ?? "").match(/<meta\b[^>]*>/gi) ?? [];
-  return tags.some((tag) => /name=["']paywall["']/i.test(tag) && /content=["']true["']/i.test(tag));
+  return tags.some(
+    (tag) =>
+      /name=["']paywall["']/i.test(tag) && /content=["']true["']/i.test(tag),
+  );
 }
 
 export function dispositionFilenameBlocked(headers) {

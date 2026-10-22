@@ -15,7 +15,11 @@ import { OutsideInError } from "./errors.mjs";
 import { createPublicFetcher } from "./fetch.mjs";
 import { loadFixtureDirectory } from "./fixtures.mjs";
 import { renderReport } from "./report.mjs";
-import { applySimilarityGuard, collectQuotes, guardReport } from "./similarity.mjs";
+import {
+  applySimilarityGuard,
+  collectQuotes,
+  guardReport,
+} from "./similarity.mjs";
 import {
   addApi,
   addChanges,
@@ -25,7 +29,11 @@ import {
   citationFor,
   emptyExtraction,
 } from "./spec.mjs";
-import { applySummarizer, resolveSummarizer, unusedLlm } from "./summarizer.mjs";
+import {
+  applySummarizer,
+  resolveSummarizer,
+  unusedLlm,
+} from "./summarizer.mjs";
 import { assertValidBehaviorSpec } from "./validate.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -36,9 +44,11 @@ export async function analyzeOutsideIn(input) {
   assertOutsideRepo(request.outDir, "output");
   assertOutsideRepo(request.cacheDir, "cache");
   const fixture =
-    request.fixture ?? (request.fixtureDir ? loadFixtureDirectory(request.fixtureDir) : null);
+    request.fixture ??
+    (request.fixtureDir ? loadFixtureDirectory(request.fixtureDir) : null);
   const now = request.now ?? (() => new Date());
-  const cacheDir = request.cacheDir ?? (request.outDir ? join(request.outDir, "cache") : null);
+  const cacheDir =
+    request.cacheDir ?? (request.outDir ? join(request.outDir, "cache") : null);
   if (cacheDir) assertOutsideRepo(cacheDir, "cache");
   const cache = cacheDir
     ? createFileCache(cacheDir, now, request.cacheMaxAgeMs)
@@ -46,7 +56,8 @@ export async function analyzeOutsideIn(input) {
   const fetcher = createPublicFetcher({
     now,
     sleep: request.sleep,
-    minIntervalMs: request.minIntervalMs ?? (fixture ? 0 : LIVE_MIN_INTERVAL_MS),
+    minIntervalMs:
+      request.minIntervalMs ?? (fixture ? 0 : LIVE_MIN_INTERVAL_MS),
     fixture,
     fetchImpl:
       request.fetchImpl ??
@@ -84,7 +95,10 @@ export async function analyzeOutsideIn(input) {
   assertValidBehaviorSpec(spec);
   if (request.outDir) {
     mkdirSync(request.outDir, { recursive: true });
-    writeFileSync(join(request.outDir, "behavior-spec.json"), JSON.stringify(spec, null, 2) + "\n");
+    writeFileSync(
+      join(request.outDir, "behavior-spec.json"),
+      JSON.stringify(spec, null, 2) + "\n",
+    );
     writeFileSync(join(request.outDir, "OUTSIDE_IN_REPORT.md"), report);
   }
   return {
@@ -101,8 +115,15 @@ export function normalizeRequest(input) {
   const name = typeof target?.name === "string" ? target.name.trim() : "";
   const urls = target?.urls ?? [];
   if (!name) throw new OutsideInError("target.name is required.", "USAGE");
-  if (!Array.isArray(urls) || urls.length === 0 || urls.some((url) => typeof url !== "string"))
-    throw new OutsideInError("target.urls must include at least one URL.", "USAGE");
+  if (
+    !Array.isArray(urls) ||
+    urls.length === 0 ||
+    urls.some((url) => typeof url !== "string")
+  )
+    throw new OutsideInError(
+      "target.urls must include at least one URL.",
+      "USAGE",
+    );
   const docs = (input.docs ?? []).map(normalizeDoc);
   const reviewUrls = input.reviewUrls ?? input.review_urls ?? [];
   if (!Array.isArray(reviewUrls))
@@ -110,7 +131,11 @@ export function normalizeRequest(input) {
   const pricingUrl = input.pricingUrl ?? input.pricing_url ?? null;
   const changelogUrl = input.changelogUrl ?? input.changelog_url ?? null;
   const count =
-    urls.length + docs.length + reviewUrls.length + (pricingUrl ? 1 : 0) + (changelogUrl ? 1 : 0);
+    urls.length +
+    docs.length +
+    reviewUrls.length +
+    (pricingUrl ? 1 : 0) +
+    (changelogUrl ? 1 : 0);
   if (count > MAX_EXPLICIT_URLS) {
     throw new OutsideInError(
       `At most ${MAX_EXPLICIT_URLS} explicit URLs are fetched in one run.`,
@@ -128,24 +153,30 @@ export function normalizeRequest(input) {
     cacheDir: input.cacheDir ?? input.cache_dir ?? null,
     outDir: input.outDir ?? input.out_dir ?? null,
     minIntervalMs: input.minIntervalMs ?? input.min_interval_ms,
-    cacheMaxAgeMs: input.cacheMaxAgeMs ?? input.cache_max_age_ms ?? DEFAULT_CACHE_MAX_AGE_MS,
+    cacheMaxAgeMs:
+      input.cacheMaxAgeMs ?? input.cache_max_age_ms ?? DEFAULT_CACHE_MAX_AGE_MS,
     now: input.now,
     sleep: input.sleep,
     fetchImpl: input.fetchImpl,
     summarizer: typeof input.summarizer === "object" ? input.summarizer : null,
     summarizerChoice:
-      input.summarizerChoice ?? (typeof input.summarizer === "string" ? input.summarizer : null),
+      input.summarizerChoice ??
+      (typeof input.summarizer === "string" ? input.summarizer : null),
   };
 }
 
 async function collect(fetcher, request) {
   const jobs = [];
-  for (const url of request.target.urls) jobs.push({ url, role: "root", kind: null });
-  for (const doc of request.docs) jobs.push({ url: doc.url, role: "docs", kind: doc.kind });
-  if (request.pricingUrl) jobs.push({ url: request.pricingUrl, role: "pricing", kind: null });
+  for (const url of request.target.urls)
+    jobs.push({ url, role: "root", kind: null });
+  for (const doc of request.docs)
+    jobs.push({ url: doc.url, role: "docs", kind: doc.kind });
+  if (request.pricingUrl)
+    jobs.push({ url: request.pricingUrl, role: "pricing", kind: null });
   if (request.changelogUrl)
     jobs.push({ url: request.changelogUrl, role: "changelog", kind: "feed" });
-  for (const url of request.reviewUrls) jobs.push({ url, role: "reviews", kind: null });
+  for (const url of request.reviewUrls)
+    jobs.push({ url, role: "reviews", kind: null });
   const documents = [];
   const refusals = [];
   const seen = new Map();
@@ -170,7 +201,9 @@ function extractDocument(doc, bundle) {
     return;
   }
   if (doc.role === "pricing" || doc.role === "reviews" || doc.role === "root") {
-    addHtmlExtraction(bundle, extractHtml(doc.body, QUOTE_MAX), citation, [doc.role]);
+    addHtmlExtraction(bundle, extractHtml(doc.body, QUOTE_MAX), citation, [
+      doc.role,
+    ]);
     if (doc.role !== "root") return;
   }
   if (doc.role === "docs" || doc.role === "root") {
@@ -178,11 +211,17 @@ function extractDocument(doc, bundle) {
     if (doc.role === "root" && format === "html") return;
     const extracted = extractByFormat(doc, format, QUOTE_MAX);
     if (extracted.api) addApi(bundle, extracted.api, citation);
-    else if (extracted.markdown) addMarkdown(bundle, extracted.markdown, citation);
+    else if (extracted.markdown)
+      addMarkdown(bundle, extracted.markdown, citation);
     else if (extracted.feed) addChanges(bundle, extracted.feed, citation);
     else if (format === "html")
-      addHtmlExtraction(bundle, extractHtml(doc.body, QUOTE_MAX), citation, ["docs"]);
-    else bundle.unknowns.push(`A ${doc.role} document in ${format} format was not recognized.`);
+      addHtmlExtraction(bundle, extractHtml(doc.body, QUOTE_MAX), citation, [
+        "docs",
+      ]);
+    else
+      bundle.unknowns.push(
+        `A ${doc.role} document in ${format} format was not recognized.`,
+      );
   }
 }
 
@@ -199,7 +238,8 @@ function uniqueBodies(documents) {
 
 function normalizeDoc(doc) {
   if (typeof doc === "string") return { url: doc, kind: null };
-  if (doc && typeof doc.url === "string") return { url: doc.url, kind: doc.kind ?? null };
+  if (doc && typeof doc.url === "string")
+    return { url: doc.url, kind: doc.kind ?? null };
   throw new OutsideInError("Each docs entry needs a url.", "USAGE");
 }
 

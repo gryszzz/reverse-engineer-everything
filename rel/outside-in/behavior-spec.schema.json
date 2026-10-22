@@ -43,8 +43,14 @@
     "workflows": { "type": "array", "items": { "$ref": "#/$defs/workflow" } },
     "api": { "$ref": "#/$defs/api" },
     "pricing": { "$ref": "#/$defs/pricing" },
-    "integrations": { "type": "array", "items": { "$ref": "#/$defs/integration" } },
-    "limitations": { "type": "array", "items": { "$ref": "#/$defs/limitation" } },
+    "integrations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/integration" }
+    },
+    "limitations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/limitation" }
+    },
     "changes": { "type": "array", "items": { "$ref": "#/$defs/change" } },
     "omitted": { "type": "array", "items": { "$ref": "#/$defs/omitted" } },
     "similarity": { "$ref": "#/$defs/similarity" },
@@ -76,7 +82,11 @@
       "required": ["name", "urls"],
       "properties": {
         "name": { "type": "string", "minLength": 1 },
-        "urls": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        "urls": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        }
       }
     },
     "collector": {
@@ -104,7 +114,14 @@
     "llm": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["used", "provider", "ree_remote_calls", "transport", "summary", "error"],
+      "required": [
+        "used",
+        "provider",
+        "ree_remote_calls",
+        "transport",
+        "summary",
+        "error"
+      ],
       "properties": {
         "used": { "type": "boolean" },
         "provider": { "type": ["string", "null"] },
@@ -204,7 +221,14 @@
     "api": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["style", "servers", "auth", "rate_limits", "endpoints", "unknowns"],
+      "required": [
+        "style",
+        "servers",
+        "auth",
+        "rate_limits",
+        "endpoints",
+        "unknowns"
+      ],
       "properties": {
         "style": { "enum": ["openapi", "graphql", "mixed", "unknown"] },
         "servers": {
@@ -224,9 +248,18 @@
           }
         },
         "auth": { "type": "array", "items": { "$ref": "#/$defs/auth" } },
-        "rate_limits": { "type": "array", "items": { "$ref": "#/$defs/rateLimit" } },
-        "endpoints": { "type": "array", "items": { "$ref": "#/$defs/endpoint" } },
-        "unknowns": { "type": "array", "items": { "type": "string", "maxLength": 300 } }
+        "rate_limits": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/rateLimit" }
+        },
+        "endpoints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/endpoint" }
+        },
+        "unknowns": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 300 }
+        }
       }
     },
     "auth": {
@@ -262,7 +295,14 @@
     "endpoint": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["method", "path", "operation_id", "parameters", "response_codes", "citations"],
+      "required": [
+        "method",
+        "path",
+        "operation_id",
+        "parameters",
+        "response_codes",
+        "citations"
+      ],
       "properties": {
         "method": { "type": "string" },
         "path": { "type": "string" },
@@ -286,7 +326,10 @@
       "required": ["plans", "unknowns"],
       "properties": {
         "plans": { "type": "array", "items": { "$ref": "#/$defs/plan" } },
-        "unknowns": { "type": "array", "items": { "type": "string", "maxLength": 300 } }
+        "unknowns": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 300 }
+        }
       }
     },
     "plan": {

@@ -1,7 +1,16 @@
 import { parse as parseYaml } from "yaml";
 import { shortQuote } from "./text.mjs";
 
-const METHODS = ["get", "post", "put", "patch", "delete", "options", "head", "trace"];
+const METHODS = [
+  "get",
+  "post",
+  "put",
+  "patch",
+  "delete",
+  "options",
+  "head",
+  "trace",
+];
 
 export function extractOpenApi(text) {
   let document;
@@ -10,7 +19,11 @@ export function extractOpenApi(text) {
   } catch {
     return { error: "OpenAPI document could not be parsed." };
   }
-  if (!document || typeof document !== "object" || (!document.openapi && !document.swagger)) {
+  if (
+    !document ||
+    typeof document !== "object" ||
+    (!document.openapi && !document.swagger)
+  ) {
     return { error: "Document is not an OpenAPI or Swagger description." };
   }
   return {
@@ -30,7 +43,8 @@ function serversFrom(document) {
 }
 
 function authFrom(document) {
-  const schemes = document.components?.securitySchemes ?? document.securityDefinitions ?? {};
+  const schemes =
+    document.components?.securitySchemes ?? document.securityDefinitions ?? {};
   if (!schemes || typeof schemes !== "object") return [];
   return Object.entries(schemes).map(([name, scheme]) => ({
     name,
@@ -72,7 +86,8 @@ function endpointFrom(method, path, operation) {
   return {
     method: method.toUpperCase(),
     path,
-    operationId: typeof operation.operationId === "string" ? operation.operationId : null,
+    operationId:
+      typeof operation.operationId === "string" ? operation.operationId : null,
     summary,
     parameters,
     responseCodes: Object.keys(operation.responses ?? {}),
@@ -84,7 +99,9 @@ function endpointFrom(method, path, operation) {
 
 function securityNames(security) {
   if (!Array.isArray(security)) return [];
-  return security.flatMap((item) => (item && typeof item === "object" ? Object.keys(item) : []));
+  return security.flatMap((item) =>
+    item && typeof item === "object" ? Object.keys(item) : [],
+  );
 }
 
 function rateLimitsFrom(node, scope) {

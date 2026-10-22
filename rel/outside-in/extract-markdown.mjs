@@ -15,7 +15,8 @@ export function extractMarkdown(text, quoteMax) {
     features.push({
       name,
       quote: null,
-      detail: "SDK README heading. Fenced code samples on this page were omitted.",
+      detail:
+        "SDK README heading. Fenced code samples on this page were omitted.",
       origin: "sdk-readme",
     });
   }

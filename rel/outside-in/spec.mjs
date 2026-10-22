@@ -58,7 +58,8 @@ export function addHtmlExtraction(bundle, extracted, citation, roles) {
     }
   }
   if (wanted.has("pricing") || wanted.has("root")) {
-    for (const plan of extracted.plans) bundle.plans.push({ ...plan, citations: [citation] });
+    for (const plan of extracted.plans)
+      bundle.plans.push({ ...plan, citations: [citation] });
   }
   bundle.unknowns.push(...extracted.unknowns);
 }
@@ -136,11 +137,20 @@ export function addChanges(bundle, feed, citation) {
   bundle.unknowns.push(...(feed.unknowns ?? []));
 }
 
-export function buildSpec({ request, documents, refusals, bundle, generatedAt, llm, findings }) {
+export function buildSpec({
+  request,
+  documents,
+  refusals,
+  bundle,
+  generatedAt,
+  llm,
+  findings,
+}) {
   assignIds(bundle.features, "feature");
   assignIds(bundle.workflows, "workflow");
   const usable = documents.length;
-  const status = usable === 0 ? "refused" : refusals.length > 0 ? "partial" : "completed";
+  const status =
+    usable === 0 ? "refused" : refusals.length > 0 ? "partial" : "completed";
   const styles = [...bundle.api.styles];
   const spec = {
     schema_version: SCHEMA_VERSION,
@@ -165,7 +175,12 @@ export function buildSpec({ request, documents, refusals, bundle, generatedAt, l
     features: bundle.features,
     workflows: bundle.workflows,
     api: {
-      style: styles.length === 0 ? "unknown" : styles.length === 1 ? styles[0] : "mixed",
+      style:
+        styles.length === 0
+          ? "unknown"
+          : styles.length === 1
+            ? styles[0]
+            : "mixed",
       servers: bundle.api.servers,
       auth: bundle.api.auth,
       rate_limits: bundle.api.rate_limits,
@@ -231,9 +246,12 @@ function coverage(request, documents, refusals, bundle) {
   const unknowns = [...bundle.unknowns];
   if (!request.pricingUrl) unknowns.push("No pricing URL was supplied.");
   if (!request.changelogUrl) unknowns.push("No changelog URL was supplied.");
-  if (request.reviewUrls.length === 0) unknowns.push("No review URLs were supplied.");
+  if (request.reviewUrls.length === 0)
+    unknowns.push("No review URLs were supplied.");
   if (request.docs.length === 0)
-    unknowns.push("No documentation URL was supplied. The API surface is unknown.");
+    unknowns.push(
+      "No documentation URL was supplied. The API surface is unknown.",
+    );
   if (documents.length === 0) unknowns.push("No public page could be fetched.");
   for (const refusal of refusals) {
     unknowns.push(`Refused ${refusal.role} URL (${refusal.reason}).`);

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -12,8 +18,12 @@ import { applySimilarityGuard } from "./similarity.mjs";
 import { validateBehaviorSpec } from "./validate.mjs";
 
 const product = fileURLToPath(new URL("./fixtures/product/", import.meta.url));
-const disallow = fileURLToPath(new URL("./fixtures/robots-disallow/", import.meta.url));
-const limited = fileURLToPath(new URL("./fixtures/rate-limit/", import.meta.url));
+const disallow = fileURLToPath(
+  new URL("./fixtures/robots-disallow/", import.meta.url),
+);
+const limited = fileURLToPath(
+  new URL("./fixtures/rate-limit/", import.meta.url),
+);
 const request = JSON.parse(readFileSync(join(product, "request.json"), "utf8"));
 const cli = fileURLToPath(new URL("../../ree.mjs", import.meta.url));
 const home = mkdtempSync(join(tmpdir(), "ree-outside-in-"));
@@ -61,10 +71,22 @@ Crawl-delay: 2
   const homeDecision = evaluateRobots(groups, USER_AGENT, "/");
   assert.equal(homeDecision.allowed, true);
   assert.equal(homeDecision.crawlDelaySeconds, 2);
-  assert.equal(evaluateRobots(groups, USER_AGENT, "/private/page").allowed, false);
-  assert.equal(evaluateRobots(groups, USER_AGENT, "/docs/secret").allowed, true);
-  assert.equal(evaluateRobots(groups, "OtherBot/1.0", "/docs/public").allowed, true);
-  assert.equal(evaluateRobots(groups, "OtherBot/1.0", "/docs/secret").allowed, false);
+  assert.equal(
+    evaluateRobots(groups, USER_AGENT, "/private/page").allowed,
+    false,
+  );
+  assert.equal(
+    evaluateRobots(groups, USER_AGENT, "/docs/secret").allowed,
+    true,
+  );
+  assert.equal(
+    evaluateRobots(groups, "OtherBot/1.0", "/docs/public").allowed,
+    true,
+  );
+  assert.equal(
+    evaluateRobots(groups, "OtherBot/1.0", "/docs/secret").allowed,
+    false,
+  );
   assert.equal(evaluateRobots(parseRobots(""), USER_AGENT, "/").allowed, true);
 });
 
@@ -88,19 +110,31 @@ test("product fixture produces a cited clean-room spec", async () => {
   assert.equal(validateBehaviorSpec(spec).ok, true);
   assert.ok(spec.features.some((feature) => feature.name === "Shared boards"));
   assert.ok(spec.features.some((feature) => feature.name === "Public API"));
-  const apiFeature = spec.features.find((feature) => feature.name === "Public API");
-  assert.equal(apiFeature.quote.text, "Automate board updates from your own tools.");
+  const apiFeature = spec.features.find(
+    (feature) => feature.name === "Public API",
+  );
+  assert.equal(
+    apiFeature.quote.text,
+    "Automate board updates from your own tools.",
+  );
   assert.equal(apiFeature.citations[0].url, "https://widgets.test/");
   assert.equal(apiFeature.citations[0].fetched_at, "2026-01-15T00:00:00.000Z");
-  const workflow = spec.workflows.find((item) => item.name === "Create a board");
+  const workflow = spec.workflows.find(
+    (item) => item.name === "Create a board",
+  );
   assert.deepEqual(
     workflow.steps.map((step) => step.text),
     ["Sign up", "Name the board", "Invite a teammate"],
   );
-  assert.deepEqual(spec.integrations.map((item) => item.name).sort(), ["GitHub", "Slack"]);
+  assert.deepEqual(spec.integrations.map((item) => item.name).sort(), [
+    "GitHub",
+    "Slack",
+  ]);
   assert.ok(
     spec.limitations.some(
-      (item) => item.origin === "stated-limitation" && item.statement.text === "No offline mode",
+      (item) =>
+        item.origin === "stated-limitation" &&
+        item.statement.text === "No offline mode",
     ),
   );
   assert.ok(
@@ -120,7 +154,9 @@ test("product fixture produces a cited clean-room spec", async () => {
   assert.ok(pro.includes.includes("Email support"));
   assert.equal(free.citations[0].url, "https://widgets.test/pricing");
   assert.equal(spec.api.style, "mixed");
-  const list = spec.api.endpoints.find((endpoint) => endpoint.operation_id === "listWidgets");
+  const list = spec.api.endpoints.find(
+    (endpoint) => endpoint.operation_id === "listWidgets",
+  );
   assert.equal(list.method, "GET");
   assert.equal(list.path, "/v1/widgets");
   assert.deepEqual(list.parameters, ["limit"]);
@@ -128,26 +164,45 @@ test("product fixture produces a cited clean-room spec", async () => {
   assert.equal(list.citations[0].url, "https://widgets.test/openapi.yaml");
   assert.ok(spec.api.auth.some((auth) => auth.style === "bearer"));
   assert.ok(
-    spec.api.rate_limits.some((limit) => limit.limit === "100" && limit.window === "minute"),
+    spec.api.rate_limits.some(
+      (limit) => limit.limit === "100" && limit.window === "minute",
+    ),
   );
-  assert.ok(spec.api.endpoints.some((endpoint) => endpoint.operation_id === "widget"));
-  assert.ok(spec.api.endpoints.some((endpoint) => endpoint.operation_id === "createWidget"));
-  assert.ok(spec.api.servers.some((server) => server.url === "https://api.widgets.test"));
+  assert.ok(
+    spec.api.endpoints.some((endpoint) => endpoint.operation_id === "widget"),
+  );
+  assert.ok(
+    spec.api.endpoints.some(
+      (endpoint) => endpoint.operation_id === "createWidget",
+    ),
+  );
+  assert.ok(
+    spec.api.servers.some(
+      (server) => server.url === "https://api.widgets.test",
+    ),
+  );
   assert.ok(spec.features.some((feature) => feature.origin === "sdk-readme"));
   assert.equal(spec.omitted[0].kind, "fenced-code");
   assert.equal(spec.changes[0].title.text, "Added bulk export");
   assert.equal(spec.changes[0].published_at, "2025-10-01T00:00:00.000Z");
   const packed = JSON.stringify(spec) + result.report;
-  for (const marker of DISTINCTIVE) assert.equal(packed.includes(marker), false, marker);
-  assert.equal(result.fixtureReads.includes("https://widgets.test/secret"), false);
+  for (const marker of DISTINCTIVE)
+    assert.equal(packed.includes(marker), false, marker);
+  assert.equal(
+    result.fixtureReads.includes("https://widgets.test/secret"),
+    false,
+  );
   assert.equal(
     result.fixtureReads.some((url) => url.includes("api.widgets.test")),
     false,
   );
-  assert.ok(result.fetches.every((item) => item.headers["user-agent"] === USER_AGENT));
+  assert.ok(
+    result.fetches.every((item) => item.headers["user-agent"] === USER_AGENT),
+  );
   assert.ok(
     result.fetches.every(
-      (item) => !("authorization" in item.headers) && !("cookie" in item.headers),
+      (item) =>
+        !("authorization" in item.headers) && !("cookie" in item.headers),
     ),
   );
   assert.match(result.report, /source: https:\/\/widgets\.test\//);
@@ -166,7 +221,10 @@ test("robots disallow refuses the target before the page is read", async () => {
   assert.equal(result.spec.clean_room, true);
   assert.equal(result.spec.refusals[0].reason, "robots-disallow");
   assert.deepEqual(result.fixtureReads, ["https://blocked.test/robots.txt"]);
-  assert.equal(JSON.stringify(result.spec).includes("SHOULD_NOT_FETCH_HOME"), false);
+  assert.equal(
+    JSON.stringify(result.spec).includes("SHOULD_NOT_FETCH_HOME"),
+    false,
+  );
   assert.equal(validateBehaviorSpec(result.spec).ok, true);
 });
 
@@ -180,9 +238,17 @@ test("HTTP 429 stops the host and does not read later URLs", async () => {
     sleep: time.sleep,
   });
   assert.equal(result.exitCode, 3);
-  assert.ok(result.spec.refusals.some((refusal) => refusal.reason === "rate-limit"));
-  assert.equal(result.fixtureReads.includes("https://limited.test/docs"), false);
-  assert.equal(JSON.stringify(result.spec).includes("SHOULD_NOT_BE_READ"), false);
+  assert.ok(
+    result.spec.refusals.some((refusal) => refusal.reason === "rate-limit"),
+  );
+  assert.equal(
+    result.fixtureReads.includes("https://limited.test/docs"),
+    false,
+  );
+  assert.equal(
+    JSON.stringify(result.spec).includes("SHOULD_NOT_BE_READ"),
+    false,
+  );
   assert.match(result.spec.refusals[0].detail, /Retry-After/);
 });
 
@@ -226,9 +292,13 @@ test("similarity guard redacts long verbatim text and keeps short quotes", () =>
     "This is a long verbatim passage that the guard must catch because it was copied from the public page into the spec.";
   const spec = {
     features: [{ summary: `intro ${passage} outro` }],
-    limitations: [{ statement: { text: "No offline mode", attributed_quote: true } }],
+    limitations: [
+      { statement: { text: "No offline mode", attributed_quote: true } },
+    ],
   };
-  const findings = applySimilarityGuard(spec, [{ url: "https://widgets.test/", body: passage }]);
+  const findings = applySimilarityGuard(spec, [
+    { url: "https://widgets.test/", body: passage },
+  ]);
   assert.equal(findings.length, 1);
   assert.equal(spec.features[0].summary, "[redacted similar passage]");
   assert.equal(spec.limitations[0].statement.text, "No offline mode");
@@ -326,7 +396,10 @@ test("auth, captcha, binaries, and private hosts are refused", async () => {
     sleep: time.sleep,
   });
   assert.equal(source.spec.refusals[0].reason, "source-or-binary");
-  assert.equal(JSON.stringify(source.spec).includes("superSecretSource"), false);
+  assert.equal(
+    JSON.stringify(source.spec).includes("superSecretSource"),
+    false,
+  );
   const binary = await analyzeOutsideIn({
     target: { name: "Wall", urls: ["https://wall.test/app.exe"] },
     fixtureDir: dir,
@@ -403,7 +476,9 @@ test("deterministic extraction ignores a failing summarizer and accepts a local 
     summarizer: {
       id: "local-test",
       async summarize() {
-        return { text: "Widget Cloud documents boards, an API, and published plans." };
+        return {
+          text: "Widget Cloud documents boards, an API, and published plans.",
+        };
       },
     },
   });
@@ -426,7 +501,9 @@ test("deterministic extraction ignores a failing summarizer and accepts a local 
 });
 
 test("output and cache directories inside the repository are refused", async () => {
-  const inside = fileURLToPath(new URL("./fixtures/product/out", import.meta.url));
+  const inside = fileURLToPath(
+    new URL("./fixtures/product/out", import.meta.url),
+  );
   await assert.rejects(
     () =>
       analyzeOutsideIn({
@@ -439,7 +516,9 @@ test("output and cache directories inside the repository are refused", async () 
 });
 
 test("schema validation rejects a spec that drops the clean-room flag", () => {
-  const invalid = validateBehaviorSpec({ schema_version: "ree.outside-in.behavior-spec.v1" });
+  const invalid = validateBehaviorSpec({
+    schema_version: "ree.outside-in.behavior-spec.v1",
+  });
   assert.equal(invalid.ok, false);
 });
 
@@ -469,10 +548,15 @@ test("CLI writes the spec and JSON for BLAST", () => {
   assert.equal(spec.clean_room, true);
   assert.equal(validateBehaviorSpec(spec).ok, true);
   assert.equal(
-    readFileSync(join(out, "behavior-spec.json"), "utf8").includes(spec.target.name),
+    readFileSync(join(out, "behavior-spec.json"), "utf8").includes(
+      spec.target.name,
+    ),
     true,
   );
-  assert.match(readFileSync(join(out, "OUTSIDE_IN_REPORT.md"), "utf8"), /Clean room: yes/);
+  assert.match(
+    readFileSync(join(out, "OUTSIDE_IN_REPORT.md"), "utf8"),
+    /Clean room: yes/,
+  );
   const refused = spawnSync(
     process.execPath,
     [
@@ -492,7 +576,16 @@ test("CLI writes the spec and JSON for BLAST", () => {
   assert.equal(JSON.parse(refused.stdout).status, "refused");
   const remote = spawnSync(
     process.execPath,
-    [cli, "outside-in", "--name", "X", "--url", "https://widgets.test/", "--summarizer", "remote"],
+    [
+      cli,
+      "outside-in",
+      "--name",
+      "X",
+      "--url",
+      "https://widgets.test/",
+      "--summarizer",
+      "remote",
+    ],
     { encoding: "utf8" },
   );
   assert.equal(remote.status, 2);
@@ -500,17 +593,27 @@ test("CLI writes the spec and JSON for BLAST", () => {
 });
 
 test("inspect stays preview-only and outside-in is documented", () => {
-  const help = spawnSync(process.execPath, [cli, "--help"], { encoding: "utf8" });
+  const help = spawnSync(process.execPath, [cli, "--help"], {
+    encoding: "utf8",
+  });
   assert.equal(help.status, 0);
   assert.match(help.stdout, /outside-in/);
-  const preview = spawnSync(process.execPath, [cli, "inspect", "https://example.com", "--json"], {
-    encoding: "utf8",
-  });
+  const preview = spawnSync(
+    process.execPath,
+    [cli, "inspect", "https://example.com", "--json"],
+    {
+      encoding: "utf8",
+    },
+  );
   assert.equal(preview.status, 0);
   assert.equal(JSON.parse(preview.stdout).execution, "preview-only");
-  const run = spawnSync(process.execPath, [cli, "inspect", "https://example.com", "--run"], {
-    encoding: "utf8",
-  });
+  const run = spawnSync(
+    process.execPath,
+    [cli, "inspect", "https://example.com", "--run"],
+    {
+      encoding: "utf8",
+    },
+  );
   assert.equal(run.status, 2);
   assert.match(run.stderr, /Analysis execution is only enabled/);
 });

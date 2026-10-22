@@ -15,7 +15,9 @@ export function loadFixtureDirectory(dir) {
       if (!entry) return null;
       reads.push(url);
       const body =
-        typeof entry.body === "string" ? entry.body : readFileSync(join(dir, entry.file), "utf8");
+        typeof entry.body === "string"
+          ? entry.body
+          : readFileSync(join(dir, entry.file), "utf8");
       return {
         status: entry.status ?? 200,
         headers: lowerHeaders(entry.headers ?? {}),

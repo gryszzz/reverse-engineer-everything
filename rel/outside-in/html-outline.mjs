@@ -1,6 +1,14 @@
 import { decodeEntities, normalizeSpace } from "./text.mjs";
 
-const SKIP = new Set(["script", "style", "noscript", "title", "svg", "head", "nav"]);
+const SKIP = new Set([
+  "script",
+  "style",
+  "noscript",
+  "title",
+  "svg",
+  "head",
+  "nav",
+]);
 
 export function pageOutline(html) {
   const tokens = tokenize(String(html ?? ""));
@@ -52,7 +60,8 @@ function walk(tokens) {
     const text = normalizeSpace(buffer);
     buffer = "";
     if (!text) return;
-    if (mode === "heading") current = startBlock(blocks, current, headingLevel, text, regions);
+    if (mode === "heading")
+      current = startBlock(blocks, current, headingLevel, text, regions);
     else if (mode === "li" && list) list.items.push(text);
     else if (current) current.paragraphs.push(text);
   };
@@ -167,6 +176,9 @@ function consumeTag(token, ctx) {
 }
 
 function attr(tag, name) {
-  const match = new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, "i").exec(tag);
+  const match = new RegExp(
+    `\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`,
+    "i",
+  ).exec(tag);
   return match ? (match[2] ?? match[3] ?? match[4] ?? "") : "";
 }

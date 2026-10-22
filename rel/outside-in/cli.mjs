@@ -46,8 +46,14 @@ export async function runOutsideInCommand(argv) {
 }
 
 function requestFrom(settings) {
-  if (settings.request && (settings.name || settings.urls.length || settings.docs.length)) {
-    throw new OutsideInError("Pass either --request or --name/--url inputs, not both.", "USAGE");
+  if (
+    settings.request &&
+    (settings.name || settings.urls.length || settings.docs.length)
+  ) {
+    throw new OutsideInError(
+      "Pass either --request or --name/--url inputs, not both.",
+      "USAGE",
+    );
   }
   const base = settings.request
     ? JSON.parse(readFileSync(settings.request, "utf8"))
@@ -59,7 +65,10 @@ function requestFrom(settings) {
         review_urls: settings.reviews,
       };
   if (!settings.request && !settings.name)
-    throw new OutsideInError("Provide --name and --url, or --request FILE.", "USAGE");
+    throw new OutsideInError(
+      "Provide --name and --url, or --request FILE.",
+      "USAGE",
+    );
   return {
     ...base,
     fixtureDir: settings.fixture,
@@ -116,17 +125,26 @@ export function parseArgs(argv) {
     else if (arg === "--json") settings.json = true;
     else if (arg === "--name") settings.name = needValue(argv, ++index, arg);
     else if (arg === "--url") settings.urls.push(needValue(argv, ++index, arg));
-    else if (arg === "--docs") settings.docs.push(needValue(argv, ++index, arg));
-    else if (arg === "--reviews") settings.reviews.push(needValue(argv, ++index, arg));
-    else if (arg === "--pricing") settings.pricing = needValue(argv, ++index, arg);
-    else if (arg === "--changelog") settings.changelog = needValue(argv, ++index, arg);
-    else if (arg === "--request") settings.request = needValue(argv, ++index, arg);
-    else if (arg === "--fixture") settings.fixture = needValue(argv, ++index, arg);
+    else if (arg === "--docs")
+      settings.docs.push(needValue(argv, ++index, arg));
+    else if (arg === "--reviews")
+      settings.reviews.push(needValue(argv, ++index, arg));
+    else if (arg === "--pricing")
+      settings.pricing = needValue(argv, ++index, arg);
+    else if (arg === "--changelog")
+      settings.changelog = needValue(argv, ++index, arg);
+    else if (arg === "--request")
+      settings.request = needValue(argv, ++index, arg);
+    else if (arg === "--fixture")
+      settings.fixture = needValue(argv, ++index, arg);
     else if (arg === "--cache") settings.cache = needValue(argv, ++index, arg);
     else if (arg === "--out") settings.out = needValue(argv, ++index, arg);
-    else if (arg === "--summarizer") settings.summarizer = needValue(argv, ++index, arg);
-    else if (arg === "--min-interval-ms") settings.minIntervalMs = numberValue(argv, ++index, arg);
-    else if (arg === "--cache-max-age-ms") settings.cacheMaxAgeMs = numberValue(argv, ++index, arg);
+    else if (arg === "--summarizer")
+      settings.summarizer = needValue(argv, ++index, arg);
+    else if (arg === "--min-interval-ms")
+      settings.minIntervalMs = numberValue(argv, ++index, arg);
+    else if (arg === "--cache-max-age-ms")
+      settings.cacheMaxAgeMs = numberValue(argv, ++index, arg);
     else throw new OutsideInError("Unknown option: " + arg, "USAGE");
   }
   return settings;
@@ -142,6 +160,9 @@ function needValue(argv, index, flag) {
 function numberValue(argv, index, flag) {
   const value = Number(needValue(argv, index, flag));
   if (!Number.isInteger(value) || value < 0)
-    throw new OutsideInError(flag + " must be a non-negative integer.", "USAGE");
+    throw new OutsideInError(
+      flag + " must be a non-negative integer.",
+      "USAGE",
+    );
   return value;
 }
