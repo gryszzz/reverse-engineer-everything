@@ -2,8 +2,10 @@ import { randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
@@ -14,6 +16,7 @@ import {
   ingestScout,
   ingestSpec,
   listOpportunities,
+  listPicks,
 } from "../opportunities/board.mjs";
 import { packageRebuild, scaffoldRebuild } from "../rebuild/scaffold.mjs";
 import { verifyRebuild, verifyRebuildLive } from "../rebuild/verify.mjs";
@@ -29,8 +32,37 @@ export function opportunityDirectory(root) {
   return join(root, "opportunities");
 }
 
+function collectPicks(root) {
+  const picks = [];
+  const seen = new Set();
+  const add = (directory) => {
+    for (const pick of listPicks(directory)) {
+      if (seen.has(pick.id)) continue;
+      seen.add(pick.id);
+      picks.push(pick);
+    }
+  };
+  const pipelines = join(root, "pipelines");
+  if (existsSync(pipelines)) {
+    for (const name of readdirSync(pipelines)) {
+      const directory = join(pipelines, name);
+      if (statSync(directory).isDirectory()) add(directory);
+    }
+  }
+  add(opportunityDirectory(root));
+  picks.sort(
+    (left, right) =>
+      String(left.name ?? "").localeCompare(String(right.name ?? "")) ||
+      left.id.localeCompare(right.id),
+  );
+  return picks;
+}
+
 export function readOpportunityBoard(root) {
-  return listOpportunities(opportunityDirectory(root));
+  return {
+    ...listOpportunities(opportunityDirectory(root)),
+    picks: collectPicks(root),
+  };
 }
 
 export function ingestOpportunity(root, value) {

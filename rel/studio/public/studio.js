@@ -586,6 +586,13 @@ function onboardingCard() {
   ]);
 }
 
+function pickLabel(pick) {
+  const route = pick.route
+    ? `${pick.route.method} ${pick.route.path}`
+    : "no route";
+  return `${pick.name}: ${route}`;
+}
+
 function boardPanel() {
   const input = el("textarea", {
     id: "board-json",
@@ -594,14 +601,31 @@ function boardPanel() {
   });
   const scout = state.board?.scout ?? [];
   const specs = state.board?.specs ?? [];
+  const picks = state.board?.picks ?? [];
   return el("section", { class: "panel" }, [
     el("h2", {}, "Board"),
     el(
       "p",
       {},
-      "Scout scores stay the integers in the file. A behavior spec is listed by coverage and has no market score.",
+      "Scout scores stay the integers in the file. A behavior spec is listed by coverage and has no market score. A pick is a pipeline feature whose route test passed.",
     ),
-    !state.board || (scout.length === 0 && specs.length === 0)
+    el("h3", {}, "Picks"),
+    picks.length === 0
+      ? el(
+          "p",
+          { class: "empty" },
+          "No picks yet. Run the owned web pipeline. Guard was not called. Blast was not notified. Scale was not called.",
+        )
+      : el("ul", { id: "board-picks" }, [
+          ...picks.map((pick) => el("li", {}, pickLabel(pick))),
+          el(
+            "li",
+            { class: "note" },
+            "These picks are files on the board. Guard was not called. Blast was not notified. Scale was not called.",
+          ),
+        ]),
+    !state.board ||
+    (scout.length === 0 && specs.length === 0 && picks.length === 0)
       ? el(
           "p",
           { class: "empty" },
@@ -909,14 +933,14 @@ function buildPanel() {
     el(
       "p",
       {},
-      "Writes a clean-room HTTP product from a behavior spec. A feature becomes a route only when its name matches an endpoint. Quotes are not copied. The handoff is a dry run: Blast is not notified, Guard is not called, and Vault is not copied.",
+      "Writes a clean-room HTTP product from a behavior spec. Each feature gets a data model, write rules, and CRUD routes. A path template is left out, with a reason. Quotes are not copied. The handoff is a dry run: Blast is not notified, Guard is not called, Scale is not called, and Vault is not copied.",
     ),
     draftCard(),
     liveCard(live),
     !result
       ? emptyState(
           "No build yet",
-          "Paste a spec and a product name that is not the spec target. Only a feature whose name matches an HTTP endpoint is built and tested. The opportunity list is Board, under Advanced.",
+          "Paste a spec and a product name that is not the spec target. Each feature gets CRUD routes and a behavior test. A path template is left out. Pipeline picks are on Board, under Advanced.",
           null,
           null,
         )

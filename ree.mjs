@@ -41,6 +41,8 @@ const help = [
   "                                                Investigation through dry-run sell files",
   "node ree.mjs opportunities ingest FILE --out DIR",
   "node ree.mjs opportunities list --data DIR",
+  "node ree.mjs board picks --data DIR",
+  "node ree.mjs board export --data DIR --out DIR",
   "node ree.mjs rebuild --spec FILE --name NAME --out DIR",
   "node ree.mjs verify --project DIR",
   "node ree.mjs handoff --project DIR [--blast-dir DIR] [--scout FILE]",
@@ -171,9 +173,14 @@ try {
     const { formatEdition } = await import("./rel/edition.mjs");
     console.log(formatEdition(args.includes("--json")));
   } else if (
-    ["opportunities", "rebuild", "verify", "handoff", "pipeline"].includes(
-      args[0],
-    )
+    [
+      "opportunities",
+      "rebuild",
+      "verify",
+      "handoff",
+      "pipeline",
+      "board",
+    ].includes(args[0])
   ) {
     const { runPipelineCommand } = await import("./rel/pipeline/cli.mjs");
     process.exitCode = await runPipelineCommand(args);

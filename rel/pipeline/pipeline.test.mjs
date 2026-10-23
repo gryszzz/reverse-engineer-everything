@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -628,6 +629,81 @@ test("pipeline rebuilds the owned web bench into a packaged product", async () =
   assert.equal(scale.notified_scale, false);
   assert.equal(scale.approved, false);
   assert.equal(scale.dry_run, true);
+  assert.equal(
+    handoff.picks.some((pick) => pick.name === "Shared boards"),
+    true,
+  );
+  const pickFiles = readdirSync(join(outcome.board_dir, "picks")).filter(
+    (name) => name.endsWith(".json"),
+  );
+  const picks = pickFiles.map((name) =>
+    JSON.parse(readFileSync(join(outcome.board_dir, "picks", name), "utf8")),
+  );
+  const sharedPick = picks.find((pick) => pick.name === "Shared boards");
+  assert.equal(sharedPick.schema_version, "ree.board.pick.v1");
+  assert.equal(sharedPick.match, "pass");
+  assert.equal(sharedPick.route.method, "POST");
+  assert.equal(sharedPick.route.path, "/shared-boards");
+  assert.ok(picks.some((pick) => pick.name === "Create a board"));
+  const findings = readdirSync(join(outcome.board_dir, "findings"))
+    .filter((name) => name.endsWith(".json"))
+    .map((name) =>
+      JSON.parse(
+        readFileSync(join(outcome.board_dir, "findings", name), "utf8"),
+      ),
+    );
+  assert.ok(
+    findings.some(
+      (finding) =>
+        finding.kind === "feature" && finding.name === "Shared boards",
+    ),
+  );
+  for (const finding of findings) {
+    if (finding.match === "pass") continue;
+    assert.equal(
+      picks.some((pick) => pick.feature_id === finding.feature_id),
+      false,
+    );
+  }
+  for (const system of ["guard", "blast", "scale"]) {
+    const request = JSON.parse(
+      readFileSync(
+        join(outcome.handoff_dir, "requests", system + ".json"),
+        "utf8",
+      ),
+    );
+    assert.equal(request.schema_version, "ree.handoff.request.v1");
+    assert.equal(request.to, system);
+    assert.equal(request.called, false);
+    assert.equal(request.dry_run, true);
+    assert.ok(request.picks.some((pick) => pick.id === sharedPick.id));
+  }
+  const exportedDir = join(home, "board-export");
+  const exported = spawnSync(
+    process.execPath,
+    [cli, "board", "export", "--data", out, "--out", exportedDir, "--json"],
+    { encoding: "utf8" },
+  );
+  assert.equal(exported.status, 0, exported.stderr + exported.stdout);
+  const manifest = JSON.parse(exported.stdout);
+  assert.equal(manifest.schema_version, "ree.board.export.v1");
+  assert.equal(manifest.dry_run, true);
+  assert.equal(manifest.called.guard, false);
+  assert.equal(manifest.called.blast, false);
+  assert.equal(manifest.called.scale, false);
+  assert.equal(existsSync(join(exportedDir, "requests/guard.json")), true);
+  assert.equal(
+    existsSync(join(exportedDir, "picks", sharedPick.id + ".json")),
+    true,
+  );
+  const picksRun = spawnSync(
+    process.execPath,
+    [cli, "board", "picks", "--data", out, "--json"],
+    { encoding: "utf8" },
+  );
+  assert.equal(picksRun.status, 0, picksRun.stderr + picksRun.stdout);
+  const listedPicks = JSON.parse(picksRun.stdout);
+  assert.ok(listedPicks.some((pick) => pick.name === "Create a board"));
   const guard = JSON.parse(
     readFileSync(join(out, "guard/submission.json"), "utf8"),
   );
