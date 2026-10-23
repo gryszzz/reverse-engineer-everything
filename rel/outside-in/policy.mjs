@@ -196,6 +196,21 @@ export function redactUrl(value) {
   }
 }
 
+/**
+ * Test-only exact host. Production stays closed: the value must be
+ * 127.0.0.1 with an explicit port, and only that host:port is allowed.
+ * Public hostnames never match.
+ */
+export function allowedFixtureHost(url) {
+  const raw = process.env.REE_STUDIO_FIXTURE_HOST;
+  if (typeof raw !== "string") return false;
+  const match = /^(127\.0\.0\.1):(\d{1,5})$/u.exec(raw);
+  if (!match) return false;
+  const port = Number(match[2]);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
+  return url.hostname === "127.0.0.1" && url.port === String(port);
+}
+
 export function classifyUrl(value) {
   let url;
   try {
@@ -235,7 +250,10 @@ export function classifyUrl(value) {
       };
     }
   }
-  if (!url.hostname || isPrivateHost(url.hostname)) {
+  if (
+    !url.hostname ||
+    (isPrivateHost(url.hostname) && !allowedFixtureHost(url))
+  ) {
     return {
       ok: false,
       reason: "private-host",
