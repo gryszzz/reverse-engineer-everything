@@ -37,6 +37,7 @@ const help = [
   "                                                Static JavaScript/Electron folder or ASAR",
   "node ree.mjs outside-in --name NAME --url URL --out DIR [--json]",
   "                                                Public-docs behavior spec; no target source",
+  "node ree.mjs agents <step> --json               Headless analyze through board post. See docs/agents.md",
   "node ree.mjs ingest-docs <url-or-dir> --out DIR [--name NAME] [--json]",
   "                                                OpenAPI, HTML, or a docs folder into that spec",
   "node ree.mjs pipeline TARGET --out DIR [--name NAME] [--resume] [--authorized]",
@@ -176,6 +177,9 @@ try {
   } else if (args[0] === "outside-in") {
     const { runOutsideInCommand } = await import("./rel/outside-in/cli.mjs");
     process.exitCode = await runOutsideInCommand(args.slice(1));
+  } else if (args[0] === "agents") {
+    const { runAgentsCommand } = await import("./rel/agents/cli.mjs");
+    process.exitCode = await runAgentsCommand(args.slice(1));
   } else if (args[0] === "edition") {
     const { formatEdition } = await import("./rel/edition.mjs");
     console.log(formatEdition(args.includes("--json")));

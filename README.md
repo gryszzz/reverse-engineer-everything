@@ -367,6 +367,7 @@ Beginner REE commands:
 | `node ree.mjs app build`                                  | Build unsigned `REE.app` on macOS                                             |
 | `node ree.mjs app install`                                | Copy it to `~/Applications` and alias the Desktop                             |
 | `node ree.mjs outside-in --name NAME --url URL --out DIR` | Public-docs behavior spec. No target source                                   |
+| `node ree.mjs agents <step> --json`                       | Headless analyze through board post. See [docs/agents.md](docs/agents.md)     |
 | `node ree.mjs ingest-docs <url-or-dir> --out DIR`         | OpenAPI, HTML, or a docs folder into that spec. No login                      |
 | `node ree.mjs pipeline TARGET --out DIR --name NAME`      | Scope through dry-run sell files. Owned fixture or `--authorized`. Resumable. |
 | `node ree.mjs bench`                                      | Score owned fixtures against handwritten ground truth                         |
