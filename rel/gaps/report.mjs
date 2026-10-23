@@ -35,7 +35,12 @@ export function collectGaps({ projectDir, readReport = null, forbidden = [] }) {
   const provenance = readJson(join(projectDir, "provenance.json"));
   for (const item of provenance?.left_out ?? [])
     add("build", featureLine(item));
-  for (const limit of provenance?.generator_limits ?? []) add("build", limit);
+  for (const limit of provenance?.generator_limits ?? []) {
+    if (
+      /not built|not expanded|left out|not copied|refused/iu.test(String(limit))
+    )
+      add("build", limit);
+  }
 
   const capabilities = readJson(join(projectDir, "capabilities.json"));
   if (!capabilities) {
