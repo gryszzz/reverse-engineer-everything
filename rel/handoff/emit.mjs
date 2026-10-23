@@ -186,7 +186,7 @@ function publicPicks(picks, verify) {
     }));
 }
 
-function requestDocument({
+export function handoffRequest({
   to,
   buildId,
   productName,
@@ -355,7 +355,7 @@ export function emitHandoff({
     picks: pickRows,
   };
   const requests = {
-    guard: requestDocument({
+    guard: handoffRequest({
       to: "guard",
       buildId: provenance.build_id,
       productName: provenance.product_name,
@@ -363,7 +363,7 @@ export function emitHandoff({
       approvalRequested: asked.guard,
       note: "Guard was not called. This file is the request a person can send.",
     }),
-    blast: requestDocument({
+    blast: handoffRequest({
       to: "blast",
       buildId: provenance.build_id,
       productName: provenance.product_name,
@@ -371,7 +371,7 @@ export function emitHandoff({
       approvalRequested: asked.blast,
       note: "Blast was not notified. This file is the request a person can send.",
     }),
-    scale: requestDocument({
+    scale: handoffRequest({
       to: "scale",
       buildId: provenance.build_id,
       productName: provenance.product_name,

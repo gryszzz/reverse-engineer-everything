@@ -415,6 +415,34 @@ test("shared export redacts URL secrets and does not invent scores", () => {
   const manifest = JSON.parse(viaFlag.stdout);
   assert.equal(manifest.item_count, 3);
   assert.equal(manifest.called.guard, false);
+  const keptId = "fnd_" + "ab".repeat(8);
+  writeFileSync(join(dest, "findings", `${keptId}.md`), "# pipeline finding\n");
+  const staleOpp = "opp_" + "ef".repeat(8);
+  mkdirSync(join(dest, "findings", staleOpp), { recursive: true });
+  writeFileSync(join(dest, "findings", staleOpp, "stale.txt"), "gone\n");
+  const withRuns = JSON.parse(readFileSync(join(dest, "board.json"), "utf8"));
+  withRuns.runs = [
+    {
+      schema_version: "ree.shared.run.v1",
+      run_id: "run_" + "12".repeat(8),
+    },
+  ];
+  writeFileSync(join(dest, "board.json"), JSON.stringify(withRuns) + "\n");
+  exportSharedBoard({
+    sourceDir: source,
+    toDir: dest,
+    now: new Date("2026-10-23T05:00:00.000Z"),
+  });
+  assert.equal(existsSync(join(dest, "findings", `${keptId}.md`)), true);
+  assert.equal(existsSync(join(dest, "findings", staleOpp)), false);
+  const again = JSON.parse(readFileSync(join(dest, "board.json"), "utf8"));
+  assert.equal(again.runs.length, 1);
+  assert.equal(again.runs[0].run_id, "run_" + "12".repeat(8));
+  assert.equal(again.items.length, 3);
+  assert.equal(
+    existsSync(join(dest, "findings", publishedSpec.id, "report.md")),
+    true,
+  );
 });
 
 test("agent verdict files stay separate from pipeline picks", () => {

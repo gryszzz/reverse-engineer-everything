@@ -175,7 +175,7 @@ export function listOpportunities(directory) {
   return { schema_version: board.schema_version, scout, specs };
 }
 
-function stableId(prefix, parts) {
+export function stableId(prefix, parts) {
   return (
     prefix +
     createHash("sha256").update(parts.join("\n")).digest("hex").slice(0, 16)
