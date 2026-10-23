@@ -69,6 +69,10 @@ Board files, under `board/`:
 
 `node ree.mjs board picks --data DIR` lists the pick files. `node ree.mjs board export --data DIR --out DIR` copies findings, picks, and the request files. Export does not call Guard, Blast, or Scale. The studio Board screen lists the picks from pipeline runs in its data directory.
 
+`node ree.mjs board export --to DIR` writes that Opportunity Board for other agents. `DIR` defaults to `REE_SHARED_BOARD`. `DIR/board.json` is `ree.shared.board.v1`. Each item has `id`, `title`, `what_it_does`, `findings_summary`, `bench_accuracy_confidence`, `buildability_score`, `scout_market_notes`, `status`, and `kind`. `bench_accuracy_confidence` stays null unless a bench record is stored. A Scout buildability score is `scores.build_ease` and is not rescored. A spec has no buildability score. `DIR/findings/<id>/report.md` and `spec-draft.json` are drafted from stored facts. Quotes are not copied. URL usernames, passwords, and credential query parameters are removed. This export does not call Guard, Blast, or Scale.
+
+`node ree.mjs board picks --from DIR` reads `DIR/picks/*.json`. Each file has `agent`, `id`, `verdict` (`build`, `skip`, or `maybe`), `reason`, `angle`, and `date`. The studio Board shows those verdicts beside the matching entry. A file with another verdict is reported and is not shown as a pick. `--data` still lists pipeline pick files.
+
 Scale's `approved` field mirrors `--approve-scale`. `notified_scale` stays false. `package` is `product.tgz`.
 
 ## Customer package
