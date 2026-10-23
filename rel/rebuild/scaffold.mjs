@@ -557,7 +557,7 @@ function readmeText(productName, spec, plan) {
     );
   } else {
     lines.push(
-      "The store is in memory and starts empty.",
+      "Records are stored in data/store.json. A missing file starts empty. An unreadable file stops the server.",
       "Each built feature has a data model, write rules, and CRUD routes.",
       'GET returns `{ "items": [] }` with the model and rules.',
       "POST creates a record with an id and the field values. A query string, a form body, or a JSON object is accepted.",
@@ -789,7 +789,7 @@ export function scaffoldRebuild({
       "A feature whose name equals an endpoint summary or operation id uses that concrete path.",
       "A feature with no matching endpoint gets its own collection.",
       "Declared GET, POST, PUT, PATCH, and DELETE endpoints are built even when no feature name matches.",
-      "The store is in memory. GET / is the minimal UI. JSON field objects are accepted.",
+      "Records are stored in data/store.json. GET / is the minimal UI. JSON field objects are accepted.",
       "A path with one {name} segment is one route on the parent collection. Other path templates are not expanded.",
       "GraphQL, workflows, pricing checkout, integrations, authentication, and rate limits are not built.",
     ],

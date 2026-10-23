@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
@@ -40,6 +41,7 @@ test("feature coverage fails under 80 percent", () => {
 
 test("the owned desk fixture stays at or above 80 percent", async () => {
   const measured = await measureDeskCoverage();
+  let dataDir;
   try {
     assert.equal(measured.verify.exit_code, 0, measured.verify.stderr);
     assert.ok(measured.spec.features.length >= 5);
@@ -72,7 +74,8 @@ test("the owned desk fixture stays at or above 80 percent", async () => {
     const { listen: start } = await import(
       pathToFileURL(join(measured.product, "src/server.mjs")).href
     );
-    const server = await start(0);
+    dataDir = mkdtempSync(join(tmpdir(), "ree-desk-store-"));
+    const server = await start(0, "127.0.0.1", dataDir);
     try {
       const port = server.address().port;
       const listed = await fetch(`http://127.0.0.1:${port}/boards`);
@@ -85,6 +88,16 @@ test("the owned desk fixture stays at or above 80 percent", async () => {
       assert.equal(created.status, 201);
       const createdBody = await created.json();
       assert.equal(createdBody.boardName, "alpha");
+      const saved = JSON.parse(
+        readFileSync(join(dataDir, "data", "store.json"), "utf8"),
+      );
+      assert.ok(
+        Object.values(saved).some(
+          (bucket) =>
+            Array.isArray(bucket.items) &&
+            bucket.items.some((item) => item.id === createdBody.id),
+        ),
+      );
       const opened = await fetch(
         `http://127.0.0.1:${port}/boards/${createdBody.id}`,
       );
@@ -129,6 +142,7 @@ test("the owned desk fixture stays at or above 80 percent", async () => {
     }
   } finally {
     rmSync(measured.work, { recursive: true, force: true });
+    if (dataDir) rmSync(dataDir, { recursive: true, force: true });
   }
 });
 
