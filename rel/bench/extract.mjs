@@ -390,3 +390,180 @@ export function elfFindings(record) {
     }
   return { findings, provenance, notes };
 }
+
+function emptyFindings() {
+  return {
+    module: [],
+    function: [],
+    import: [],
+    call: [],
+    endpoint: [],
+    string: [],
+    behavior: [],
+    resource: [],
+  };
+}
+
+function evidenceProblems(record) {
+  const problems = [];
+  if (!EVIDENCE_ID.test(record?.evidence_id ?? ""))
+    problems.push("evidence id is missing");
+  if (!["observed", "derived", "inferred"].includes(record?.confidence))
+    problems.push("evidence confidence is missing");
+  const digest = record?.normalized_result?.artifact?.sha256;
+  if (!SHA256.test(digest ?? "")) problems.push("artifact sha256 is missing");
+  return problems;
+}
+
+function limitationNote(record, fallback) {
+  const seen = new Set();
+  const lines = [];
+  for (const line of [
+    ...(record?.normalized_result?.limitations ?? []),
+    ...(record?.limitations ?? []),
+  ]) {
+    if (typeof line !== "string" || line.length === 0 || seen.has(line))
+      continue;
+    seen.add(line);
+    lines.push(line);
+  }
+  return lines.join(" ") || fallback;
+}
+
+function identityKey(identity) {
+  if (identity?.kind === "id") return String(identity.id);
+  if (identity?.kind === "name") return JSON.stringify(identity.name);
+  return "unknown";
+}
+
+/** Go compiler, module, and dependency identities from inspect-go-binary Evidence. */
+export function goFindings(record) {
+  const findings = emptyFindings();
+  const provenance = [];
+  const layout = record?.normalized_result;
+  const shared = evidenceProblems(record);
+  const info = layout?.build_info ?? null;
+  const notes = [];
+  if (info === null) {
+    notes.push(
+      limitationNote(
+        record,
+        "partial: inspect-go-binary returned no build info and no limitation.",
+      ),
+    );
+    if (shared.length > 0)
+      provenance.push({ type: "module", key: "evidence", problems: shared });
+    return { findings, provenance, notes };
+  }
+  if (typeof info.module?.path === "string" && info.module.path.length > 0)
+    findings.module.push(info.module.path);
+  if (
+    typeof info.module?.main?.path === "string" &&
+    info.module.main.path.length > 0
+  )
+    findings.module.push(info.module.main.path);
+  if (typeof info.go_version === "string" && info.go_version.length > 0)
+    findings.string.push(info.go_version);
+  for (const dependency of info.module?.dependencies ?? []) {
+    if (typeof dependency?.path !== "string" || dependency.path.length === 0)
+      continue;
+    const version =
+      typeof dependency.version === "string" ? dependency.version : "";
+    findings.import.push(`${dependency.path} ${version}`.trim());
+  }
+  for (const field of ["version_location", "module_location"]) {
+    const range = info[field];
+    if (range?.offset == null || range?.bytes == null)
+      shared.push(`${field} has no file range`);
+  }
+  if (shared.length > 0)
+    provenance.push({
+      type: "module",
+      key: info.module?.path ?? "go",
+      problems: shared,
+    });
+  return { findings, provenance, notes };
+}
+
+/** Cargo-auditable packages from inspect-rust-binary Evidence. */
+export function rustFindings(record) {
+  const findings = emptyFindings();
+  const provenance = [];
+  const layout = record?.normalized_result;
+  const shared = evidenceProblems(record);
+  const metadata = layout?.auditable_metadata ?? null;
+  const notes = [];
+  if (metadata === null) {
+    notes.push(
+      limitationNote(
+        record,
+        "partial: inspect-rust-binary returned no dependency section and no limitation.",
+      ),
+    );
+    if (shared.length > 0)
+      provenance.push({ type: "module", key: "evidence", problems: shared });
+    return { findings, provenance, notes };
+  }
+  const packages = metadata.packages ?? [];
+  for (const pkg of packages) {
+    if (typeof pkg?.name === "string" && typeof pkg?.version === "string")
+      findings.module.push(`${pkg.name} ${pkg.version}`);
+  }
+  for (const edge of metadata.dependency_edges ?? []) {
+    const from = packages[edge?.from_index];
+    const to = packages[edge?.to_index];
+    if (typeof from?.name === "string" && typeof to?.name === "string")
+      findings.import.push(`${from.name}->${to.name}`);
+  }
+  if (metadata.file_offset == null || metadata.section_bytes == null)
+    shared.push("dependency section has no file range");
+  const commit = layout?.rustc_commit ?? null;
+  if (commit !== null) {
+    if (commit.evidence_kind !== "inferred")
+      shared.push("rustc commit must stay inferred");
+    for (const hash of commit.hashes ?? []) {
+      if (typeof hash?.hash !== "string") continue;
+      findings.string.push(hash.hash);
+      if (hash.file_offset == null)
+        shared.push("rustc hash has no file offset");
+    }
+  }
+  if (shared.length > 0)
+    provenance.push({
+      type: "module",
+      key: packages[0]?.name ?? "rust",
+      problems: shared,
+    });
+  return { findings, provenance, notes };
+}
+
+/** Resource identities from inspect-pe-resources Evidence. */
+export function peResourceFindings(record) {
+  const findings = emptyFindings();
+  const provenance = [];
+  const layout = record?.normalized_result;
+  const shared = evidenceProblems(record);
+  const notes = [];
+  if (!Array.isArray(layout?.resources))
+    notes.push(
+      "partial: inspect-pe-resources did not return a resources array.",
+    );
+  for (const resource of layout?.resources ?? []) {
+    const key = [resource?.type, resource?.name, resource?.language]
+      .map(identityKey)
+      .join("/");
+    findings.resource.push(key);
+    const range = resource?.payload?.location;
+    const digest = resource?.payload?.sha256;
+    const problems = [];
+    if (range?.offset == null || range?.bytes == null)
+      problems.push("resource payload has no file range");
+    if (!SHA256.test(digest ?? ""))
+      problems.push("resource payload sha256 is missing");
+    if (problems.length > 0)
+      provenance.push({ type: "resource", key, problems });
+  }
+  if (shared.length > 0)
+    provenance.push({ type: "resource", key: "evidence", problems: shared });
+  return { findings, provenance, notes };
+}
