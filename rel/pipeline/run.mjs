@@ -750,6 +750,7 @@ async function stageHandoff(ctx) {
     picks: posted.picks,
   });
   ctx.handoffDir = emitted.directory;
+  ctx.run.gaps = emitted.gaps;
   ctx.run.box_copied = false;
   let message =
     "Handoff files were written. Findings and picks were posted on the board. Blast was not notified. Scale was not called. Vault was not copied. Guard was not called.";

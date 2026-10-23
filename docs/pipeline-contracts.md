@@ -60,7 +60,7 @@ The package stage writes into a shared directory only when that directory alread
 
 Checkpoint `ree.pipeline.checkpoint.v1`: `run_id`, `stage`, `status` (`passed` or `failed`), `started_at`, `finished_at`, `message`, `outputs` (paths relative to the run directory), `provenance`.
 
-Run `ree.pipeline.run.v1`: `run_id` (`run_` plus 16 hex characters), `target`, `product_name`, `dry_run`, `approvals`, `stages`, `stopped_at`, `finished`, `code`, `message`, `shared_board` (the shared directory used by package, or null).
+Run `ree.pipeline.run.v1`: `run_id` (`run_` plus 16 hex characters), `target`, `product_name`, `dry_run`, `approvals`, `stages`, `stopped_at`, `finished`, `code`, `message`, `shared_board` (the shared directory used by package, or null). After handoff, `gaps` is the same `ree.gaps.v1` list.
 
 Findings `ree.pipeline.findings.v1`.
 
@@ -68,7 +68,7 @@ Accuracy `ree.pipeline.accuracy.v1`. `not_the_corpus_bench` is true. Precision a
 
 Handoff files, under `handoff/<build_id>/`:
 
-- `ree.blast.handoff.v1` in `handoff.json`
+- `ree.blast.handoff.v1` in `handoff.json`. `gaps` is `ree.gaps.v1`, the same list as the README section What we can't read or build yet. A line that would repeat the spec target name is omitted. The list is not a percentage of the original product.
 - `ree.guard.submission.v1` in `guard/submission.json` (also copied to `out/guard/submission.json`)
 - `ree.scale.handoff.v1` in `scale/manifest.json`
 - `ree.vault.manifest.v1` in `vault/manifest.json`
