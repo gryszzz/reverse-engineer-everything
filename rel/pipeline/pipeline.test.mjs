@@ -788,7 +788,8 @@ test("pipeline rebuilds the owned web bench into a packaged product", async () =
   const { listen } = await import(
     pathToFileURL(join(product, "src/server.mjs")).href
   );
-  const server = await listen(0);
+  const dataDir = mkdtempSync(join(tmpdir(), "ree-pipeline-store-"));
+  const server = await listen(0, "127.0.0.1", dataDir);
   try {
     const port = server.address().port;
     const created = await fetch(
@@ -798,6 +799,16 @@ test("pipeline rebuilds the owned web bench into a packaged product", async () =
     assert.equal(created.status, 201);
     const body = await created.json();
     assert.equal(body.boardName, "alpha");
+    const saved = JSON.parse(
+      readFileSync(join(dataDir, "data", "store.json"), "utf8"),
+    );
+    assert.ok(
+      Object.values(saved).some(
+        (bucket) =>
+          Array.isArray(bucket.items) &&
+          bucket.items.some((item) => item.id === body.id),
+      ),
+    );
     const listed = await fetch(`http://127.0.0.1:${port}/boards`);
     assert.equal(listed.status, 200);
     assert.ok(Array.isArray((await listed.json()).items));
