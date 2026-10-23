@@ -71,6 +71,7 @@ jobs:
           node --test rel/handoff/shared-publish.test.mjs
           node --test rel/opportunities/board.test.mjs
           node --test rel/pipeline/pipeline.test.mjs
+          node --test rel/gaps/gaps.test.mjs
       - name: Verify authorized static target admission and Codex entry
         run: node --test rel/analyze-static.test.mjs
       - name: Verify report fail-closed behavior

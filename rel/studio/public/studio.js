@@ -1010,6 +1010,7 @@ function liveCard(live) {
       : null,
     live.handoff_error ? el("p", {}, live.handoff_error) : null,
     live.error ? el("p", { class: "bad" }, live.error) : null,
+    gapsCard(live.gaps),
   ]);
 }
 
@@ -1086,6 +1087,7 @@ function buildPanel() {
             { class: "note" },
             "Dry run. Launch still needs Guard PASS and Tony's go-ahead.",
           ),
+          gapsCard(result.gaps),
         ]),
     field("Product name", name),
     el("details", { class: "spec-json" }, [
@@ -1136,6 +1138,7 @@ function buildPanel() {
             "No pipeline run yet. The stage list appears here while the run is in progress.",
           ),
       pipeline?.message ? el("p", {}, pipeline.message) : null,
+      gapsCard(pipeline?.gaps),
       button(
         "Run owned web pipeline",
         async () => {
@@ -1169,6 +1172,20 @@ function watchedRun() {
     state.project?.runs?.at(-1) ??
     null
   );
+}
+
+function gapsCard(gaps) {
+  if (!gaps || !Array.isArray(gaps.items) || gaps.items.length === 0)
+    return null;
+  return el("article", { class: "card", "data-gaps": "1" }, [
+    el("h3", {}, gaps.title || "What we can't read or build yet"),
+    gaps.note ? el("p", { class: "note" }, gaps.note) : null,
+    el(
+      "ul",
+      {},
+      gaps.items.map((item) => el("li", {}, item.text || "")),
+    ),
+  ]);
 }
 
 function metric(label, value) {

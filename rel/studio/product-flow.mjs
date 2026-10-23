@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { collectGaps } from "../gaps/report.mjs";
 import { emitHandoff } from "../handoff/emit.mjs";
 import { runProductPipeline } from "../pipeline/run.mjs";
 import {
@@ -165,6 +166,10 @@ export function createBuild(root, body) {
       features: verify.features,
       quote_test_passed: verify.quote_test_passed,
     },
+    gaps: collectGaps({
+      projectDir: outDir,
+      forbidden: [spec?.target?.name].filter(Boolean),
+    }),
   };
 }
 
@@ -323,6 +328,10 @@ export function startLiveBuild(root, body) {
         writeLiveStatus(directory, status);
         const verify = await verifyRebuildLive(outDir, { onEvent: push });
         status.verify = publicVerify(verify);
+        status.gaps = collectGaps({
+          projectDir: outDir,
+          forbidden: [spec?.target?.name].filter(Boolean),
+        });
         status.finished = true;
         status.package_ready = verify.exit_code === 0 && verify.failed === 0;
         status.status = status.package_ready ? "verified" : "failed";

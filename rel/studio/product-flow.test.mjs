@@ -207,6 +207,12 @@ test("onboarding, board ingest, and a dry-run build are live studio routes", asy
   assert.equal(built.body.verify.features[0].route.path, "/shared-boards");
   assert.equal(built.body.verify.implemented, 1);
   assert.equal(built.body.box_path_used, false);
+  assert.equal(built.body.gaps.title, "What we can't read or build yet");
+  assert.match(built.body.gaps.note, /not a percentage/);
+  assert.equal(
+    built.body.gaps.items.some((item) => item.text.includes("Widget Cloud")),
+    false,
+  );
   const wrongFixture = await api("/api/pipeline", {
     method: "POST",
     body: { fixture: "other", product_name: "Board Desk" },
@@ -237,6 +243,7 @@ test("onboarding, board ingest, and a dry-run build are live studio routes", asy
   assert.equal(snapshot.notified_blast, false);
   assert.equal(snapshot.guard_sign_off, "not-submitted");
   assert.equal(snapshot.approved_for_vault_copy, false);
+  assert.equal(snapshot.gaps.title, "What we can't read or build yet");
   for (const stage of snapshot.stages)
     assert.equal(stage.status, "passed", stage.id);
   const create = snapshot.verify.features.find(
@@ -297,6 +304,7 @@ test("a live build shows files and tests, then packages on request", async () =>
   }
   assert.equal(snapshot.finished, true, JSON.stringify(snapshot));
   assert.equal(snapshot.status, "verified", snapshot.error);
+  assert.equal(snapshot.gaps.title, "What we can't read or build yet");
   assert.equal(snapshot.verify.implemented, 1);
   assert.equal(snapshot.verify.features[0].match, "pass");
   assert.equal(snapshot.verify.features[0].route.path, "/shared-boards");

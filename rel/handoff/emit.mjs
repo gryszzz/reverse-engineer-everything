@@ -6,6 +6,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { collectGaps, gapLines } from "../gaps/report.mjs";
 import { parseScoutTarget } from "../opportunities/parse.mjs";
 
 export const BLAST_SCHEMA = "ree.blast.handoff.v1";
@@ -228,6 +229,7 @@ export function emitHandoff({
   const scoutFacts = weaknessesFromScout(scout);
   const quotes = customerQuotes(spec);
   const forbidden = [spec.target.name, scoutFacts.target_name].filter(Boolean);
+  const gaps = collectGaps({ projectDir, forbidden });
   const summary =
     "Clean-room HTTP product. Each feature gets a data model, write rules, and CRUD routes. A path with one {name} segment gets get, update, and delete on the parent collection. Any other path template, or a method outside GET, POST, PUT, PATCH, and DELETE, is left out, with a reason. Market scores appear only when a Scout record supplied them.";
   for (const name of forbidden) {
@@ -322,6 +324,7 @@ export function emitHandoff({
     ],
     customer_facing_names_omitted: true,
     picks: pickRows,
+    gaps,
   };
   const vault = {
     schema_version: VAULT_SCHEMA,
@@ -414,6 +417,7 @@ export function emitHandoff({
       : "Launch approval was not recorded.",
     "Competitor names are omitted from this file.",
     "",
+    ...gapLines(gaps),
   ].join("\n");
   for (const name of forbidden) {
     if (readme.includes(name))
@@ -446,5 +450,5 @@ export function emitHandoff({
       JSON.stringify(document, null, 2) + "\n",
     );
   }
-  return { directory, handoff, guard, vault, scale, requests };
+  return { directory, handoff, guard, vault, scale, requests, gaps };
 }

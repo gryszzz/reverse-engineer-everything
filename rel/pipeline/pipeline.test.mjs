@@ -320,6 +320,9 @@ test("handoff files keep competitor names out of the README and do not claim Gua
   });
   const readme = readFileSync(join(emitted.directory, "README.md"), "utf8");
   assert.equal(readme.includes("Widget Cloud"), false);
+  assert.match(readme, /What we can't read or build yet/);
+  assert.match(readme, /not a percentage of the original product/);
+  assert.match(readme, /No read report was saved/);
   assert.match(readme, /Dry run/);
   assert.match(readme, /Those routes run/);
   assert.equal(
@@ -365,6 +368,11 @@ test("handoff files keep competitor names out of the README and do not claim Gua
   assert.equal(handoff.feature_match.implemented, 1);
   assert.ok(handoff.works_now.includes("POST /shared-boards returns 201."));
   assert.equal(handoff.notified_blast, false);
+  assert.equal(handoff.gaps.title, "What we can't read or build yet");
+  assert.equal(
+    handoff.gaps.items.some((item) => item.text.includes("Widget Cloud")),
+    false,
+  );
 });
 
 test("CLI list prints scout totals and the absence of a spec market score", () => {
