@@ -252,6 +252,8 @@ node ree.mjs outside-in \
 
 `ingest-docs` writes the same kind of spec from one public URL, or from a folder of OpenAPI, Swagger, HTML, and Markdown. A folder is read locally. A URL is fetched under the same robots, rate-limit, and no-login rules, and it is not crawled. `ingest.json` lists the endpoint paths as resources, the features, and any pricing tiers. `pipeline` accepts that output directory and does not fetch it again.
 
+`read` detects the input and writes the same spec plus `read.json`. A public website is crawled one hop, same origin, for docs, pricing, feature, changelog, and API pages. OpenAPI, Swagger, Postman, and GraphQL files are read as API descriptions. An npm package name contributes the registry README, and declaration names from the tarball when a license is published. A public GitHub repository is read only when it publishes an open-source license, and only README and schema files. A local folder contributes those documents and, with `--authorized`, static JavaScript behavior labels. Source files are not copied. `read.json` records each source, each skip and why, and counts. Those counts are not a percentage of the original product. See [docs/read.md](docs/read.md).
+
 ```sh
 node ree.mjs ingest-docs experiments/ree-bench/docs --name "Field Ledger Docs" --out /tmp/field-spec
 node ree.mjs pipeline /tmp/field-spec --out /tmp/field-run --name "Ledger Kit"
@@ -369,6 +371,7 @@ Beginner REE commands:
 | `node ree.mjs outside-in --name NAME --url URL --out DIR` | Public-docs behavior spec. No target source                                           |
 | `node ree.mjs agents <step> --json`                       | Headless analyze through board post. See [docs/agents.md](docs/agents.md)             |
 | `node ree.mjs ingest-docs <url-or-dir> --out DIR`         | OpenAPI, HTML, or a docs folder into that spec. No login                              |
+| `node ree.mjs read INPUT --out DIR`                       | Public URL, API file, npm, GitHub, or a local folder. No login                        |
 | `node ree.mjs pipeline TARGET --out DIR --name NAME`      | Scope through dry-run sell files. A public URL is outside-in for that URL. Resumable. |
 | `node ree.mjs bench`                                      | Score owned fixtures against handwritten ground truth                                 |
 | `node ree.mjs lab`                                        | Visual lesson, separate from the studio                                               |

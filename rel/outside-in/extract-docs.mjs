@@ -2,6 +2,7 @@ import { extractFeed } from "./extract-feed.mjs";
 import { extractGraphql } from "./extract-graphql.mjs";
 import { extractMarkdown } from "./extract-markdown.mjs";
 import { extractOpenApi } from "./extract-openapi.mjs";
+import { extractPostman } from "./extract-postman.mjs";
 import { mediaType } from "./text.mjs";
 
 export function sniffFormat(doc, kind) {
@@ -22,6 +23,7 @@ export function sniffFormat(doc, kind) {
   )
     return "markdown";
   if (url.endsWith(".graphql") || url.endsWith(".gql")) return "graphql-sdl";
+  if (url.endsWith(".postman_collection.json")) return "postman";
   if (type.includes("yaml") || url.endsWith(".yaml") || url.endsWith(".yml"))
     return sniffYaml(body);
   if (
@@ -35,6 +37,13 @@ export function sniffFormat(doc, kind) {
   if (/^type\s+(Query|Mutation)\b/m.test(body) || /^schema\s*\{/m.test(body))
     return "graphql-sdl";
   return "text";
+}
+
+function looksLikePostman(data) {
+  const schema = data?.info?.schema;
+  if (typeof schema === "string" && schema.includes("getpostman.com"))
+    return true;
+  return Array.isArray(data?.item) && data.item.some((item) => item?.request);
 }
 
 function looksLikeJson(body) {
@@ -52,6 +61,7 @@ function sniffJson(body) {
     const data = JSON.parse(body);
     if (data?.openapi || data?.swagger) return "openapi";
     if (data?.__schema || data?.data?.__schema) return "graphql-json";
+    if (looksLikePostman(data)) return "postman";
   } catch {
     return "json";
   }
@@ -60,6 +70,7 @@ function sniffJson(body) {
 
 export function extractByFormat(doc, format, quoteMax) {
   if (format === "openapi") return { api: extractOpenApi(doc.body) };
+  if (format === "postman") return { api: extractPostman(doc.body) };
   if (format === "graphql-sdl" || format === "graphql-json")
     return { api: extractGraphql(doc.body) };
   if (format === "markdown")

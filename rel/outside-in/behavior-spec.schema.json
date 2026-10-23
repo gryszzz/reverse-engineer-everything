@@ -230,7 +230,9 @@
         "unknowns"
       ],
       "properties": {
-        "style": { "enum": ["openapi", "graphql", "mixed", "unknown"] },
+        "style": {
+          "enum": ["openapi", "graphql", "postman", "mixed", "unknown"]
+        },
         "servers": {
           "type": "array",
           "items": {
