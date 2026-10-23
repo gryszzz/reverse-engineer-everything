@@ -1,10 +1,24 @@
 export const SERVER_SOURCE = `import { createServer } from "node:http";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { routes } from "./routes.mjs";
 
-export function createApp() {
-  const stores = new Map();
+export function createApp(dataDir) {
+  const root = dataDir || process.env.REE_PRODUCT_DATA || process.cwd();
+  const dataFile = join(root, "data", "store.json");
+  const loaded = readStore(dataFile);
+  if (!loaded.ok) throw new Error("data/store.json could not be read.");
+  const stores = loaded.stores;
+  function commit(response, status, body) {
+    try {
+      writeStore(dataFile, stores);
+    } catch {
+      send(response, 500, { error: "store" });
+      return;
+    }
+    send(response, status, body);
+  }
   return createServer((request, response) => {
     let url;
     try {
@@ -89,11 +103,11 @@ export function createApp() {
             return;
           }
           store.items.splice(index, 1);
-          send(response, route.success_status, { deleted: true });
+          commit(response, route.success_status, { deleted: true });
           return;
         }
         store.items.length = 0;
-        send(response, route.success_status, { deleted: true });
+        commit(response, route.success_status, { deleted: true });
         return;
       }
       const fields = fieldsFrom(route, url, bodyParams, jsonFields);
@@ -110,7 +124,7 @@ export function createApp() {
           return;
         }
         for (const name of route.parameters) found[name] = fields[name];
-        send(response, route.success_status, found);
+        commit(response, route.success_status, found);
         return;
       }
       const problem = checkRules(route, fields, store.items, null);
@@ -122,7 +136,7 @@ export function createApp() {
       store.next += 1;
       for (const name of route.parameters) record[name] = fields[name];
       store.items.push(record);
-      send(response, route.success_status, record);
+      commit(response, route.success_status, record);
     }).catch(() => {
       if (!response.headersSent) send(response, 500, { error: "failed" });
     });
@@ -181,6 +195,35 @@ function matchTemplate(route, pathname) {
   } catch {
     return { bad: true, value: null };
   }
+}
+
+function readStore(dataFile) {
+  if (!existsSync(dataFile)) return { ok: true, stores: new Map() };
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(dataFile, "utf8"));
+  } catch {
+    return { ok: false };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    return { ok: false };
+  const stores = new Map();
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return { ok: false };
+    if (!Array.isArray(value.items) || !Number.isInteger(value.next))
+      return { ok: false };
+    stores.set(key, { items: value.items, next: value.next });
+  }
+  return { ok: true, stores };
+}
+
+function writeStore(dataFile, stores) {
+  const plain = {};
+  for (const [key, value] of stores)
+    plain[key] = { items: value.items, next: value.next };
+  mkdirSync(dirname(dataFile), { recursive: true });
+  writeFileSync(dataFile, JSON.stringify(plain) + "\\n");
 }
 
 function bucket(stores, path) {
@@ -325,7 +368,7 @@ function page() {
     );
   });
   return (
-    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Product</title><style>body{font:16px/1.45 sans-serif;margin:2rem;max-width:40rem}section{border:1px solid #ccc;padding:1rem;margin:1rem 0}code{font-family:ui-monospace,monospace}pre{white-space:pre-wrap}</style></head><body><h1>Product</h1><p>In-memory records. Write rules are enforced.</p>' +
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Product</title><style>body{font:16px/1.45 sans-serif;margin:2rem;max-width:40rem}section{border:1px solid #ccc;padding:1rem;margin:1rem 0}code{font-family:ui-monospace,monospace}pre{white-space:pre-wrap}</style></head><body><h1>Product</h1><p>Records are stored in data/store.json. Write rules are enforced.</p>' +
     sections.join("") +
     "<script>document.addEventListener('click', function (event) { var button = event.target.closest('button[data-method]'); if (!button) return; var section = button.closest('section'); var method = button.getAttribute('data-method'); var idInput = section.querySelector('input[name=id]'); var id = idInput && idInput.value ? idInput.value : ''; var path = section.getAttribute('data-path'); var template = section.getAttribute('data-item'); var param = section.getAttribute('data-param'); var useItem = button.getAttribute('data-item') === '1'; if (useItem && template && param && id) path = template.split('{' + param + '}').join(encodeURIComponent(id)); var url = new URL(path, location.origin); if (!useItem && id && method !== 'POST' && method !== 'GET') url.searchParams.set('id', id); var options = { method: method }; if (method !== 'GET') { var payload = {}; var inputs = section.querySelectorAll('input[data-field]'); for (var index = 0; index < inputs.length; index += 1) payload[inputs[index].name] = inputs[index].value; options.headers = { 'content-type': 'application/json' }; options.body = JSON.stringify(payload); } fetch(url, options).then(function (response) { return response.text().then(function (text) { section.querySelector('pre').textContent = String(response.status) + ' ' + text; }); }); });</script></body></html>"
   );
@@ -339,8 +382,8 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
-export function listen(port = 0, hostname = "127.0.0.1") {
-  const server = createApp();
+export function listen(port = 0, hostname = "127.0.0.1", dataDir) {
+  const server = createApp(dataDir);
   return new Promise((resolveListen, reject) => {
     server.once("error", reject);
     server.listen(port, hostname, () => resolveListen(server));
@@ -362,7 +405,9 @@ if (entry && import.meta.url === pathToFileURL(resolve(entry)).href) {
 `;
 
 export const TEST_SOURCE = `import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { behaviors } from "../src/behaviors.mjs";
 import { routes } from "../src/routes.mjs";
@@ -408,7 +453,8 @@ for (const behavior of behaviors) {
       const update = owned.find((item) => item.action === "replace");
       const merge = owned.find((item) => item.action === "merge");
       const remove = owned.find((item) => item.action === "remove");
-      const server = await listen(0);
+      const dataDir = mkdtempSync(join(tmpdir(), "ree-product-"));
+      const server = await listen(0, "127.0.0.1", dataDir);
       try {
         const base = "http://127.0.0.1:" + server.address().port;
         const page = await fetch(base + "/");
@@ -435,6 +481,31 @@ for (const behavior of behaviors) {
           assert.ok(Array.isArray(payload.items));
           assert.ok(Array.isArray(payload.model));
           assert.ok(payload.items.some((item) => item.id === body.id));
+        }
+        const saved = JSON.parse(
+          readFileSync(join(dataDir, "data", "store.json"), "utf8"),
+        );
+        assert.ok(
+          Object.values(saved).some(
+            (bucket) =>
+              Array.isArray(bucket.items) &&
+              bucket.items.some((item) => item.id === body.id),
+          ),
+        );
+        const revived = await listen(0, "127.0.0.1", dataDir);
+        try {
+          if (list) {
+            const kept = await (
+              await call(
+                "http://127.0.0.1:" + revived.address().port,
+                list,
+                null,
+              )
+            ).json();
+            assert.ok(kept.items.some((item) => item.id === body.id));
+          }
+        } finally {
+          await new Promise((resolveClose) => revived.close(resolveClose));
         }
         const read = owned.find((item) => item.action === "read");
         if (read) {
