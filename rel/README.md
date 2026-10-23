@@ -74,19 +74,19 @@ for the existing engine connections, measured refinements and unresolved limits.
 
 ## Capabilities, not overpromises
 
-| Target                             | REE first decision                      | Prerequisite                                           |
-| ---------------------------------- | --------------------------------------- | ------------------------------------------------------ |
-| JavaScript / Electron / TypeScript | Use static application-graph analysis   | Built REA fork                                         |
-| ELF / PE / Mach-O executable       | Choose native analysis provider         | Suitable Hopper, Ghidra or IDA                         |
-| .NET `.dll`                        | Verify real managed metadata            | Static .NET tools; DLL extension alone is insufficient |
-| Android APK / Apple app package    | Inventory package, then inspect layers  | Format-specific providers/tools                        |
-| WebAssembly                        | Inspect WASM sections/interfaces        | WABT for detailed inspection                           |
-| SQLite                             | Analyze a read-only database snapshot   | Supported Node version and snapshot                    |
-| HAR / PCAP files                   | Analyze _recorded_ requests and packets | Capture-format tooling and permission                  |
-| Firmware or raw binary             | Identify actual format before analysis  | Often additional Linux tools                           |
-| Website                            | Plan bounded browser observation        | Explicit authorization and browser                     |
-| Named public docs URLs             | Outside-in behavior spec                | Explicit URL list; robots.txt and rate limits          |
-| Unknown format                     | Ask for a format or sample              | No fabricated diagnosis                                |
+| Target                             | REE first decision                                  | Prerequisite                                                                                                                                     |
+| ---------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| JavaScript / Electron / TypeScript | Use static application-graph analysis               | Built REA fork                                                                                                                                   |
+| ELF / PE / thin Mach-O             | Read Go build info, Rust packages, and PE resources | Built-in readers. `inspect-macho` symbols need macOS `otool` and `lipo` and are partial on Linux. Disassembly still needs Hopper, Ghidra, or IDA |
+| .NET `.dll`                        | Verify real managed metadata                        | Static .NET tools; DLL extension alone is insufficient                                                                                           |
+| Android APK / Apple app package    | Inventory package, then inspect layers              | Format-specific providers/tools                                                                                                                  |
+| WebAssembly                        | Inspect WASM sections/interfaces                    | WABT for detailed inspection                                                                                                                     |
+| SQLite                             | Analyze a read-only database snapshot               | Supported Node version and snapshot                                                                                                              |
+| HAR / PCAP files                   | Analyze _recorded_ requests and packets             | Capture-format tooling and permission                                                                                                            |
+| Firmware or raw binary             | Identify actual format before analysis              | Often additional Linux tools                                                                                                                     |
+| Website                            | Plan bounded browser observation                    | Explicit authorization and browser                                                                                                               |
+| Named public docs URLs             | Outside-in behavior spec                            | Explicit URL list; robots.txt and rate limits                                                                                                    |
+| Unknown format                     | Ask for a format or sample                          | No fabricated diagnosis                                                                                                                          |
 
 ## Our intended workflow
 

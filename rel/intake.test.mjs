@@ -86,6 +86,51 @@ test("refuses symbolic links", () => {
 });
 test("refuses missing path and file-like special target", () =>
   assert.throws(() => classifyTarget(join(root, "absent")), /not found/));
+test("an ELF file names the Go, Rust, and layout providers", () => {
+  const path = put("app.elf", Buffer.from([127, 69, 76, 70, 2, 1, 1, 0]));
+  const plan = classifyTarget(path);
+  assert.equal(plan.container, "elf");
+  const text = renderPlan(plan);
+  assert.match(text, /inspect-go-binary/);
+  assert.match(text, /inspect-rust-binary/);
+  assert.match(text, /inspect-binary-layout/);
+  assert.match(text, /Coverage: measured for Go build info/);
+  assert.match(text, /partial until REA_PWNTOOLS_PYTHON/);
+});
+
+test("a thin Mach-O file keeps symbol recovery partial", () => {
+  const bytes = Buffer.alloc(8);
+  bytes.writeUInt32LE(0xfeedfacf, 0);
+  const text = renderPlan(classifyTarget(put("thin.bin", bytes)));
+  assert.match(text, /inspect-go-binary/);
+  assert.match(text, /inspect-macho is partial/);
+});
+
+test("a Java class file is not sent to the Mach-O route", () => {
+  const bytes = Buffer.alloc(8);
+  bytes.writeUInt32BE(0xcafebabe, 0);
+  bytes.writeUInt16BE(65, 6);
+  const plan = classifyTarget(put("Hello.class", bytes));
+  assert.equal(plan.kind, "java");
+  const text = renderPlan(plan);
+  assert.match(text, /partial/);
+  assert.match(text, /Nothing was decompiled/);
+  assert.doesNotMatch(text, /inspect-macho/);
+});
+
+test("a one-slice fat Mach-O asks for a thin slice", () => {
+  const bytes = Buffer.alloc(64);
+  bytes.writeUInt32BE(0xcafebabe, 0);
+  bytes.writeUInt32BE(1, 4);
+  bytes.writeUInt32BE(0x01000007, 8);
+  bytes.writeUInt32BE(3, 12);
+  bytes.writeUInt32BE(32, 16);
+  bytes.writeUInt32BE(32, 20);
+  const plan = classifyTarget(put("universal.bin", bytes));
+  assert.equal(plan.container, "macho-fat");
+  assert.match(renderPlan(plan), /Select a thin slice/);
+});
+
 test("unknown inputs stay unknown", () =>
   assert.equal(
     classifyTarget(put("sketch.unknown", "data")).capability,

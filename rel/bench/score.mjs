@@ -6,6 +6,7 @@ export const FINDING_TYPES = [
   "endpoint",
   "string",
   "behavior",
+  "resource",
 ];
 
 function unique(values) {

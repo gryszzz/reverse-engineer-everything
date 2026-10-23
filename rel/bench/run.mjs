@@ -1,17 +1,24 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { register } from "node:module";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPackage } from "@electron/asar";
 import {
   elfFindings,
+  goFindings,
   javascriptFindings,
   outsideInFindings,
+  peResourceFindings,
+  rustFindings,
 } from "./extract.mjs";
 import { scoreFindings, scorePasses } from "./score.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
+register(new URL("./fixture-loader.mjs", import.meta.url), {
+  parentURL: import.meta.url,
+});
 const truthPath = join(repoRoot, "experiments/ree-bench/ground-truth.json");
 const thresholdPath = join(repoRoot, "experiments/ree-bench/thresholds.json");
 
@@ -105,6 +112,11 @@ function finish(spec, extracted, thresholds) {
         `${item.type} ${item.key} provenance: ${item.problems.join("; ")}`,
     ),
   ];
+  if (
+    typeof spec.require_note === "string" &&
+    !extracted.notes.some((note) => note.includes(spec.require_note))
+  )
+    failures.push(`missing required note: ${spec.require_note}`);
   return {
     id: spec.id,
     kind: spec.kind,
@@ -114,6 +126,182 @@ function finish(spec, extracted, thresholds) {
     failures,
     passed: failures.length === 0,
   };
+}
+
+function parseEngineJson(stdout) {
+  const text = stdout.trim();
+  if (text === "") return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    const start = text.lastIndexOf("\n{");
+    if (start === -1) return null;
+    try {
+      return JSON.parse(text.slice(start + 1));
+    } catch {
+      return null;
+    }
+  }
+}
+
+function inspectEngine(command, binary) {
+  const child = run(
+    [join(repoRoot, "scripts/rea.mjs"), command, binary, "--json"],
+    { ...process.env, REA_LOG_LEVEL: "silent" },
+  );
+  return {
+    status: child.status,
+    parsed: parseEngineJson(child.stdout ?? ""),
+    stderr: child.stderr ?? "",
+  };
+}
+
+function messageFrom(inspected) {
+  const parsed = inspected.parsed;
+  const parts = [
+    parsed?.message,
+    parsed?.code,
+    parsed?.details?.issues?.map((issue) => issue.message).join(" "),
+    inspected.stderr,
+  ].filter((part) => typeof part === "string" && part.trim() !== "");
+  return parts.join(" ").replace(/\s+/gu, " ").trim();
+}
+
+function emptyExtracted(note) {
+  return {
+    findings: {
+      module: [],
+      function: [],
+      import: [],
+      call: [],
+      endpoint: [],
+      string: [],
+      behavior: [],
+      resource: [],
+    },
+    provenance:
+      note == null
+        ? [
+            {
+              type: "function",
+              key: "silence",
+              problems: ["the provider returned no message"],
+            },
+          ]
+        : [],
+    notes: note == null ? [] : [note],
+  };
+}
+
+async function nativeFixtures() {
+  const [go, rust, pe] = await Promise.all([
+    import("../../tests/fixtures/go/image.ts"),
+    import("../../tests/fixtures/rust/image.ts"),
+    import("../../src/native/pe/PeResources.fixture.ts"),
+  ]);
+  return { go, rust, pe };
+}
+
+function writeBytes(work, name, bytes) {
+  const path = join(work, name);
+  writeFileSync(path, bytes);
+  return path;
+}
+
+/** One-architecture fat Mach-O. Go and Rust readers must refuse it as a slice. */
+function fatMachOBytes() {
+  const bytes = Buffer.alloc(64);
+  bytes.writeUInt32BE(0xcafebabe, 0);
+  bytes.writeUInt32BE(1, 4);
+  bytes.writeUInt32BE(0x01000007, 8);
+  bytes.writeUInt32BE(3, 12);
+  bytes.writeUInt32BE(32, 16);
+  bytes.writeUInt32BE(32, 20);
+  bytes.writeUInt32LE(0xfeedfacf, 32);
+  return bytes;
+}
+
+async function nativeCase(spec, work) {
+  const fixtures = await nativeFixtures();
+  if (spec.kind === "go") {
+    const image = fixtures.go.createGoBinaryFixture({
+      format: spec.format,
+      omitBuildInfo: spec.omit_build_info === true,
+    });
+    const inspected = inspectEngine(
+      "inspect-go-binary",
+      writeBytes(work, "go.bin", image.bytes),
+    );
+    if (inspected.parsed?.evidence_id) return goFindings(inspected.parsed);
+    return emptyExtracted(
+      messageFrom(inspected)
+        ? `partial: ${messageFrom(inspected).slice(0, 500)}`
+        : null,
+    );
+  }
+  if (spec.kind === "rust") {
+    const inspected = inspectEngine(
+      "inspect-rust-binary",
+      writeBytes(
+        work,
+        "rust.bin",
+        fixtures.rust.createRustImage({ format: spec.format }),
+      ),
+    );
+    if (inspected.parsed?.evidence_id) return rustFindings(inspected.parsed);
+    return emptyExtracted(
+      messageFrom(inspected)
+        ? `partial: ${messageFrom(inspected).slice(0, 500)}`
+        : null,
+    );
+  }
+  if (spec.kind === "pe-resources") {
+    const inspected = inspectEngine(
+      "inspect-pe-resources",
+      writeBytes(work, "resources.exe", fixtures.pe.peResourceFixture().bytes),
+    );
+    if (inspected.parsed?.evidence_id)
+      return peResourceFindings(inspected.parsed);
+    return emptyExtracted(
+      messageFrom(inspected)
+        ? `partial: ${messageFrom(inspected).slice(0, 500)}`
+        : null,
+    );
+  }
+  if (spec.kind === "macho-host") {
+    const inspected = inspectEngine(
+      "inspect-macho",
+      writeBytes(
+        work,
+        "thin.macho",
+        fixtures.go.createGoBinaryFixture({ format: "macho" }).bytes,
+      ),
+    );
+    const message = messageFrom(inspected);
+    if (inspected.parsed?.evidence_id) {
+      return emptyExtracted(
+        "partial: inspect-macho returned a record. Names from this owned image are not handwritten symbol ground truth, so they are not scored.",
+      );
+    }
+    if (message === "") return emptyExtracted(null);
+    return emptyExtracted(`partial: ${message.slice(0, 500)}`);
+  }
+  const bytes =
+    spec.sample === "fat"
+      ? fatMachOBytes()
+      : Buffer.from("This is not an executable container.");
+  const inspected = inspectEngine(
+    spec.command,
+    writeBytes(work, "sample.bin", bytes),
+  );
+  const message = messageFrom(inspected);
+  if (inspected.parsed?.evidence_id)
+    return emptyExtracted(
+      "partial: the provider returned Evidence for a sample that has no scored findings.",
+    );
+  if (message === "") return emptyExtracted(null);
+  const code = inspected.parsed?.code ?? "provider";
+  return emptyExtracted(`unsupported: ${code} ${message}`.slice(0, 500));
 }
 
 async function runCase(spec, thresholds) {
@@ -170,6 +358,14 @@ async function runCase(spec, thresholds) {
       }
       return finish(spec, elfFindings(inspected.record), thresholds);
     }
+    if (
+      spec.kind === "go" ||
+      spec.kind === "rust" ||
+      spec.kind === "pe-resources" ||
+      spec.kind === "macho-host" ||
+      spec.kind === "provider-message"
+    )
+      return finish(spec, await nativeCase(spec, work), thresholds);
     throw new Error(`Unknown bench kind ${spec.kind}`);
   } finally {
     rmSync(work, { recursive: true, force: true });

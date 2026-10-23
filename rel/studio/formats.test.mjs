@@ -69,6 +69,14 @@ test("route status follows the engine contract instead of PATH guesses", () => {
   assert.equal(status("ghidra", { ghidra: "ready" }), "ready");
   assert.equal(status("rizin"), "unsupported");
   assert.equal(status("radare2"), "unsupported");
+  assert.equal(status("go-binary"), "ready");
+  assert.equal(status("rust-binary"), "ready");
+  assert.equal(status("go-binary", { runtime: false }), "missing-tool");
+  assert.equal(status("java-class"), "unsupported");
+  assert.match(
+    assessRoutes(facts).find((route) => route.id === "java-class").detail,
+    /partial/,
+  );
   const radare = assessRoutes(facts).find((route) => route.id === "radare2");
   assert.match(radare.detail, /no radare2 provider/);
   const wabt = assessRoutes(facts).find((route) => route.id === "wasm");

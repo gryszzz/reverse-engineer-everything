@@ -51,5 +51,38 @@
     "endpoint": { "precision": 1, "recall": 1 },
     "string": { "precision": 1, "recall": 1 },
     "behavior": { "precision": 1, "recall": 1 }
+  },
+  "go-elf": {
+    "module": { "precision": 1, "recall": 1 },
+    "import": { "precision": 1, "recall": 1 },
+    "string": { "precision": 1, "recall": 1 }
+  },
+  "go-pe": {
+    "module": { "precision": 1, "recall": 1 },
+    "import": { "precision": 1, "recall": 1 },
+    "string": { "precision": 1, "recall": 1 }
+  },
+  "go-macho": {
+    "module": { "precision": 1, "recall": 1 },
+    "import": { "precision": 1, "recall": 1 },
+    "string": { "precision": 1, "recall": 1 }
+  },
+  "rust-elf": {
+    "module": { "precision": 1, "recall": 1 },
+    "import": { "precision": 1, "recall": 1 },
+    "string": { "precision": 1, "recall": 1 }
+  },
+  "rust-pe": {
+    "module": { "precision": 1, "recall": 1 },
+    "import": { "precision": 1, "recall": 1 },
+    "string": { "precision": 1, "recall": 1 }
+  },
+  "rust-macho": {
+    "module": { "precision": 1, "recall": 1 },
+    "import": { "precision": 1, "recall": 1 },
+    "string": { "precision": 1, "recall": 1 }
+  },
+  "pe-resources": {
+    "resource": { "precision": 1, "recall": 1 }
   }
 }

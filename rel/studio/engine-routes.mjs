@@ -115,6 +115,33 @@ const ROUTES = [
     command: null,
     provider: null,
   },
+  {
+    id: "go-binary",
+    label: "Go build metadata",
+    families: ["elf", "pe", "macho"],
+    engine: "implemented",
+    studio: "implemented",
+    command: "inspect-go-binary",
+    provider: "go-build-info",
+  },
+  {
+    id: "rust-binary",
+    label: "Rust dependency metadata",
+    families: ["elf", "pe", "macho"],
+    engine: "implemented",
+    studio: "implemented",
+    command: "inspect-rust-binary",
+    provider: "rust-auditable",
+  },
+  {
+    id: "java-class",
+    label: "Java class or JAR",
+    families: ["java"],
+    engine: "partial",
+    studio: "unsupported",
+    command: null,
+    provider: null,
+  },
 ];
 
 function commandPresent(command) {
@@ -208,12 +235,18 @@ function assessOne(route, facts) {
   switch (route.id) {
     case "javascript-static":
     case "pe-resources":
+    case "go-binary":
+    case "rust-binary":
       return facts.runtime
         ? detail(
             "ready",
             route.id === "pe-resources"
               ? "Pure parser. No external disassembler. It inventories resources and does not decompile code."
-              : "ASAR archives and Electron or JavaScript directories use this same static analyzer.",
+              : route.id === "go-binary"
+                ? "Reads Go build info from ELF, PE, and thin Mach-O. It does not run the file. Absent metadata is a limitation, not proof the file is not Go."
+                : route.id === "rust-binary"
+                  ? "Reads cargo-auditable .dep-v0 metadata from ELF, PE, and thin Mach-O. A missing section is reported. The rustc hash stays inferred."
+                  : "ASAR archives and Electron or JavaScript directories use this same static analyzer.",
           )
         : detail(
             "missing-tool",
@@ -347,6 +380,11 @@ function assessOne(route, facts) {
         "unsupported",
         "REA has no radare2 provider. Rizin is a different command, and the studio does not send one.",
       );
+    case "java-class":
+      return detail(
+        "unsupported",
+        "partial: Java and JAR inspection is recognized and not scored yet. Nothing was decompiled.",
+      );
     default:
       return detail("unsupported", "This studio has no runner for that route.");
   }
@@ -409,7 +447,8 @@ export function artifactFamily(path, kind = null) {
   if (kind === "android" || extension === ".apk" || extension === ".aab")
     return "android";
   if (extension === ".hex" || extension === ".evm") return "evm";
-  if (extension === ".class") return "other";
+  if (extension === ".class" || extension === ".jar" || extension === ".war")
+    return "java";
   const magic = readMagic(path);
   if (magic.wasm) return "wasm";
   if (magic.elf) return "elf";
@@ -497,6 +536,10 @@ export function commandArgv({
       ];
     case "ghidra":
       return [execPath, rea, "inspect", target, "--provider", "ghidra", json];
+    case "go-binary":
+      return [execPath, rea, "inspect-go-binary", target, json];
+    case "rust-binary":
+      return [execPath, rea, "inspect-rust-binary", target, json];
     default:
       return null;
   }

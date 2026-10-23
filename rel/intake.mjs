@@ -140,6 +140,26 @@ const CATALOG = {
     "Classify the artifact before choosing an extraction or native analysis workflow.",
     "Generic firmware/binary extension",
   ),
+  java: category(
+    "java",
+    "Java class or archive",
+    "Recognizes a class file or JAR name. It does not decompile or run it.",
+    "partial",
+    "README.md",
+    ["A later Java/JAR route", "Authorized class or archive"],
+    "Java and JAR inspection is not scored yet. Nothing was decompiled.",
+    "Java class magic or .class/.jar extension",
+  ),
+  ambiguous: category(
+    "ambiguous",
+    "Ambiguous container",
+    "The leading bytes match more than one format, so no provider is selected.",
+    "partial",
+    "README.md",
+    ["A thin slice or a .class extension"],
+    "The preview will not guess between fat Mach-O and a Java class file.",
+    "Shared magic without a decisive header",
+  ),
   unknown: category(
     "unknown",
     "Unclassified target",
@@ -154,6 +174,63 @@ const CATALOG = {
 
 const SOURCE = new Set([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"]);
 const NATIVE = new Set([".exe", ".so", ".dylib", ".elf", ".out"]);
+const THIN_MACHO = new Set(["feedface", "feedfacf", "cffaedfe", "cefaedfe"]);
+const KNOWN_MACHO_CPU = new Set([
+  7, 0x01000007, 12, 0x0100000c, 0x0200000c, 18, 0x01000012,
+]);
+
+function engineCommand(command) {
+  return `node scripts/rea.mjs ${command} TARGET --json`;
+}
+
+function nativeCommands(container) {
+  const go = engineCommand("inspect-go-binary");
+  const rust = engineCommand("inspect-rust-binary");
+  if (container === "elf")
+    return [go, rust, engineCommand("inspect-binary-layout")];
+  if (container === "pe")
+    return [engineCommand("inspect-pe-resources"), go, rust];
+  if (container === "macho") return [go, rust, engineCommand("inspect-macho")];
+  return [];
+}
+
+function nativeCoverage(container, managed) {
+  if (container === "elf")
+    return "measured for Go build info and Rust cargo-auditable packages on an owned ELF image. ELF layout is partial until REA_PWNTOOLS_PYTHON is set. Disassembly is partial and needs a configured native provider.";
+  if (container === "pe" && managed)
+    return "measured for PE resource identities, Go build info, and Rust packages. Partial for .NET: a .dll extension does not prove managed metadata, and this preview did not read a CLI header.";
+  if (container === "pe")
+    return "measured for PE resource identities, Go build info, and Rust packages. Decompilation is partial and is not performed.";
+  if (container === "macho")
+    return "measured for Go build info and Rust packages on a thin Mach-O image. inspect-macho is partial without otool and lipo, and on Linux it is unsupported.";
+  return "partial. This fat Mach-O container is not one architecture. Select a thin slice before inspect-go-binary, inspect-rust-binary, or inspect-macho. Nothing was sliced.";
+}
+
+/** CAFEBABE is both fat Mach-O and a Java class. Do not guess from the magic alone. */
+function cafeBabeKind(bytes, fileSize, extension) {
+  if (extension === ".class" || extension === ".jar") return "java";
+  if (bytes.length < 8) return "ambiguous";
+  const magic = bytes.subarray(0, 4).toString("hex");
+  const little = magic === "bebafeca" || magic === "bfbafeca";
+  const count = little ? bytes.readUInt32LE(4) : bytes.readUInt32BE(4);
+  const wide = magic === "cafebabf" || magic === "bfbafeca";
+  const tableEnd = 8 + count * (wide ? 32 : 20);
+  const cpu =
+    !little && !wide && bytes.length >= 12 ? bytes.readUInt32BE(8) : null;
+  if (
+    cpu != null &&
+    KNOWN_MACHO_CPU.has(cpu) &&
+    count > 0 &&
+    count <= 32 &&
+    tableEnd <= fileSize
+  )
+    return "macho-fat";
+  const major = bytes.readUInt16BE(6);
+  const minor = bytes.readUInt16BE(4);
+  if (!little && minor === 0 && major >= 45 && major <= 69) return "java";
+  if (count > 0 && count <= 32 && tableEnd <= fileSize) return "macho-fat";
+  return "ambiguous";
+}
 const prefix = (bytes, signature) =>
   bytes.subarray(0, signature.length).equals(signature);
 
@@ -212,20 +289,32 @@ export function classifyTarget(raw) {
     closeSync(fd);
   }
   const b = bytes.subarray(0, count);
-  if (
-    prefix(b, Buffer.from([0x7f, 0x45, 0x4c, 0x46])) ||
-    prefix(b, Buffer.from([0x4d, 0x5a])) ||
-    [
-      "feedface",
-      "feedfacf",
-      "cafebabe",
-      "cffaedfe",
-      "cefaedfe",
-      "bebafeca",
-    ].includes(b.subarray(0, 4).toString("hex"))
-  )
+  const hex = b.subarray(0, 4).toString("hex");
+  let commands = null;
+  let container = null;
+  if (prefix(b, Buffer.from([0x7f, 0x45, 0x4c, 0x46]))) {
+    container = "elf";
+    info = CATALOG.native;
+    commands = nativeCommands("elf");
+  } else if (prefix(b, Buffer.from([0x4d, 0x5a]))) {
+    container = "pe";
     info = ext === ".dll" ? CATALOG.managed : CATALOG.native;
-  else if (prefix(b, Buffer.from([0x00, 0x61, 0x73, 0x6d])))
+    commands = nativeCommands("pe");
+  } else if (THIN_MACHO.has(hex)) {
+    container = "macho";
+    info = CATALOG.native;
+    commands = nativeCommands("macho");
+  } else if (["cafebabe", "cafebabf", "bebafeca", "bfbafeca"].includes(hex)) {
+    const cafe = cafeBabeKind(b, stats.size, ext);
+    if (cafe === "java") info = CATALOG.java;
+    else if (cafe === "macho-fat") {
+      container = "macho-fat";
+      info = CATALOG.native;
+      commands = [
+        "Select a thin slice, then run inspect-go-binary, inspect-rust-binary, or inspect-macho on that slice.",
+      ];
+    } else info = CATALOG.ambiguous;
+  } else if (prefix(b, Buffer.from([0x00, 0x61, 0x73, 0x6d])))
     info = CATALOG.wasm;
   else if (prefix(b, Buffer.from("SQLite format 3\0"))) info = CATALOG.sqlite;
   else if (ext === ".apk" || ext === ".aab") info = CATALOG.android;
@@ -249,6 +338,8 @@ export function classifyTarget(raw) {
   else if (ext === ".asar" || SOURCE.has(ext)) info = CATALOG.javascript;
   else if (ext === ".dll") info = CATALOG.managed;
   else if (NATIVE.has(ext)) info = CATALOG.native;
+  else if (ext === ".class" || ext === ".jar" || ext === ".war")
+    info = CATALOG.java;
   else if (ext === ".bin" || ext === ".rom" || ext === ".img")
     info = CATALOG.firmware;
   else info = CATALOG.unknown;
@@ -263,7 +354,27 @@ export function classifyTarget(raw) {
     basis = "Recognized SQLite header";
   if (info === CATALOG.wasm && prefix(b, Buffer.from([0, 97, 115, 109])))
     basis = "Recognized WebAssembly header";
-  return { target: path, exists: true, input_type: "file", ...info, basis };
+  const coverage = container
+    ? nativeCoverage(container, ext === ".dll")
+    : info.kind === "javascript"
+      ? "measured. The accuracy bench scores modules, functions, imports, calls, strings, and behaviors."
+      : info.kind === "unknown"
+        ? "unsupported. No format matched. Nothing was analyzed."
+        : info.kind === "java"
+          ? "partial. Java and JAR inspection is not scored yet. Nothing was decompiled."
+          : info.kind === "ambiguous"
+            ? "partial. The preview will not guess between fat Mach-O and a Java class file."
+            : "partial. This format is recognized. It is not in the accuracy bench yet, and this preview did not analyze it.";
+  return {
+    target: path,
+    exists: true,
+    input_type: "file",
+    ...info,
+    basis,
+    ...(container ? { container } : {}),
+    ...(commands ? { commands } : {}),
+    ...(coverage ? { coverage } : {}),
+  };
 }
 
 export function renderPlan(plan, question = null) {
@@ -275,7 +386,16 @@ export function renderPlan(plan, question = null) {
           "Replace TARGET with the path above, choose a new output directory outside it and this checkout, and keep your investigation question.",
           "This route analyzes JavaScript/Electron source statically; it does not launch the target.",
         ].join("\n")
-      : plan.next;
+      : Array.isArray(plan.commands) && plan.commands.length > 0
+        ? plan.commands.join("\n")
+        : plan.next;
+  const coverage =
+    plan.coverage ??
+    (plan.kind === "unknown"
+      ? "unsupported. No format matched. Nothing was analyzed."
+      : plan.kind === "javascript"
+        ? "measured. The accuracy bench scores modules, functions, imports, calls, strings, and behaviors."
+        : "partial. This format is recognized. It is not in the accuracy bench yet, and this preview did not analyze it.");
   const lines = [
     "REE  /  Investigation intake",
     `Target: ${plan.target}`,
@@ -291,6 +411,7 @@ export function renderPlan(plan, question = null) {
     "",
     "Next step:",
     nextStep,
+    `Coverage: ${coverage}`,
     `Guide: ${plan.documentation}`,
     "Requirements / limitations:",
     ...plan.needs.map((need) => `- ${need}`),

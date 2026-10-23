@@ -195,6 +195,109 @@
           "People create a board from the client."
         ]
       }
+    },
+    {
+      "id": "go-elf",
+      "kind": "go",
+      "format": "elf",
+      "expected": {
+        "module": ["example.com/tool/cmd/tool", "example.com/tool"],
+        "import": ["example.com/dependency v1.2.3"],
+        "string": ["go1.26.0"]
+      }
+    },
+    {
+      "id": "go-pe",
+      "kind": "go",
+      "format": "pe",
+      "expected": {
+        "module": ["example.com/tool/cmd/tool", "example.com/tool"],
+        "import": ["example.com/dependency v1.2.3"],
+        "string": ["go1.26.0"]
+      }
+    },
+    {
+      "id": "go-macho",
+      "kind": "go",
+      "format": "macho",
+      "expected": {
+        "module": ["example.com/tool/cmd/tool", "example.com/tool"],
+        "import": ["example.com/dependency v1.2.3"],
+        "string": ["go1.26.0"]
+      }
+    },
+    {
+      "id": "go-elf-no-buildinfo",
+      "kind": "go",
+      "format": "elf",
+      "omit_build_info": true,
+      "require_note": "does not establish that the binary is not Go",
+      "expected": {}
+    },
+    {
+      "id": "rust-elf",
+      "kind": "rust",
+      "format": "elf",
+      "expected": {
+        "module": ["itoa 1.0.18", "sample 0.1.0"],
+        "import": ["sample->itoa"],
+        "string": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+      }
+    },
+    {
+      "id": "rust-pe",
+      "kind": "rust",
+      "format": "pe",
+      "expected": {
+        "module": ["itoa 1.0.18", "sample 0.1.0"],
+        "import": ["sample->itoa"],
+        "string": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+      }
+    },
+    {
+      "id": "rust-macho",
+      "kind": "rust",
+      "format": "macho",
+      "expected": {
+        "module": ["itoa 1.0.18", "sample 0.1.0"],
+        "import": ["sample->itoa"],
+        "string": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+      }
+    },
+    {
+      "id": "pe-resources",
+      "kind": "pe-resources",
+      "expected": {
+        "resource": [
+          "3/1/1033",
+          "3/1/1041",
+          "10/\"7\"/1033",
+          "10/7/1041",
+          "14/42/1033"
+        ]
+      }
+    },
+    {
+      "id": "macho-host-symbols",
+      "kind": "macho-host",
+      "require_note": "partial:",
+      "expected": {}
+    },
+    {
+      "id": "fat-macho",
+      "kind": "provider-message",
+      "command": "inspect-go-binary",
+      "sample": "fat",
+      "require_note": "unsupported_target",
+      "expected": {}
+    },
+    {
+      "id": "not-a-binary",
+      "kind": "provider-message",
+      "command": "inspect-go-binary",
+      "sample": "text",
+      "require_note": "unsupported_target",
+      "expected": {}
     }
   ]
 }
