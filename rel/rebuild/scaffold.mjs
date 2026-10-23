@@ -11,6 +11,11 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertValidBehaviorSpec } from "../outside-in/validate.mjs";
+import {
+  capabilityLines,
+  capabilityReport,
+  decideCapabilities,
+} from "./capabilities.mjs";
 import { plannedCoverage } from "./coverage.mjs";
 import { serverSource, TEST_SOURCE } from "./product-source.mjs";
 
@@ -585,7 +590,7 @@ function featureLines(spec, plan) {
   return lines;
 }
 
-function readmeText(productName, spec, plan) {
+function readmeText(productName, spec, plan, capabilities) {
   const lines = [
     `# ${productName}`,
     "",
@@ -602,6 +607,7 @@ function readmeText(productName, spec, plan) {
     "",
     "`npm test` runs one behavior test per feature.",
     "`npm start` listens on 127.0.0.1 port 8787, or `PORT` when that variable is set.",
+    "Set HOST=0.0.0.0 only when a platform must reach the port. The default host stays 127.0.0.1.",
     "GET / is the product page for the collections below.",
     "",
     "## What runs",
@@ -614,7 +620,7 @@ function readmeText(productName, spec, plan) {
     );
   } else {
     lines.push(
-      "Records are stored in data/store.json. A missing file starts empty. An unreadable file stops the server.",
+      "Records are stored in data/store.sqlite. A missing file starts empty. A file that is not a database stops the server.",
       "Each built feature has a data model, write rules, and CRUD routes.",
       'GET returns `{ "items": [] }` with the model and rules.',
       "POST creates a record with an id and the field values. A query string, a form body, or a JSON object is accepted.",
@@ -629,6 +635,7 @@ function readmeText(productName, spec, plan) {
     );
   }
   lines.push("", ...featureLines(spec, plan));
+  lines.push("", ...capabilityLines(capabilities));
   if (plan.unmatched.length > 0) {
     lines.push(
       "",
@@ -648,7 +655,8 @@ function readmeText(productName, spec, plan) {
     "",
     "## Not implemented",
     "",
-    "GraphQL, workflows, a pricing checkout, integrations, authentication, and rate limits are not built.",
+    "A capability is built only when the spec supports it. The capability list is not a percentage of the original product.",
+    "GraphQL operations, workflows, and rate limits are not built.",
     "A path with one {name} segment gets get, update, and delete on the parent collection. GET reads one record and answers 404 when that id is missing.",
     "Any other path template, or a method other than GET, POST, PUT, PATCH, and DELETE, is left out.",
     "",
@@ -659,7 +667,7 @@ function readmeText(productName, spec, plan) {
   return lines.join("\n");
 }
 
-function landingText(productName, spec, plan) {
+function landingText(productName, spec, plan, capabilities) {
   const lines = [
     `# ${productName}`,
     "",
@@ -676,15 +684,18 @@ function landingText(productName, spec, plan) {
     lines.push(...plan.routes.map(routeLine));
   }
   lines.push("", ...featureLines(spec, plan));
+  lines.push("", ...capabilityLines(capabilities));
   lines.push(
     "",
-    "There is no checkout. See PRICING.md. Prices are not invented.",
+    capabilities.pricing
+      ? "Pricing is a test-mode Stripe checkout. A live key is refused. See PRICING.md."
+      : "There is no checkout. See PRICING.md. Prices are not invented.",
     "",
   );
   return lines.join("\n");
 }
 
-function reportText(productName, spec, plan) {
+function reportText(productName, spec, plan, capabilities) {
   const implemented = plan.behaviors.filter(
     (item) => item.status === "implemented",
   ).length;
@@ -698,8 +709,11 @@ function reportText(productName, spec, plan) {
     "",
     ...featureLines(spec, plan),
     "",
-    `Coverage: ${implemented} of ${total} (${ratio}).`,
-    "The CI gate fails when coverage is under 0.8.",
+    `Feature coverage: ${implemented} of ${total} (${ratio}).`,
+    "The CI gate fails when feature coverage is under 0.8.",
+    "That ratio counts features. It is not a percentage of the original product.",
+    "",
+    ...capabilityLines(capabilities),
     "",
   ].join("\n");
 }
@@ -717,7 +731,7 @@ function pricingText(spec) {
   const lines = [
     "# Pricing",
     "",
-    "These notes restate prices recorded in the behavior spec. They are not a checkout, and no price was invented.",
+    "GET /pricing lists these plans. POST /checkout uses Stripe only when STRIPE_SECRET_KEY starts with sk_test_. A live key is refused, and no price was invented.",
     "",
   ];
   for (const plan of plans) {
@@ -792,9 +806,10 @@ export function scaffoldRebuild({
   const leaked = quotesIn(spec).find((quote) => name.includes(quote));
   if (leaked) throw new Error("The product name contains a spec quote.");
   const plan = planProduct(spec);
-  const readme = readmeText(name, spec, plan);
-  const landing = landingText(name, spec, plan);
-  const report = reportText(name, spec, plan);
+  const capabilities = decideCapabilities(spec, plan);
+  const readme = readmeText(name, spec, plan, capabilities);
+  const landing = landingText(name, spec, plan, capabilities);
+  const report = reportText(name, spec, plan, capabilities);
   const brand = String(spec.target.name ?? "").trim();
   if (
     brand &&
@@ -846,9 +861,10 @@ export function scaffoldRebuild({
       "A feature whose name equals an endpoint summary or operation id uses that concrete path.",
       "A feature with no matching endpoint gets its own collection.",
       "Declared GET, POST, PUT, PATCH, and DELETE endpoints are built even when no feature name matches.",
-      "Records are stored in data/store.json. GET / is the product page. JSON field objects are accepted.",
+      "Records are stored in data/store.sqlite when a record route is built. GET / is the product page. JSON field objects are accepted.",
       "A path with one {name} segment gets get, update, and delete on the parent collection. Other path templates are not expanded.",
-      "GraphQL, workflows, pricing checkout, integrations, authentication, and rate limits are not built.",
+      "Search, relations, accounts, roles, webhooks, and a Stripe test checkout are built only when the spec supports them. A live Stripe key is refused.",
+      "GraphQL operations, workflows, and rate limits are not built.",
     ],
   };
   const manifest = {
@@ -933,6 +949,17 @@ export function scaffoldRebuild({
     ].join("\n"),
   );
   write("src/server.mjs", serverSource(name));
+  write("src/capabilities.mjs", capabilitiesSource(capabilities));
+  write(
+    "capabilities.json",
+    JSON.stringify(capabilityReport(capabilities), null, 2) + "\n",
+  );
+  if (capabilities.openapi)
+    write("openapi.json", openApiDocument(name, plan, capabilities));
+  if (capabilities.deploy) {
+    write("Dockerfile", dockerText());
+    write("render.yaml", renderText());
+  }
   write("test/product.test.mjs", TEST_SOURCE);
   write("behavior-spec.json", JSON.stringify(spec, null, 2) + "\n");
   write("provenance.json", JSON.stringify(provenance, null, 2) + "\n");
@@ -984,6 +1011,120 @@ export function scaffoldRebuild({
     unimplemented_count: provenance.unimplemented_feature_ids.length,
     package_path: packagePath,
   };
+}
+
+function capabilitiesSource(decision) {
+  const runtime = {
+    storage: decision.storage,
+    relations: decision.relations,
+    search: decision.search,
+    auth: decision.auth,
+    roles: decision.roles,
+    webhooks: decision.webhooks,
+    pricing: decision.pricing,
+    openapi: decision.openapi,
+    deploy: decision.deploy,
+  };
+  return (
+    "// Generated by REE rebuild.\n" +
+    "// Capability switches only. Spec quotes are not stored.\n" +
+    "export const capabilities = " +
+    JSON.stringify(runtime, null, 2) +
+    ";\n"
+  );
+}
+
+function openApiDocument(name, plan, capabilities) {
+  const paths = {};
+  for (const route of plan.routes) {
+    paths[route.path] ??= {};
+    const operation = {
+      responses: {
+        [String(route.success_status)]: { description: route.action },
+      },
+    };
+    if (route.operation_id) operation.operationId = route.operation_id;
+    paths[route.path][route.method.toLowerCase()] = operation;
+  }
+  if (capabilities.pricing) {
+    paths["/pricing"] = {
+      get: { responses: { 200: { description: "pricing page" } } },
+    };
+    paths["/checkout"] = {
+      post: {
+        responses: {
+          200: { description: "test checkout or unconfigured" },
+          400: { description: "live key refused" },
+        },
+      },
+    };
+  }
+  if (capabilities.webhooks) {
+    paths["/webhooks"] = {
+      get: { responses: { 200: { description: "stored events" } } },
+      post: {
+        responses: { 201: { description: "stored locally, not delivered" } },
+      },
+    };
+  }
+  if (capabilities.auth?.mode === "password") {
+    paths["/auth/register"] = {
+      post: { responses: { 201: { description: "account" } } },
+    };
+    paths["/auth/login"] = {
+      post: { responses: { 200: { description: "session" } } },
+    };
+  }
+  if (capabilities.auth?.mode === "magic") {
+    paths["/auth/magic"] = {
+      post: { responses: { 200: { description: "local token, no email" } } },
+    };
+  }
+  const document = {
+    openapi: "3.0.3",
+    info: { title: name, version: "1" },
+    paths,
+  };
+  if (capabilities.auth) {
+    document.components = {
+      securitySchemes: {
+        bearer: { type: "http", scheme: "bearer" },
+      },
+    };
+  }
+  return JSON.stringify(document, null, 2) + "\n";
+}
+
+function dockerText() {
+  return [
+    "FROM node:24-bookworm-slim",
+    "WORKDIR /app",
+    "COPY package.json package-lock.json ./",
+    "COPY src ./src",
+    "COPY openapi.json ./openapi.json",
+    "ENV HOST=0.0.0.0",
+    "ENV PORT=8787",
+    "EXPOSE 8787",
+    'CMD ["node", "src/server.mjs"]',
+    "",
+  ].join("\n");
+}
+
+function renderText() {
+  return [
+    "services:",
+    "  - type: web",
+    "    name: ree-product",
+    "    runtime: docker",
+    "    plan: free",
+    "    healthCheckPath: /",
+    "    envVars:",
+    "      - key: HOST",
+    "        value: 0.0.0.0",
+    "      - key: PORT",
+    "        sync: false",
+    "",
+  ].join("\n");
 }
 
 function slug(name) {

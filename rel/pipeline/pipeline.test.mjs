@@ -15,6 +15,7 @@ import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn, spawnSync } from "node:child_process";
 import { emitHandoff, blastDirectory } from "../handoff/emit.mjs";
+import { savedRecords } from "../rebuild/saved-records.mjs";
 import {
   ingestScout,
   ingestSpec,
@@ -836,16 +837,8 @@ test("pipeline rebuilds the owned web bench into a packaged product", async () =
     assert.equal(created.status, 201);
     const body = await created.json();
     assert.equal(body.boardName, "alpha");
-    const saved = JSON.parse(
-      readFileSync(join(dataDir, "data", "store.json"), "utf8"),
-    );
-    assert.ok(
-      Object.values(saved).some(
-        (bucket) =>
-          Array.isArray(bucket.items) &&
-          bucket.items.some((item) => item.id === body.id),
-      ),
-    );
+    const saved = savedRecords(dataDir);
+    assert.ok(saved.some((item) => item.id === body.id));
     const listed = await fetch(`http://127.0.0.1:${port}/boards`);
     assert.equal(listed.status, 200);
     assert.ok(Array.isArray((await listed.json()).items));
@@ -1102,12 +1095,8 @@ test(
           create.success_status,
           await created.text(),
         );
-        const body = JSON.parse(
-          readFileSync(join(dataDir, "data", "store.json"), "utf8"),
-        );
-        const record = Object.values(body)
-          .flatMap((bucket) => bucket.items ?? [])
-          .find((item) => item.id);
+        const body = savedRecords(dataDir);
+        const record = body.find((item) => item.id);
         assert.ok(record);
         const opened = await fetch(
           base +

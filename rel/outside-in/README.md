@@ -92,7 +92,14 @@ A request file has the same fields:
 ```
 
 `kind` may be `openapi`, `graphql`, `sdk-readme`, or `feed`. When it is
-omitted, the collector sniffs the body.
+omitted, the collector sniffs the body. Postman Collection v2 JSON is sniffed
+when `info.schema` contains `getpostman.com`, or when `item` lists requests.
+The API style is then `postman`. Auth tokens and header values are not kept.
+
+`node ree.mjs read INPUT --out DIR` routes a public website, an API file, an
+npm package, a public GitHub repository, or a local folder into this
+collector. A website crawl is one hop and still obeys robots.txt. `ingest-docs`
+does not crawl.
 
 ```sh
 node ree.mjs outside-in \
