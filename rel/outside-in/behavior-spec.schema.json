@@ -294,6 +294,20 @@
         }
       }
     },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "required", "type"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "required": { "type": "boolean" },
+        "type": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "enum": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 80 }
+        }
+      }
+    },
     "endpoint": {
       "type": "object",
       "additionalProperties": false,
@@ -315,6 +329,10 @@
           "items": { "type": "string", "maxLength": 80 }
         },
         "body": { "type": "string", "enum": ["json"] },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/field" }
+        },
         "response_codes": { "type": "array", "items": { "type": "string" } },
         "citations": {
           "type": "array",

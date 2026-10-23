@@ -98,14 +98,36 @@ function successStatus(method, codes) {
   return preferred;
 }
 
-function buildable(endpoint) {
+function collectionParents(endpoints) {
+  const set = new Set();
+  let anyItem = false;
+  for (const endpoint of endpoints) {
+    const path = endpoint?.path;
+    if (typeof path !== "string" || !path.includes("{")) continue;
+    const match = /^(\/.*)?\/\{([A-Za-z_][A-Za-z0-9_]*)\}$/u.exec(path);
+    if (!match || path.split("{").length !== 2) continue;
+    anyItem = true;
+    const collection = match[1] || "";
+    if (collection.startsWith("/")) set.add(collection);
+  }
+  return { anyItem, set };
+}
+
+function classifyEndpoint(endpoint, parents = null) {
   const method = String(endpoint?.method ?? "").toUpperCase();
   const path = endpoint?.path;
   if (!HTTP_METHODS.has(method))
     return { ok: false, reason: "method is not built" };
   if (typeof path !== "string" || !path.startsWith("/"))
     return { ok: false, reason: "path template is not expanded" };
-  if (!path.includes("{")) return { ok: true, method, path, item: null };
+  if (!path.includes("{")) {
+    if (parents?.anyItem && !parents.set.has(path))
+      return {
+        ok: false,
+        reason: "action endpoint is not a record collection",
+      };
+    return { ok: true, method, path, item: null };
+  }
   const match = /^(\/.*)?\/\{([A-Za-z_][A-Za-z0-9_]*)\}$/u.exec(path);
   if (!match || path.split("{").length !== 2)
     return { ok: false, reason: "path template is not expanded" };
@@ -138,14 +160,46 @@ function actionFor(method) {
   return "remove";
 }
 
-function unionParameters(endpoints) {
+function unionParameters(endpointList) {
   const names = [];
-  for (const endpoint of endpoints) {
+  for (const endpoint of endpointList) {
     for (const name of parametersOf(endpoint)) {
       if (!names.includes(name)) names.push(name);
     }
   }
   return names;
+}
+
+function unionFields(endpointList) {
+  const fields = [];
+  for (const endpoint of endpointList) {
+    for (const field of endpoint.fields ?? []) {
+      if (!field || typeof field.name !== "string" || !field.name) continue;
+      const found = fields.find((item) => item.name === field.name);
+      if (!found) fields.push({ ...field });
+      else if (field.required === true) found.required = true;
+    }
+  }
+  return fields;
+}
+
+function modelOf(endpointList) {
+  const fields = unionFields(endpointList);
+  const names = unionParameters(endpointList);
+  if (fields.length === 0) return { parameters: names, fields: [] };
+  for (const name of names) {
+    if (!fields.some((field) => field.name === name))
+      fields.push({ name, required: false, type: "string" });
+  }
+  return { parameters: fields.map((field) => field.name), fields };
+}
+
+function writeRules(model) {
+  if (model.fields.some((field) => field.required === true))
+    return ["required"];
+  if (model.fields.length === 0 && model.parameters.length > 0)
+    return ["required"];
+  return [];
 }
 
 function parametersOf(endpoint) {
@@ -168,6 +222,10 @@ function parametersOf(endpoint) {
 export function planProduct(spec) {
   const quotes = quotesIn(spec);
   const endpoints = spec.api?.endpoints ?? [];
+  const parents = collectionParents(endpoints);
+  function buildable(endpoint) {
+    return classifyEndpoint(endpoint, parents);
+  }
   const behaviors = [];
   const routes = [];
   const resources = [];
@@ -191,7 +249,7 @@ export function planProduct(spec) {
     behaviors.push({ id: feature.id, status: "unimplemented", handler: null });
   }
 
-  function resourceFor(path, parameters, rules) {
+  function resourceFor(path, parameters, rules, fields = []) {
     const found = resources.find((item) => item.path === path);
     if (found) {
       let added = false;
@@ -201,6 +259,11 @@ export function planProduct(spec) {
           added = true;
         }
         if (!found.model.includes(name)) found.model.push(name);
+      }
+      for (const field of fields) {
+        const existing = found.fields.find((item) => item.name === field.name);
+        if (!existing) found.fields.push({ ...field });
+        else if (field.required === true) existing.required = true;
       }
       if (added && found.rules.length === 0) {
         for (const rule of rules) {
@@ -214,6 +277,7 @@ export function planProduct(spec) {
       path,
       parameters: [...parameters],
       rules: [...rules],
+      fields: fields.map((field) => ({ ...field })),
       model: ["id", ...parameters],
     };
     resources.push(resource);
@@ -242,22 +306,27 @@ export function planProduct(spec) {
         (item) => String(item.method ?? "").toUpperCase() === method,
       );
       const parameters =
-        method === "GET" || method === "DELETE"
-          ? []
-          : endpoint
-            ? parametersOf(endpoint)
-            : resource.parameters;
+        method === "GET" || method === "DELETE" ? [] : resource.parameters;
       const draft = {
         method,
         path: resource.path,
         operation_id: endpoint?.operation_id ?? null,
         parameters,
+        fields: method === "GET" || method === "DELETE" ? [] : resource.fields,
+        declared: Boolean(endpoint),
         success_status: endpoint
           ? successStatus(method, endpoint.response_codes)
           : method === "POST"
             ? 201
             : 200,
-        body: endpoint?.body === "json" ? "json" : null,
+        body:
+          endpoint?.body === "json" ||
+          ((method === "POST" || method === "PUT" || method === "PATCH") &&
+            resource.fields.length > 0)
+            ? "json"
+            : endpoint?.body === "json"
+              ? "json"
+              : null,
         resource: resource.id,
         action: actionFor(method),
         model: resource.model,
@@ -305,18 +374,38 @@ export function planProduct(spec) {
           built.item
         );
       });
+      const sourceFields =
+        method === "GET" || method === "DELETE"
+          ? []
+          : endpoint?.fields?.length
+            ? endpoint.fields
+            : resource.fields;
+      const fields = sourceFields.filter((field) => field?.name !== param);
+      const names = (
+        endpoint ? parametersOf(endpoint) : fallbackParameters
+      ).filter((name) => name !== param);
       storeRoute({
         method,
         path: itemPath,
         path_param: param,
         collection: resource.path,
         operation_id: endpoint?.operation_id ?? null,
-        parameters: endpoint ? parametersOf(endpoint) : fallbackParameters,
+        parameters:
+          method === "GET" || method === "DELETE"
+            ? []
+            : fields.length
+              ? fields.map((field) => field.name)
+              : names,
+        fields,
+        declared: Boolean(endpoint),
         success_status: endpoint
           ? successStatus(method, endpoint.response_codes)
           : 200,
         body:
-          endpoint?.body === "json" || method === "PUT" || method === "PATCH"
+          endpoint?.body === "json" ||
+          method === "PUT" ||
+          method === "PATCH" ||
+          fields.length > 0
             ? "json"
             : null,
         resource: resource.id,
@@ -349,26 +438,43 @@ export function planProduct(spec) {
       const built = buildable(endpoint);
       return built.ok && !built.item && built.path === collection;
     });
-    const parameters = unionParameters(onPath);
+    const model = modelOf(onPath);
     return resourceFor(
       collection,
-      parameters,
-      parameters.length > 0 ? ["required"] : [],
+      model.parameters,
+      writeRules(model),
+      model.fields,
     );
   }
 
   function itemRoute(endpoint, built, resource) {
+    const writing = built.method !== "GET" && built.method !== "DELETE";
+    const names = writing
+      ? parametersOf(endpoint).filter((name) => name !== built.item.param)
+      : [];
+    const fields = writing
+      ? endpoint.fields?.length
+        ? endpoint.fields.filter((field) => field.name !== built.item.param)
+        : names.map((name) => ({ name, required: false, type: "string" }))
+      : [];
     return storeRoute({
       method: built.method,
       path: built.path,
       path_param: built.item.param,
       collection: built.item.collection,
       operation_id: endpoint.operation_id ?? null,
-      parameters: [],
+      parameters: fields.length ? fields.map((field) => field.name) : names,
+      fields,
+      declared: true,
       success_status: successStatus(built.method, endpoint.response_codes),
       body: endpoint.body === "json" ? "json" : null,
       resource: resource.id,
-      action: built.method === "GET" ? "read" : actionFor(built.method),
+      action:
+        built.method === "GET"
+          ? "read"
+          : built.method === "POST"
+            ? "merge"
+            : actionFor(built.method),
       model: resource.model,
       rules: resource.rules,
     });
@@ -437,11 +543,12 @@ export function planProduct(spec) {
         const built = buildable(endpoint);
         return built.ok && !built.item && built.path === path;
       });
-      const parameters = unionParameters(onPath);
+      const model = modelOf(onPath);
       const resource = resourceFor(
         path,
-        parameters,
-        parameters.length > 0 ? ["required"] : [],
+        model.parameters,
+        writeRules(model),
+        model.fields,
       );
       const made = crudFor(resource);
       if (!made) {
@@ -507,11 +614,12 @@ export function planProduct(spec) {
       const itemBuilt = buildable(item);
       return itemBuilt.ok && itemBuilt.path === built.path;
     });
-    const parameters = unionParameters(onPath);
+    const model = modelOf(onPath);
     const resource = resourceFor(
       built.path,
-      parameters,
-      parameters.length > 0 ? ["required"] : [],
+      model.parameters,
+      writeRules(model),
+      model.fields,
     );
     if (!crudFor(resource)) {
       skipped.push({
@@ -529,7 +637,24 @@ export function planProduct(spec) {
       nameEquals(feature, endpoint),
     );
   });
-  return { behaviors, routes, skipped, unmatched, omitted, leftOut };
+  const endpointBuilt = endpoints.filter((endpoint) => {
+    const built = buildable(endpoint);
+    return (
+      built.ok &&
+      routes.some(
+        (route) => route.method === built.method && route.path === built.path,
+      )
+    );
+  }).length;
+  return {
+    behaviors,
+    routes,
+    skipped,
+    unmatched,
+    omitted,
+    leftOut,
+    endpointBuilt,
+  };
 }
 
 function routeLine(route) {
@@ -544,6 +669,28 @@ function routeLine(route) {
     ? ` Operation id: ${route.operation_id}.`
     : "";
   return `- ${route.method} ${route.path} returns ${route.success_status}.${params}${body}${item}${operation}`;
+}
+
+function endpointCoverageLine(plan) {
+  const built = plan.endpointBuilt ?? 0;
+  const total = built + (plan.skipped?.length ?? 0);
+  const ratio = total === 0 ? "none" : (built / total).toFixed(3);
+  return `Endpoint coverage: ${built} of ${total} (${ratio}). That count is endpoints, not improvements, and it is not a percentage of the original product.`;
+}
+
+function endpointLines(plan) {
+  const lines = ["## Endpoints", ""];
+  if ((plan.skipped ?? []).length === 0) {
+    lines.push("Not built:", "- none");
+    return lines;
+  }
+  lines.push("Not built:");
+  for (const item of plan.skipped) {
+    lines.push(
+      `- ${item.method || "(no method)"} ${item.path ?? "(no path)"}: ${item.reason}.`,
+    );
+  }
+  return lines;
 }
 
 function endpointLine(endpoint) {
@@ -610,7 +757,7 @@ function readmeText(productName, spec, plan, capabilities) {
     "npm start",
     "```",
     "",
-    "`npm test` runs one behavior test per feature.",
+    "`npm test` runs one behavior test per feature and one per declared endpoint.",
     "`npm start` listens on 127.0.0.1 port 8787, or `PORT` when that variable is set.",
     "Set HOST=0.0.0.0 only when a platform must reach the port. The default host stays 127.0.0.1.",
     "GET / is the product page for the collections below.",
@@ -717,6 +864,9 @@ function reportText(productName, spec, plan, capabilities) {
     `Feature coverage: ${implemented} of ${total} (${ratio}).`,
     "The CI gate fails when feature coverage is under 0.8.",
     "That ratio counts features. It is not a percentage of the original product.",
+    endpointCoverageLine(plan),
+    "",
+    ...endpointLines(plan),
     "",
     ...capabilityLines(capabilities),
     "",

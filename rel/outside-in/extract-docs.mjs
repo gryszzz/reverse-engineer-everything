@@ -74,7 +74,7 @@ export function extractByFormat(doc, format, quoteMax) {
   if (format === "graphql-sdl" || format === "graphql-json")
     return { api: extractGraphql(doc.body) };
   if (format === "markdown")
-    return { markdown: extractMarkdown(doc.body, quoteMax) };
+    return { markdown: extractMarkdown(doc.body, quoteMax, doc.kind) };
   if (format === "feed") return { feed: extractFeed(doc.body, quoteMax) };
   return { unknownFormat: format };
 }

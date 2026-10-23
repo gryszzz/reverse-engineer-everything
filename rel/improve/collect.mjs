@@ -5,6 +5,8 @@ import {
   formatParseErrors,
   parseScoutTarget,
 } from "../opportunities/parse.mjs";
+import { assertValidBehaviorSpec } from "../outside-in/validate.mjs";
+import { slug } from "../outside-in/text.mjs";
 
 export const IMPROVE_SCHEMA = "ree.improve.v1";
 export const EVIDENCE_SCHEMA = "ree.improve.evidence.v1";
@@ -17,7 +19,7 @@ const EMPTY_NOTE =
 const OFF_NOTE =
   "Improvement was turned off. No evidence was read. The improvement list is empty.";
 const LIST_NOTE =
-  "Each item quotes a Scout weakness, a Scale pricing or willingness-to-pay record, or a build pick. Willingness-to-pay quotes with a numeric amount come first, higher amount first. Then other Scale pricing quotes, Scout weakness quotes, and accepted build picks. File order breaks ties. A repeated quote keeps the earlier rank. No score was invented. The count is not a percentage of the original product.";
+  "Each item quotes a Scout weakness, a Scale pricing or willingness-to-pay record, or a build pick. Willingness-to-pay quotes with a numeric amount come first, higher amount first. Then other Scale pricing quotes, Scout weakness quotes, and accepted build picks. File order breaks ties. A repeated quote keeps the earlier rank. A record is accepted only when it matches the target name, a target URL host, or the target category. A record with no source URL is marked unsourced and excluded. No score was invented. The count is not a percentage of the original product.";
 const BUILD_NOTE =
   "No Scout, Scale, or pick file was passed to this build. The improvement list is empty.";
 
@@ -39,6 +41,7 @@ export function collectImprovements({
   boxBoard = undefined,
   noImprove = false,
   now = new Date(),
+  target = null,
 } = {}) {
   if (noImprove) {
     return report({
@@ -69,9 +72,9 @@ export function collectImprovements({
   for (const path of paths) {
     if (seenPaths.has(path)) continue;
     seenPaths.add(path);
-    readPath(path, read, skipped, candidates);
+    readPath(path, read, skipped, candidates, target);
   }
-  const items = rank(candidates);
+  const items = rank(candidates, target);
   return report({
     note: items.length === 0 ? EMPTY_NOTE : LIST_NOTE,
     status: items.length === 0 ? "empty" : "listed",
@@ -100,12 +103,22 @@ export function specWithImprovements(spec, improvements, now = new Date()) {
   const features = [...(spec.features ?? [])];
   const seen = new Set(features.map((feature) => feature.id));
   const readAt = stamp(now);
+  const target = spec.target ?? null;
   for (const item of items) {
-    if (!item?.id || seen.has(item.id)) continue;
-    features.push(featureFrom(item, readAt));
-    seen.add(item.id);
+    const feature = featureFrom(item, readAt, target);
+    let id = feature.id;
+    let number = 2;
+    while (seen.has(id)) {
+      id = `${feature.id}-${number}`;
+      number += 1;
+    }
+    feature.id = id;
+    features.push(feature);
+    seen.add(id);
   }
-  return { ...spec, features };
+  const next = { ...spec, features };
+  assertValidBehaviorSpec(next);
+  return next;
 }
 
 export function improvementLines(improvements, forbidden = []) {
@@ -226,7 +239,7 @@ function collectJson(files, dir) {
   }
 }
 
-function readPath(path, read, skipped, candidates) {
+function readPath(path, read, skipped, candidates, target) {
   let value;
   try {
     value = JSON.parse(readFileSync(path, "utf8"));
@@ -236,10 +249,11 @@ function readPath(path, read, skipped, candidates) {
   }
   if (value?.schema_version === EVIDENCE_SCHEMA) {
     read.push({ path, kind: "bundle" });
-    if (value.scout) takeScout(value.scout, path, skipped, candidates);
-    if (value.scale) takeScale(value.scale, path, skipped, candidates);
+    if (value.scout) takeScout(value.scout, path, skipped, candidates, target);
+    if (value.scale) takeScale(value.scale, path, skipped, candidates, target);
     if (Array.isArray(value.picks))
-      for (const pick of value.picks) takePick(pick, path, skipped, candidates);
+      for (const pick of value.picks)
+        takePick(pick, path, skipped, candidates, target);
     if (!value.scout && !value.scale && !Array.isArray(value.picks))
       skipped.push({
         target: path,
@@ -249,19 +263,19 @@ function readPath(path, read, skipped, candidates) {
   }
   if (value?.schema_version === SCALE_EVIDENCE_SCHEMA) {
     read.push({ path, kind: "scale" });
-    takeScale(value, path, skipped, candidates);
+    takeScale(value, path, skipped, candidates, target);
     return;
   }
   const scout = parseScoutTarget(value);
   if (scout.ok) {
     read.push({ path, kind: "scout" });
-    takeScout(value, path, skipped, candidates);
+    takeScout(value, path, skipped, candidates, target);
     return;
   }
   const pickProblem = pickError(value);
   if (!pickProblem) {
     read.push({ path, kind: "pick" });
-    takePick(value, path, skipped, candidates);
+    takePick(value, path, skipped, candidates, target);
     return;
   }
   if (looksLikePick(value)) {
@@ -276,7 +290,7 @@ function readPath(path, read, skipped, candidates) {
   });
 }
 
-function takeScout(value, path, skipped, candidates) {
+function takeScout(value, path, skipped, candidates, target) {
   const parsed = parseScoutTarget(value);
   if (!parsed.ok) {
     skipped.push({
@@ -285,13 +299,13 @@ function takeScout(value, path, skipped, candidates) {
     });
     return;
   }
-  const target = parsed.target;
+  const scoutTarget = parsed.target;
   skipped.push({
     target: path,
     reason:
       "Scout scores and market notes were not turned into improvements. Only weakness quotes were used.",
   });
-  target.weaknesses.forEach((item, index) => {
+  scoutTarget.weaknesses.forEach((item, index) => {
     const quote = oneLine(item.summary);
     if (!quote) {
       skipped.push({
@@ -300,22 +314,34 @@ function takeScout(value, path, skipped, candidates) {
       });
       return;
     }
-    candidates.push({
-      bucket: "scout",
-      order: index,
-      kind: WEAKNESS_KIND[item.type] ?? "complaint",
-      quote,
-      record: "scout",
-      source: path,
-      citation: {
-        url: item.evidence_urls[0],
-        fetched_at: target.found_at,
+    acceptCandidate(
+      {
+        bucket: "scout",
+        order: index,
+        kind: WEAKNESS_KIND[item.type] ?? "complaint",
+        quote,
+        record: "scout",
+        source: path,
+        citation: {
+          url: item.evidence_urls[0],
+          fetched_at: scoutTarget.found_at,
+        },
       },
-    });
+      {
+        targetName: scoutTarget.target_name,
+        urls: [scoutTarget.url, item.evidence_urls[0]],
+        category: scoutTarget.category,
+        texts: [quote, scoutTarget.target_name],
+      },
+      path,
+      skipped,
+      candidates,
+      target,
+    );
   });
 }
 
-function takeScale(value, path, skipped, candidates) {
+function takeScale(value, path, skipped, candidates, target) {
   if (value?.schema_version !== SCALE_EVIDENCE_SCHEMA) {
     skipped.push({
       target: path,
@@ -324,7 +350,14 @@ function takeScale(value, path, skipped, candidates) {
     });
     return;
   }
-  const allowed = new Set(["schema_version", "pricing", "willingness_to_pay"]);
+  const allowed = new Set([
+    "schema_version",
+    "pricing",
+    "willingness_to_pay",
+    "target_name",
+    "url",
+    "category",
+  ]);
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) {
       skipped.push({
@@ -333,6 +366,11 @@ function takeScale(value, path, skipped, candidates) {
       });
     }
   }
+  const identity = {
+    targetName: value.target_name,
+    urls: [value.url],
+    category: value.category,
+  };
   readScaleList({
     list: value.willingness_to_pay,
     field: "willingness_to_pay",
@@ -340,6 +378,8 @@ function takeScale(value, path, skipped, candidates) {
     path,
     skipped,
     candidates,
+    identity,
+    target,
   });
   readScaleList({
     list: value.pricing,
@@ -348,10 +388,21 @@ function takeScale(value, path, skipped, candidates) {
     path,
     skipped,
     candidates,
+    identity,
+    target,
   });
 }
 
-function readScaleList({ list, field, bucket, path, skipped, candidates }) {
+function readScaleList({
+  list,
+  field,
+  bucket,
+  path,
+  skipped,
+  candidates,
+  identity,
+  target,
+}) {
   if (list === undefined) return;
   if (!Array.isArray(list)) {
     skipped.push({
@@ -378,28 +429,36 @@ function readScaleList({ list, field, bucket, path, skipped, candidates }) {
       recorded.currency = item.currency.trim();
     if (typeof item.name === "string" && item.name.trim())
       recorded.name = item.name.trim();
-    candidates.push({
-      bucket,
-      order: index,
-      amount: recorded.amount ?? null,
-      kind: "pricing",
-      quote,
-      record: "scale",
-      source: path,
-      recorded: Object.keys(recorded).length ? recorded : null,
-      citation: {
-        url,
-        fetched_at:
-          typeof item.fetched_at === "string" &&
-          !Number.isNaN(Date.parse(item.fetched_at))
-            ? item.fetched_at
-            : null,
+    acceptCandidate(
+      {
+        bucket,
+        order: index,
+        amount: recorded.amount ?? null,
+        kind: "pricing",
+        quote,
+        record: "scale",
+        source: path,
+        recorded: Object.keys(recorded).length ? recorded : null,
+        citation: {
+          url,
+          fetched_at: item.fetched_at,
+        },
       },
-    });
+      {
+        targetName: identity?.targetName,
+        urls: [...(identity?.urls ?? []), url],
+        category: identity?.category,
+        texts: [quote, recorded.name],
+      },
+      path,
+      skipped,
+      candidates,
+      target,
+    );
   });
 }
 
-function takePick(value, path, skipped, candidates) {
+function takePick(value, path, skipped, candidates, target) {
   const error = pickError(value);
   if (error) {
     skipped.push({ target: path, reason: error });
@@ -413,16 +472,30 @@ function takePick(value, path, skipped, candidates) {
     });
     return;
   }
-  candidates.push({
-    bucket: "pick",
-    order: 0,
-    kind: "feature",
-    quote: oneLine(value.reason),
-    record: "pick",
-    source: path,
-    angle: oneLine(value.angle),
-    citation: { url: null, fetched_at: value.date },
-  });
+  const quote = oneLine(value.reason);
+  const sourceUrl = firstUrl(value.url, value.source_url, value.citation?.url);
+  acceptCandidate(
+    {
+      bucket: "pick",
+      order: 0,
+      kind: "feature",
+      quote,
+      record: "pick",
+      source: path,
+      angle: oneLine(value.angle),
+      citation: { url: sourceUrl, fetched_at: value.date },
+    },
+    {
+      targetName: value.target_name || value.target,
+      urls: [sourceUrl],
+      category: value.category,
+      texts: [quote, value.angle, value.target_name, value.target],
+    },
+    path,
+    skipped,
+    candidates,
+    target,
+  );
 }
 
 function pickError(value) {
@@ -447,7 +520,7 @@ function looksLikePick(value) {
   return Boolean(value && typeof value === "object" && "verdict" in value);
 }
 
-function rank(candidates) {
+function rank(candidates, target) {
   const order = { wtp: 0, pricing: 1, scout: 2, pick: 3 };
   const sorted = [...candidates].sort((left, right) => {
     const bucket = order[left.bucket] - order[right.bucket];
@@ -471,6 +544,7 @@ function rank(candidates) {
       id: improvementId(item),
       rank: items.length + 1,
       kind: item.kind,
+      name: humanName(item, target),
       quote: item.quote,
       record: item.record,
       source: item.source,
@@ -478,6 +552,7 @@ function rank(candidates) {
       recorded: item.recorded ?? null,
       angle: item.angle ?? null,
       accepted: true,
+      unsourced: false,
       mark: "improvement",
     });
   }
@@ -492,24 +567,141 @@ function improvementId(item) {
   return `improve:${digest}`;
 }
 
-function featureFrom(item, readAt) {
+function featureFrom(item, readAt, target) {
   const quote = item.quote.slice(0, 160);
-  const url = item.citation?.url || item.source;
-  const fetched = item.citation?.fetched_at || readAt;
+  const name = item.name || humanName(item, target);
+  const fetched = normalizeDateTime(item.citation?.fetched_at, readAt);
   return {
-    id: item.id,
-    name: quote,
+    id: `feature:${slug(name)}`,
+    name,
     detail: "Cited improvement.",
     origin: "improvement",
     quote: { text: quote, attributed_quote: true },
     citations: [
       {
-        url,
+        url: item.citation.url,
         fetched_at: fetched,
         role: item.record,
       },
     ],
   };
+}
+
+function acceptCandidate(
+  candidate,
+  identity,
+  path,
+  skipped,
+  candidates,
+  target,
+) {
+  if (!matchesTarget(target, identity)) {
+    skipped.push({
+      target: path,
+      reason:
+        "The record does not match the target or its category, so it was not accepted.",
+      quote: candidate.quote,
+    });
+    return;
+  }
+  const url = httpUrl(candidate.citation?.url);
+  if (!url) {
+    skipped.push({
+      target: path,
+      reason:
+        "The record has no source URL. It was marked unsourced and excluded.",
+      unsourced: true,
+      quote: candidate.quote,
+    });
+    return;
+  }
+  candidate.citation = {
+    url,
+    fetched_at: normalizeDateTime(candidate.citation?.fetched_at, null),
+  };
+  candidates.push(candidate);
+}
+
+function matchesTarget(target, identity) {
+  if (!target) return true;
+  const name = oneLine(target.name);
+  const hosts = new Set();
+  for (const url of target.urls ?? []) {
+    const host = hostOf(url);
+    if (host) hosts.add(host);
+  }
+  for (const url of identity.urls ?? []) {
+    const host = hostOf(url);
+    if (host && hosts.has(host)) return true;
+  }
+  if (name.length >= 3) {
+    const needle = name.toLowerCase();
+    const haystacks = [identity.targetName, ...(identity.texts ?? [])];
+    if (
+      haystacks.some((value) => oneLine(value).toLowerCase().includes(needle))
+    )
+      return true;
+  }
+  const left = oneLine(identity.category).toLowerCase();
+  const right = oneLine(target.category).toLowerCase();
+  return Boolean(left && right && left === right);
+}
+
+function humanName(item, target) {
+  const brand = oneLine(target?.name);
+  const usable = (value) => {
+    const line = oneLine(value);
+    if (!line || line === item.quote || line.length > 80) return null;
+    if (brand.length >= 3 && line.toLowerCase().includes(brand.toLowerCase()))
+      return null;
+    return line;
+  };
+  return (
+    usable(item.angle) ||
+    usable(item.recorded?.name) ||
+    usable(item.quote.split(/[.!?]/u)[0].split(/\s+/u).slice(0, 4).join(" ")) ||
+    (item.kind === "pricing"
+      ? "Pricing change"
+      : item.kind === "ux"
+        ? "Interface change"
+        : item.kind === "complaint"
+          ? "Support change"
+          : "Added behavior")
+  );
+}
+
+function firstUrl(...values) {
+  for (const value of values) {
+    const url = httpUrl(value);
+    if (url) return url;
+  }
+  return null;
+}
+
+function httpUrl(value) {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+function hostOf(value) {
+  const url = httpUrl(value);
+  if (!url) return null;
+  return new URL(url).host.toLowerCase();
+}
+
+export function normalizeDateTime(value, fallback = null) {
+  if (typeof value !== "string" || !value.trim()) return fallback;
+  const text = value.trim();
+  const dateOnly = /^(\d{4}-\d{2}-\d{2})$/u.exec(text);
+  const parsed = Date.parse(dateOnly ? `${text}T00:00:00.000Z` : text);
+  if (Number.isNaN(parsed)) return fallback;
+  return new Date(parsed).toISOString();
 }
 
 function oneLine(value) {

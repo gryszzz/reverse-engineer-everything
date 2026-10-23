@@ -66,27 +66,43 @@ function endpointsFrom(document) {
   const endpoints = [];
   for (const [path, item] of Object.entries(paths)) {
     if (!item || typeof item !== "object") continue;
+    const shared = Array.isArray(item.parameters) ? item.parameters : [];
     for (const method of METHODS) {
       const operation = item[method];
       if (!operation || typeof operation !== "object") continue;
-      endpoints.push(endpointFrom(method, path, operation));
+      const parameters = shared.concat(
+        Array.isArray(operation.parameters) ? operation.parameters : [],
+      );
+      endpoints.push(
+        endpointFrom(method, path, operation, parameters, document),
+      );
     }
   }
   return endpoints;
 }
 
-function endpointFrom(method, path, operation) {
+function endpointFrom(method, path, operation, declared, document) {
   const summary = shortQuote(operation.summary ?? "");
   const parameters = [];
   let unresolved = 0;
-  for (const parameter of operation.parameters ?? []) {
+  for (const parameter of declared) {
+    if (parameter?.in === "header" || parameter?.in === "body") continue;
     if (typeof parameter?.name === "string") {
-      if (!parameters.includes(parameter.name)) parameters.push(parameter.name);
+      if (
+        parameter.name.length > 0 &&
+        parameter.name.length <= 80 &&
+        !parameters.includes(parameter.name)
+      )
+        parameters.push(parameter.name);
     } else unresolved += 1;
   }
-  const body = jsonBody(operation);
+  const body = jsonBody(operation, declared, document);
   for (const name of body.names) {
     if (!parameters.includes(name)) parameters.push(name);
+  }
+  markRequiredParameters(declared, body.fields);
+  for (const field of body.fields) {
+    if (!parameters.includes(field.name)) parameters.push(field.name);
   }
   return {
     method: method.toUpperCase(),
@@ -95,6 +111,7 @@ function endpointFrom(method, path, operation) {
       typeof operation.operationId === "string" ? operation.operationId : null,
     summary,
     parameters,
+    fields: body.fields,
     body: body.body,
     responseCodes: Object.keys(operation.responses ?? {}),
     security: securityNames(operation.security),
@@ -104,31 +121,136 @@ function endpointFrom(method, path, operation) {
   };
 }
 
-function jsonBody(operation) {
+function markRequiredParameters(declared, fields) {
+  for (const parameter of declared) {
+    if (!parameter || parameter.required !== true) continue;
+    const place = parameter.in;
+    if (place === "path" || place === "header" || place === "body") continue;
+    const name = parameter.name;
+    if (typeof name !== "string" || name.length === 0 || name.length > 80)
+      continue;
+    const found = fields.find((field) => field.name === name);
+    if (found) found.required = true;
+    else
+      fields.push({ name, required: true, type: schemaType(parameter.schema) });
+  }
+}
+
+function jsonBody(operation, declared, document) {
   const requestBody = operation.requestBody;
-  if (requestBody == null) return { names: [], body: null, unresolved: 0 };
-  if (typeof requestBody !== "object" || requestBody.$ref)
-    return { names: [], body: null, unresolved: 1 };
-  const content = requestBody.content;
+  if (requestBody == null) {
+    const swagger = declared.find((parameter) => parameter?.in === "body");
+    if (!swagger) return { names: [], fields: [], body: null, unresolved: 0 };
+    return fieldsFromSchema(swagger.schema, document);
+  }
+  if (typeof requestBody !== "object")
+    return { names: [], fields: [], body: null, unresolved: 1 };
+  const resolved = requestBody.$ref
+    ? pointer(document, requestBody.$ref)
+    : requestBody;
+  if (!resolved || typeof resolved !== "object")
+    return { names: [], fields: [], body: null, unresolved: 1 };
+  const content = resolved.content;
   if (!content || typeof content !== "object")
-    return { names: [], body: null, unresolved: 1 };
+    return { names: [], fields: [], body: null, unresolved: 1 };
   const json = content["application/json"];
-  if (!json || typeof json !== "object" || json.schema?.$ref)
-    return { names: [], body: null, unresolved: 1 };
-  const properties = json.schema?.properties;
+  if (!json || typeof json !== "object")
+    return { names: [], fields: [], body: null, unresolved: 1 };
+  return fieldsFromSchema(json.schema, document);
+}
+
+function fieldsFromSchema(schema, document) {
+  const resolved = resolveSchema(schema, document, new Set());
+  if (!resolved) return { names: [], fields: [], body: null, unresolved: 1 };
+  if (resolved.type === "array" || Array.isArray(resolved.items))
+    return { names: [], fields: [], body: null, unresolved: 1 };
+  const properties = resolved.properties;
   if (
     !properties ||
     typeof properties !== "object" ||
     Array.isArray(properties)
   )
-    return { names: [], body: null, unresolved: 1 };
-  const names = [];
-  for (const name of Object.keys(properties)) {
-    if (name.length > 0 && name.length <= 80 && !names.includes(name))
-      names.push(name);
+    return { names: [], fields: [], body: null, unresolved: 1 };
+  const required = new Set(
+    Array.isArray(resolved.required) ? resolved.required : [],
+  );
+  const fields = [];
+  for (const [name, property] of Object.entries(properties)) {
+    if (
+      name.length === 0 ||
+      name.length > 80 ||
+      fields.some((field) => field.name === name)
+    )
+      continue;
+    const nested = resolveSchema(property, document, new Set());
+    const field = {
+      name,
+      required: required.has(name),
+      type: schemaType(nested ?? property),
+    };
+    const values = enumValues(nested ?? property);
+    if (values) field.enum = values;
+    fields.push(field);
   }
-  if (names.length === 0) return { names: [], body: null, unresolved: 1 };
-  return { names, body: "json", unresolved: 0 };
+  if (fields.length === 0)
+    return { names: [], fields: [], body: null, unresolved: 1 };
+  return {
+    names: fields.map((field) => field.name),
+    fields,
+    body: "json",
+    unresolved: 0,
+  };
+}
+
+function resolveSchema(schema, document, seen) {
+  if (!schema || typeof schema !== "object") return null;
+  if (typeof schema.$ref !== "string") return schema;
+  if (seen.has(schema.$ref)) return null;
+  seen.add(schema.$ref);
+  const target = pointer(document, schema.$ref);
+  if (!target) return null;
+  return resolveSchema(target, document, seen);
+}
+
+function pointer(document, ref) {
+  if (typeof ref !== "string" || !ref.startsWith("#/")) return null;
+  let node = document;
+  for (const part of ref.slice(2).split("/")) {
+    if (!node || typeof node !== "object") return null;
+    node =
+      node[decodeURIComponent(part.replace(/~1/g, "/").replace(/~0/g, "~"))];
+  }
+  return node && typeof node === "object" ? node : null;
+}
+
+function schemaType(schema) {
+  if (!schema || typeof schema !== "object") return "string";
+  if (
+    schema.type === "integer" ||
+    schema.format === "int32" ||
+    schema.format === "int64"
+  )
+    return schema.type === "number" ? "number" : "integer";
+  if (
+    schema.type === "number" ||
+    schema.type === "boolean" ||
+    schema.type === "array" ||
+    schema.type === "object" ||
+    schema.type === "string"
+  )
+    return schema.type;
+  if (schema.properties) return "object";
+  if (schema.items) return "array";
+  return "string";
+}
+
+function enumValues(schema) {
+  if (!Array.isArray(schema?.enum) || schema.enum.length === 0) return null;
+  if (
+    schema.enum.some((value) => typeof value !== "string" || value.length > 80)
+  )
+    return null;
+  return schema.enum;
 }
 
 function securityNames(security) {

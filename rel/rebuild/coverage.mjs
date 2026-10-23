@@ -11,6 +11,9 @@ export function plannedCoverage(plan, featureCount) {
     .map((item) => item.id);
   const total = featureCount;
   const ratio = total === 0 ? null : implemented.length / total;
+  const notBuilt = plan.skipped?.length ?? 0;
+  const built = plan.endpointBuilt ?? 0;
+  const endpointTotal = built + notBuilt;
   return {
     schema_version: COVERAGE_SCHEMA,
     threshold: COVERAGE_THRESHOLD,
@@ -19,6 +22,12 @@ export function plannedCoverage(plan, featureCount) {
     total,
     ratio,
     passed: ratio !== null && ratio >= COVERAGE_THRESHOLD,
+    endpoints: {
+      built,
+      not_built: notBuilt,
+      total: endpointTotal,
+      ratio: endpointTotal === 0 ? null : built / endpointTotal,
+    },
   };
 }
 

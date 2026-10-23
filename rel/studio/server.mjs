@@ -94,6 +94,10 @@ const FILES = new Map([
   ["/explain.js", ["explain.js", "text/javascript; charset=utf-8"]],
   ["/theme.js", ["theme.js", "text/javascript; charset=utf-8"]],
 ]);
+const FAVICON = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
 const REMOTE_REASON =
   "Remote model calls are refused. No Evidence, source, or project text is uploaded.";
 const experiments = new Map();
@@ -521,6 +525,7 @@ async function handleApi(context) {
           product_name: body.product_name,
           feature_ids: body.feature_ids,
           spec: readOutsideInSpec(run),
+          improve_board: body.improve_board,
         });
       }
       if (!run.evidence_id)
@@ -530,6 +535,7 @@ async function handleApi(context) {
         feature_ids: body.feature_ids,
         record: evidenceRecord(run),
         evidence_path: join(run.output_dir, "evidence.json"),
+        improve_board: body.improve_board,
       });
     }
     return startLiveBuild(store.root, body);
@@ -1244,6 +1250,19 @@ export async function startStudio({
         return;
       }
       const url = new URL(req.url, `http://127.0.0.1:${boundPort}`);
+      if (
+        (req.method === "GET" || req.method === "HEAD") &&
+        url.pathname === "/favicon.ico"
+      ) {
+        res.writeHead(200, {
+          "Content-Type": "image/png",
+          "Content-Length": FAVICON.length,
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        });
+        res.end(req.method === "HEAD" ? undefined : FAVICON);
+        return;
+      }
       if (req.method === "GET" || req.method === "HEAD") {
         const file = FILES.get(url.pathname);
         if (file) {

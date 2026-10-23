@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -439,6 +439,38 @@ test("a different fixture is refused by the probe", () => {
   );
   assert.equal(result.status, 2);
   assert.match(result.stderr, /refuses every target/);
+});
+
+test("the studio page has an icon, no null footer text, and a resumed build action", () => {
+  const html = readFileSync(
+    fileURLToPath(new URL("./public/index.html", import.meta.url)),
+    "utf8",
+  );
+  const source = readFileSync(
+    fileURLToPath(new URL("./public/studio.js", import.meta.url)),
+    "utf8",
+  );
+  assert.match(html, /rel="icon" href="\/favicon\.ico"/);
+  assert.equal(source.includes("nullnullnull"), false);
+  assert.match(source, /filter\(\(node\) => node != null\)/);
+  assert.match(source, /ree-studio-project/);
+  const overview = source.slice(
+    source.indexOf("function overviewPanel"),
+    source.indexOf("function fact("),
+  );
+  const door = source.slice(
+    source.indexOf("function doorPanel"),
+    source.indexOf("function capabilitiesPanel"),
+  );
+  assert.match(overview, /Build from this/);
+  assert.match(door, /Build from this/);
+});
+
+test("favicon.ico is an icon, not a studio 404", async () => {
+  const icon = await raw("/favicon.ico");
+  assert.equal(icon.status, 200);
+  assert.match(icon.headers["content-type"], /image\/png/);
+  assert.ok(icon.body.length > 8);
 });
 
 test("studio data inside the checkout is rejected", async () => {

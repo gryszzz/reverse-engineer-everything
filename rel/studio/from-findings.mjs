@@ -212,7 +212,12 @@ export function specWithFeatures(spec, featureIds) {
     if (typeof id !== "string" || !known.has(id))
       throw new Error(`Feature ${String(id)} is not in this spec.`);
   }
-  if (featureIds.length === 0) throw new Error("Select at least one feature.");
+  if (featureIds.length === 0) {
+    const endpoints = spec.api?.endpoints;
+    if (Array.isArray(endpoints) && endpoints.length > 0)
+      return { ...spec, features: [] };
+    throw new Error("Select at least one feature.");
+  }
   const wanted = new Set(featureIds);
   return {
     ...spec,

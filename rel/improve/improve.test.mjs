@@ -160,6 +160,9 @@ function scout() {
 function scale() {
   return {
     schema_version: "ree.scale.evidence.v1",
+    target_name: "Widget Cloud",
+    url: "https://widgets.example/",
+    category: "search",
     willingness_to_pay: [
       {
         quote: "Would pay 4 dollars for a smaller plan.",
@@ -199,7 +202,31 @@ function writeEvidence(dir) {
       verdict: "build",
       reason: "Add a shared export.",
       angle: "Export",
-      date: "2026-10-22T00:00:00.000Z",
+      date: "2026-10-22",
+      url: "https://widgets.example/ideas",
+    }),
+  );
+  writeFileSync(
+    join(dir, "picks", "unsourced.json"),
+    JSON.stringify({
+      agent: "ada",
+      id: "opp_unsourced000001",
+      verdict: "build",
+      reason: "Add a dated export without a source.",
+      angle: "Dated export",
+      date: "2026-10-22",
+      target_name: "Widget Cloud",
+    }),
+  );
+  writeFileSync(
+    join(dir, "picks", "shopify.json"),
+    JSON.stringify({
+      agent: "ada",
+      id: "opp_shopify0000001",
+      verdict: "build",
+      reason: "Shopify billing needs a receipt.",
+      angle: "Shopify billing",
+      date: "2026-10-22",
     }),
   );
   writeFileSync(
@@ -269,6 +296,27 @@ test("Scout, Scale, and build picks become ranked quotes and nothing else", () =
   assert.equal(report.items[0].recorded.amount, "12.00");
   assert.equal(report.items[0].citation.url, "https://owned.example/scale");
   assert.equal(report.items[3].citation.url, "https://widgets.example/reviews");
+  const pick = report.items.at(-1);
+  assert.equal(pick.name, "Export");
+  assert.equal(pick.citation.fetched_at, "2026-10-22T00:00:00.000Z");
+  assert.equal(pick.citation.url, "https://widgets.example/ideas");
+  assert.ok(
+    report.skipped.some(
+      (item) => item.unsourced === true && /unsourced/.test(item.reason),
+    ),
+  );
+  const behavior = spec();
+  const merged = specWithImprovements(
+    behavior,
+    report,
+    new Date("2026-10-23T00:00:00.000Z"),
+  );
+  assert.equal(validateBehaviorSpec(merged).ok, true);
+  const added = merged.features.find((feature) => feature.name === "Export");
+  assert.equal(added.origin, "improvement");
+  assert.equal(added.id.startsWith("feature:"), true);
+  assert.equal(added.citations[0].fetched_at, "2026-10-22T00:00:00.000Z");
+  assert.equal(added.name.includes(pick.quote), false);
   assert.equal(
     report.items.every((item) => item.accepted === true),
     true,
@@ -289,6 +337,50 @@ test("Scout, Scale, and build picks become ranked quotes and nothing else", () =
     () => collectImprovements({ evidencePath: join(dir, "missing.json") }),
     /not found/,
   );
+});
+
+test("sourced evidence that does not match the target is excluded", () => {
+  const dir = join(home, "relevance");
+  writeEvidence(dir);
+  writeFileSync(
+    join(dir, "picks", "billing.json"),
+    JSON.stringify({
+      agent: "ada",
+      id: "opp_billing0000001",
+      verdict: "build",
+      reason: "Cert expiry warnings for the storefront.",
+      angle: "Cert expiry",
+      date: "2026-10-22",
+      url: "https://shop.example/billing",
+    }),
+  );
+  const report = collectImprovements({
+    evidencePath: dir,
+    boxBoard: null,
+    target: {
+      name: "Widget Cloud",
+      urls: ["https://widgets.example/"],
+      category: "search",
+    },
+  });
+  assert.equal(
+    report.items.some((item) => item.quote.includes("Cert expiry")),
+    false,
+  );
+  assert.equal(
+    report.items.some((item) => item.quote.includes("Shopify")),
+    false,
+  );
+  assert.equal(
+    report.items.some((item) => item.name === "Export"),
+    true,
+  );
+  assert.ok(
+    report.skipped.some((item) =>
+      /does not match the target/.test(item.reason),
+    ),
+  );
+  assert.ok(report.skipped.some((item) => item.unsourced === true));
 });
 
 test("a fixture with Scout and Scale evidence builds the cited improvements", async () => {
@@ -347,6 +439,16 @@ test("a fixture with Scout and Scale evidence builds the cited improvements", as
   );
   assert.equal(server.includes("Would pay 12 dollars for one plan."), false);
   assert.equal(outcome.implemented, 9);
+  assert.match(
+    readFileSync(join(out, "product", "FEATURE_REPORT.md"), "utf8"),
+    /Export/,
+  );
+  assert.equal(
+    readFileSync(join(out, "product", "src", "routes.mjs"), "utf8").includes(
+      "/improve-",
+    ),
+    false,
+  );
   assert.equal(outcome.failed, 0);
 
   const quiet = join(home, "quiet");

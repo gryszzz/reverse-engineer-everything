@@ -12,6 +12,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { analyzeOutsideIn } from "./analyze.mjs";
+import { extractHtml } from "./extract-html.mjs";
+import { extractMarkdown } from "./extract-markdown.mjs";
 import { USER_AGENT } from "./constants.mjs";
 import { evaluateRobots, parseRobots } from "./robots.mjs";
 import { applySimilarityGuard } from "./similarity.mjs";
@@ -616,4 +618,41 @@ test("inspect stays preview-only and outside-in is documented", () => {
   );
   assert.equal(run.status, 2);
   assert.match(run.stderr, /Analysis execution is only enabled/);
+});
+
+test("marketing headings are not features and docs are not labeled as an SDK README", () => {
+  const markdown = [
+    "## In their words",
+    "A customer said the product is fast.",
+    "",
+    "## Frequently asked questions",
+    "How do I start?",
+    "",
+    "## Shared notes",
+    "People keep one shared note.",
+    "",
+  ].join("\n");
+  const docs = extractMarkdown(markdown, 160);
+  assert.deepEqual(
+    docs.features.map((feature) => feature.name),
+    ["Shared notes"],
+  );
+  assert.equal(docs.features[0].detail, "Docs heading.");
+  assert.equal(docs.features[0].origin, "docs");
+  const sdk = extractMarkdown(markdown, 160, "sdk-readme");
+  assert.equal(sdk.features[0].detail, "SDK README heading.");
+  assert.equal(sdk.features[0].origin, "sdk-readme");
+  const html = extractHtml(
+    `<!doctype html><html><body>
+      <h2>In their words</h2><p>A customer said the product is fast.</p>
+      <h2>Frequently asked questions</h2><p>How do I start?</p>
+      <h2>Shared notes</h2><p>People keep one shared note.</p>
+    </body></html>`,
+    160,
+  );
+  assert.deepEqual(
+    html.features.map((feature) => feature.name),
+    ["Shared notes"],
+  );
+  assert.equal(html.features[0].origin, "public-page");
 });
