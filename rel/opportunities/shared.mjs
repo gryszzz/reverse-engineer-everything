@@ -246,6 +246,24 @@ function reportMarkdown(item, draft) {
   ].join("\n");
 }
 
+function clearOpportunityFindings(findingsRoot) {
+  if (!existsSync(findingsRoot)) return;
+  for (const name of readdirSync(findingsRoot, { withFileTypes: true })) {
+    if (!name.isDirectory() || !OPPORTUNITY_ID.test(name.name)) continue;
+    rmSync(join(findingsRoot, name.name), { recursive: true, force: true });
+  }
+}
+
+function existingRuns(boardPath) {
+  if (!existsSync(boardPath)) return null;
+  try {
+    const previous = JSON.parse(readFileSync(boardPath, "utf8"));
+    return Array.isArray(previous?.runs) ? previous.runs : null;
+  } catch {
+    return null;
+  }
+}
+
 function writeText(path, text) {
   mkdirSync(join(path, ".."), { recursive: true });
   writeFileSync(path, text.endsWith("\n") ? text : text + "\n");
@@ -266,8 +284,9 @@ export function exportSharedBoard({ sourceDir, toDir, now = new Date() }) {
   const findings = [];
   const skipped = [];
   const findingsRoot = join(toDir, "findings");
-  rmSync(findingsRoot, { recursive: true, force: true });
+  clearOpportunityFindings(findingsRoot);
   mkdirSync(toDir, { recursive: true });
+  const previousRuns = existingRuns(join(toDir, "board.json"));
   for (const item of [...listed.scout, ...listed.specs]) {
     const published = redactTree(publicItem(item));
     const draft = redactTree(specDraft(item));
@@ -291,6 +310,7 @@ export function exportSharedBoard({ sourceDir, toDir, now = new Date() }) {
     items,
     note: SHARED_NOTE,
   };
+  if (previousRuns) board.runs = previousRuns;
   writeText(join(toDir, "board.json"), JSON.stringify(board, null, 2) + "\n");
   return {
     schema_version: SHARED_BOARD_SCHEMA,

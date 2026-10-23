@@ -989,3 +989,120 @@ test("a URL enters the pipeline only after authorization", async () => {
     /different target/,
   );
 });
+
+test("package writes the shared board when that directory already exists", async () => {
+  const web = fileURLToPath(
+    new URL("../../experiments/ree-bench/web/", import.meta.url),
+  );
+  const shared = join(home, "live-shared");
+  const box = join(home, "live-box");
+  const missing = join(home, "absent-shared");
+  mkdirSync(shared);
+  mkdirSync(box);
+  writeFileSync(
+    join(shared, "board.json"),
+    JSON.stringify({
+      schema_version: "ree.shared.board.v1",
+      items: [{ id: "opp_" + "ab".repeat(8), title: "Kept" }],
+      note: "s3cret-token stays on the board",
+    }) + "\n",
+  );
+  const out = join(home, "live-shared-run");
+  const outcome = await runProductPipeline({
+    target: web,
+    outDir: out,
+    productName: "Board Desk",
+    approvals: {
+      launch: true,
+      guard: true,
+      blast: true,
+      scale: true,
+      vault: true,
+    },
+    sharedDir: shared,
+    boxShared: box,
+  });
+  assert.equal(outcome.code, 0, outcome.message);
+  assert.equal(outcome.dry_run, true);
+  assert.equal(outcome.shared_board, shared);
+  assert.equal(outcome.launch_approved, true);
+  assert.equal(outcome.notified_blast, false);
+  const board = JSON.parse(readFileSync(join(shared, "board.json"), "utf8"));
+  assert.equal(board.items[0].title, "Kept");
+  assert.match(board.note, /s3cret-token/);
+  assert.equal(board.runs.length, 1);
+  assert.equal(board.runs[0].run_id, outcome.run_id);
+  assert.equal(board.runs[0].dry_run, true);
+  assert.equal(board.runs[0].called.guard, false);
+  assert.equal(board.runs[0].called.blast, false);
+  assert.equal(board.runs[0].called.scale, false);
+  assert.equal(board.runs[0].launch.performed, false);
+  assert.equal(board.runs[0].launch.approval_requested, true);
+  assert.equal(board.runs[0].publish.performed, false);
+  assert.equal(board.runs[0].payment.performed, false);
+  const feature = JSON.parse(
+    readFileSync(
+      join(
+        outcome.board_dir,
+        "findings",
+        readdirSync(join(outcome.board_dir, "findings")).find((name) => {
+          const parsed = JSON.parse(
+            readFileSync(join(outcome.board_dir, "findings", name), "utf8"),
+          );
+          return parsed.name === "Shared boards";
+        }),
+      ),
+      "utf8",
+    ),
+  );
+  const markdown = readFileSync(
+    join(shared, "findings", `${feature.id}.md`),
+    "utf8",
+  );
+  assert.match(markdown, /Shared boards/);
+  assert.equal(markdown.includes("Bench Boards"), false);
+  assert.equal(markdown.includes("s3cret-token"), false);
+  assert.match(markdown, /Guard was not called/);
+  const guard = JSON.parse(
+    readFileSync(join(shared, "requests/guard.json"), "utf8"),
+  );
+  assert.equal(guard.called, false);
+  assert.equal(guard.dry_run, true);
+  assert.equal(guard.to, "guard");
+  const verdict = JSON.parse(
+    readFileSync(
+      join(box, "guard", "verdicts", `${outcome.build_id}.json`),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(verdict, guard);
+  assert.equal(
+    existsSync(join(out, "guard", "verdicts", `${outcome.build_id}.json`)),
+    true,
+  );
+  assert.equal(existsSync("/home/box/shared"), false);
+  for (const name of ["blast", "scale"]) {
+    const request = JSON.parse(
+      readFileSync(join(shared, "requests", `${name}.json`), "utf8"),
+    );
+    assert.equal(request.called, false);
+    assert.equal(request.dry_run, true);
+    assert.equal(request.to, name);
+  }
+  const absent = await runProductPipeline({
+    target: web,
+    outDir: join(home, "absent-shared-run"),
+    productName: "Board Desk",
+    sharedDir: missing,
+  });
+  assert.equal(absent.code, 0, absent.message);
+  assert.equal(absent.shared_board, null);
+  assert.equal(existsSync(missing), false);
+  assert.equal(existsSync("/home/box/shared"), false);
+  const marker = JSON.parse(
+    readFileSync(join(home, "absent-shared-run", "shared-board.json"), "utf8"),
+  );
+  assert.equal(marker.shared_dir, null);
+  assert.equal(marker.dry_run, true);
+  assert.equal(marker.called.guard, false);
+});

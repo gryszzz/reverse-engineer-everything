@@ -61,6 +61,11 @@ jobs:
         run: |
           node --test rel/rebuild/coverage.test.mjs
           node rel/rebuild/coverage-gate.mjs
+      - name: Verify pipeline shared board handoff
+        run: |
+          node --test rel/handoff/shared-publish.test.mjs
+          node --test rel/opportunities/board.test.mjs
+          node --test rel/pipeline/pipeline.test.mjs
       - name: Verify authorized static target admission and Codex entry
         run: node --test rel/analyze-static.test.mjs
       - name: Verify report fail-closed behavior

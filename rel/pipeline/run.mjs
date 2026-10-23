@@ -15,6 +15,10 @@ import {
   buildGuardSubmission,
   emitHandoff,
 } from "../handoff/emit.mjs";
+import {
+  publishSharedPipeline,
+  resolveSharedBoardDir,
+} from "../handoff/shared-publish.mjs";
 import { ingestSpec, postPipelineBoard } from "../opportunities/board.mjs";
 import { analyzeOutsideIn } from "../outside-in/analyze.mjs";
 import { planProduct, scaffoldRebuild } from "../rebuild/scaffold.mjs";
@@ -213,6 +217,7 @@ function blankRun({ runId, fixture, productName, approvals }) {
     approved_for_vault_copy: false,
     launch_approved: approvals.launch,
     box_copied: false,
+    shared_board: null,
     accuracy_path: null,
   };
 }
@@ -241,6 +246,11 @@ function publish(ctx) {
   run.accuracy_path = existsSync(join(ctx.outDir, "accuracy.json"))
     ? join(ctx.outDir, "accuracy.json")
     : null;
+  const sharedMarker = join(ctx.outDir, "shared-board.json");
+  if (existsSync(sharedMarker)) {
+    const marker = readJson(sharedMarker);
+    run.shared_board = marker.shared_dir ?? null;
+  }
   if (ctx.verify) {
     run.verify = publicVerify(ctx.verify);
     run.implemented = ctx.verify.implemented;
@@ -571,11 +581,52 @@ async function stagePackage(ctx) {
   const landing = readFileSync(join(ctx.productDir, "LANDING.md"), "utf8");
   if (brand && (readme.includes(brand) || landing.includes(brand)))
     throw new Error("Customer copy includes the spec target name.");
+  const findingsPath = join(ctx.outDir, "findings.json");
+  const findings = existsSync(findingsPath)
+    ? readJson(findingsPath)
+    : { features: [], endpoints: [] };
+  const coveragePath = join(ctx.productDir, "coverage.json");
+  const leftOut = existsSync(coveragePath)
+    ? (readJson(coveragePath).left_out ?? [])
+    : [];
+  const sharedDir = resolveSharedBoardDir({
+    env:
+      ctx.sharedDir === undefined
+        ? process.env
+        : { REE_SHARED_BOARD: ctx.sharedDir },
+    ...(ctx.boxBoard ? { boxBoard: ctx.boxBoard } : {}),
+  });
+  const published = publishSharedPipeline({
+    sharedDir,
+    outDir: ctx.outDir,
+    ...(ctx.boxShared ? { boxShared: ctx.boxShared } : {}),
+    runId: ctx.run.run_id,
+    buildId: ctx.buildId,
+    productName: ctx.run.product_name,
+    findings,
+    verify: ctx.verify,
+    leftOut,
+    approvals: ctx.run.approvals,
+    now: ctx.now,
+  });
+  const sharedNote = published.shared_dir
+    ? " Findings, a board entry, and dry-run Guard, Blast, and Scale requests were written to the shared board. Those systems were not called. Launch, publish, and payment were not performed."
+    : " The shared board directory was not present, so nothing was written there.";
   return {
     message:
-      "Package contains the README, pricing draft, landing copy, license, NOTICE, and tarball.",
-    outputs: required.map((name) => `product/${name}`),
-    provenance: { package: "product/product.tgz" },
+      "Package contains the README, pricing draft, landing copy, license, NOTICE, and tarball." +
+      sharedNote,
+    outputs: [
+      ...required.map((name) => `product/${name}`),
+      "shared-board.json",
+      `guard/verdicts/${ctx.buildId}.json`,
+    ],
+    provenance: {
+      package: "product/product.tgz",
+      shared_board: published.shared_dir,
+      dry_run: true,
+      called: published.called,
+    },
   };
 }
 
@@ -739,6 +790,9 @@ export async function runProductPipeline({
   fetchImpl = null,
   sleep = null,
   minIntervalMs = null,
+  sharedDir = undefined,
+  boxShared = undefined,
+  boxBoard = undefined,
 }) {
   if (!target || !outDir)
     throw new Error("Use pipeline TARGET --out DIR [--name NAME].");
@@ -779,6 +833,9 @@ export async function runProductPipeline({
     buildId: null,
     verify: null,
     handoffDir: null,
+    sharedDir,
+    boxShared,
+    boxBoard,
   };
   publish(ctx);
   for (const stage of run.stages) {
