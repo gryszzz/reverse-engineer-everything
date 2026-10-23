@@ -24,6 +24,7 @@ import {
   SCHEMA_VERSION,
   USER_AGENT,
 } from "../outside-in/constants.mjs";
+import { runProductPipeline } from "./run.mjs";
 import { scaffoldRebuild } from "../rebuild/scaffold.mjs";
 import { verifyRebuild } from "../rebuild/verify.mjs";
 import { validateBehaviorSpec } from "../outside-in/validate.mjs";
@@ -453,18 +454,21 @@ test("rebuild serves an endpoint whose summary or operation id matches a feature
   assert.equal(byName.listBoards.route.method, "GET");
   assert.equal(byName["Shared boards"].match, "pass");
   assert.equal(byName["Shared boards"].route.path, "/shared-boards");
-  assert.equal(byName["Open a board"].match, "unimplemented");
+  assert.equal(byName["Open a board"].match, "pass");
+  assert.equal(byName["Open a board"].route.method, "GET");
+  assert.equal(byName["Open a board"].route.path, "/boards/{id}");
   const source = ["behaviors.mjs", "routes.mjs", "server.mjs"]
     .map((name) => readFileSync(join(out, "src", name), "utf8"))
     .join("\n");
   assert.equal(source.includes("Create a board"), false);
+  assert.equal(source.includes("Open a board"), false);
   assert.equal(
     source.includes("People create a board from the client."),
     false,
   );
   assert.equal(source.includes("DISTINCTIVE_BOARD_QUOTE"), false);
-  assert.equal(source.includes("/boards/{id}"), false);
-  assert.equal(source.includes("openBoard"), false);
+  assert.equal(source.includes("/boards/{id}"), true);
+  assert.match(source, /openBoard/);
   assert.match(source, /createBoard/);
   assert.match(source, /listBoards/);
   const pricing = readFileSync(join(out, "PRICING.md"), "utf8");
@@ -854,5 +858,123 @@ test("pipeline resumes after a product name collision", () => {
       "Bench Boards",
     ),
     false,
+  );
+});
+
+test("a URL enters the pipeline only after authorization", async () => {
+  let called = false;
+  const fetchImpl = async () => {
+    called = true;
+    throw new Error("fetch");
+  };
+  await assert.rejects(
+    () =>
+      runProductPipeline({
+        target: "https://notes.example/keep",
+        outDir: join(home, "url-noauth"),
+        authorized: false,
+        fetchImpl,
+      }),
+    /A URL needs --authorized\. This run stopped before any request\./,
+  );
+  assert.equal(called, false);
+  await assert.rejects(
+    () =>
+      runProductPipeline({
+        target: "https://user:secret@notes.example/keep",
+        outDir: join(home, "url-creds"),
+        authorized: true,
+        fetchImpl,
+      }),
+    /Use a URL without embedded credentials\./,
+  );
+  assert.equal(called, false);
+  const denied = spawnSync(
+    process.execPath,
+    [
+      cli,
+      "pipeline",
+      "https://notes.example/keep",
+      "--out",
+      join(home, "cli-url"),
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(denied.status, 2, denied.stderr);
+  assert.match(denied.stderr, /stopped before any request/);
+
+  const calls = [];
+  function pageResponse(body, type) {
+    const bytes = Buffer.from(body);
+    return {
+      status: 200,
+      headers: {
+        forEach(fn) {
+          fn(type, "content-type");
+        },
+      },
+      arrayBuffer: async () => bytes,
+    };
+  }
+  const live = async (url) => {
+    calls.push(String(url));
+    if (String(url).endsWith("/robots.txt"))
+      return pageResponse("User-agent: *\nAllow: /\n", "text/plain");
+    return pageResponse(
+      "<h2>Keep a note</h2><p>People keep one short note.</p>",
+      "text/html; charset=utf-8",
+    );
+  };
+  const out = join(home, "url-ok");
+  const outcome = await runProductPipeline({
+    target: "https://notes.example/keep",
+    outDir: out,
+    productName: "Note Kit",
+    authorized: true,
+    fetchImpl: live,
+    minIntervalMs: 0,
+    sleep: async () => {},
+  });
+  assert.equal(outcome.code, 0, outcome.message);
+  assert.ok(calls.some((url) => url.endsWith("/robots.txt")));
+  assert.ok(calls.some((url) => url.includes("/keep")));
+  assert.equal(outcome.product_name, "Note Kit");
+  const spec = JSON.parse(
+    readFileSync(join(out, "analysis/behavior-spec.json"), "utf8"),
+  );
+  assert.equal(spec.target.name, "notes.example");
+  assert.notEqual(spec.target.name, outcome.product_name);
+  assert.ok(spec.features.some((feature) => feature.name === "Keep a note"));
+  assert.equal(
+    readFileSync(join(out, "product/README.md"), "utf8").includes(
+      "notes.example",
+    ),
+    false,
+  );
+  const resumed = await runProductPipeline({
+    target: "https://notes.example/keep",
+    outDir: out,
+    authorized: true,
+    resume: true,
+    fetchImpl: async () => {
+      throw new Error("resume fetched");
+    },
+    minIntervalMs: 0,
+    sleep: async () => {},
+  });
+  assert.equal(resumed.code, 0, resumed.message);
+  assert.equal(resumed.run_id, outcome.run_id);
+  await assert.rejects(
+    () =>
+      runProductPipeline({
+        target: "https://other.example/keep",
+        outDir: out,
+        authorized: true,
+        resume: true,
+        fetchImpl: async () => {
+          throw new Error("other fetched");
+        },
+      }),
+    /different target/,
   );
 });

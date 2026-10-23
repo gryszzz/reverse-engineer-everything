@@ -80,8 +80,13 @@ function endpointFrom(method, path, operation) {
   const parameters = [];
   let unresolved = 0;
   for (const parameter of operation.parameters ?? []) {
-    if (typeof parameter?.name === "string") parameters.push(parameter.name);
-    else unresolved += 1;
+    if (typeof parameter?.name === "string") {
+      if (!parameters.includes(parameter.name)) parameters.push(parameter.name);
+    } else unresolved += 1;
+  }
+  const body = jsonBody(operation);
+  for (const name of body.names) {
+    if (!parameters.includes(name)) parameters.push(name);
   }
   return {
     method: method.toUpperCase(),
@@ -90,11 +95,40 @@ function endpointFrom(method, path, operation) {
       typeof operation.operationId === "string" ? operation.operationId : null,
     summary,
     parameters,
+    body: body.body,
     responseCodes: Object.keys(operation.responses ?? {}),
     security: securityNames(operation.security),
     rateLimits: rateLimitsFrom(operation, `${method.toUpperCase()} ${path}`),
     unresolvedParameters: unresolved,
+    unresolvedBody: body.unresolved,
   };
+}
+
+function jsonBody(operation) {
+  const requestBody = operation.requestBody;
+  if (requestBody == null) return { names: [], body: null, unresolved: 0 };
+  if (typeof requestBody !== "object" || requestBody.$ref)
+    return { names: [], body: null, unresolved: 1 };
+  const content = requestBody.content;
+  if (!content || typeof content !== "object")
+    return { names: [], body: null, unresolved: 1 };
+  const json = content["application/json"];
+  if (!json || typeof json !== "object" || json.schema?.$ref)
+    return { names: [], body: null, unresolved: 1 };
+  const properties = json.schema?.properties;
+  if (
+    !properties ||
+    typeof properties !== "object" ||
+    Array.isArray(properties)
+  )
+    return { names: [], body: null, unresolved: 1 };
+  const names = [];
+  for (const name of Object.keys(properties)) {
+    if (name.length > 0 && name.length <= 80 && !names.includes(name))
+      names.push(name);
+  }
+  if (names.length === 0) return { names: [], body: null, unresolved: 1 };
+  return { names, body: "json", unresolved: 0 };
 }
 
 function securityNames(security) {

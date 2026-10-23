@@ -312,6 +312,7 @@
           "type": "array",
           "items": { "type": "string", "maxLength": 80 }
         },
+        "body": { "type": "string", "enum": ["json"] },
         "response_codes": { "type": "array", "items": { "type": "string" } },
         "citations": {
           "type": "array",

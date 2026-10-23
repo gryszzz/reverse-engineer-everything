@@ -18,6 +18,15 @@ paths:
           in: query
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                boardName:
+                  type: string
       responses:
         "201":
           description: created

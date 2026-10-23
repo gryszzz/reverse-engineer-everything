@@ -103,6 +103,11 @@ export function addApi(bundle, api, citation) {
         `${endpoint.unresolvedParameters} parameter refs were not resolved on ${endpoint.method} ${endpoint.path}.`,
       );
     }
+    if (endpoint.unresolvedBody) {
+      bundle.api.unknowns.push(
+        `The JSON request body on ${endpoint.method} ${endpoint.path} could not be read.`,
+      );
+    }
     const record = {
       method: endpoint.method,
       path: endpoint.path,
@@ -111,6 +116,7 @@ export function addApi(bundle, api, citation) {
       response_codes: endpoint.responseCodes ?? [],
       citations: [citation],
     };
+    if (endpoint.body === "json") record.body = "json";
     if (endpoint.summary) record.summary = endpoint.summary;
     bundle.api.endpoints.push(record);
   }
