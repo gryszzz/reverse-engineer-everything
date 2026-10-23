@@ -148,6 +148,8 @@ test("the studio binds only to loopback and serves its own page", async () => {
   const script = await fetch(origin + "/studio.js");
   const source = await script.text();
   assert.match(source, /What can I do with this\?/);
+  assert.match(source, /What to build/);
+  assert.match(source, /morluto's REA engine \(MIT\)/);
   assert.match(source, /Explain this/);
   assert.match(source, /Keyboard shortcuts/);
 });

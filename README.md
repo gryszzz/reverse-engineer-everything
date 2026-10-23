@@ -39,6 +39,8 @@ These frames are one studio session on this Linux checkout, Node 24.18.0. The ta
 
 ## REE and REA
 
+REE is built on morluto's REA engine (MIT).
+
 **REE** is this repository's product layer: the Investigation Studio, the beginner commands in `ree.mjs`, readiness checks, the unsigned `REE.app` bundle, and the opt-in `outside-in` public-document collector. **REA** is the inherited analysis engine and MCP server from [morluto/rea](https://github.com/morluto/rea). REE does not replace that engine, and it is not published as the `rea-agents` npm package.
 
 `npx rea-agents setup` installs upstream REA, not this checkout. The package name and MCP id remain `rea-agents` and `io.github.morluto/rea`. Release jobs stay gated to `morluto/rea`.
@@ -67,7 +69,7 @@ The studio binds to `127.0.0.1` only. It has no account and does not upload Evid
 
 ## Investigation Studio
 
-The studio is a loopback page served from this checkout. The path is Front door, Analyze, Findings, and Build. Analyze shows recorded engine progress and, after Evidence is written, the functions, calls, strings, and behaviors in that record. A click opens the stored id and the recorded step. Build gives each spec feature a data model, write rules, CRUD routes, and a page section, shows each file and test result as it is recorded, and packages a dry-run handoff when you ask. A path with one {name} segment is built on the parent collection. Any other path template is left out, and the product report says why. Findings can draft that spec from the investigation. Board, Lessons, Diff Lab, Trace Lab, Evidence rebuild, and the other labs are under Advanced. The labels on the page are the names below.
+The studio is a loopback page served from this checkout. The path is Front door, Analyze, Findings, and Build. Simple mode shows those four steps on one scroll: paste or drop, the live timeline, finding cards, and What to build. Advanced keeps each lab on its own screen, including raw commands and spec JSON. Analyze shows recorded engine progress and, after Evidence is written, the functions, calls, strings, and behaviors in that record. A click opens the stored id and the recorded step. Build gives each spec feature a data model, write rules, CRUD routes, and a page section, shows each file and test result as it is recorded, and packages a dry-run handoff when you ask. A path with one {name} segment is built on the parent collection. Any other path template is left out, and the product report says why. Findings can draft that spec from the investigation. Board, Lessons, Diff Lab, Trace Lab, Evidence rebuild, and the other labs are under Advanced. The labels on the page are the names below.
 
 | Surface              | What it does                                                                                                                                                                                                                                                                                                                                                                                    |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
