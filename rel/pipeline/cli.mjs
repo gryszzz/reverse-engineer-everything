@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { emitHandoff } from "../handoff/emit.mjs";
 import {
@@ -23,7 +23,7 @@ const HELP = [
   "REE pipeline — investigation, a clean-room HTTP product, checks, and dry-run sell files.",
   "",
   "node ree.mjs pipeline TARGET --out DIR [--name NAME] [--json]",
-  "  [--resume] [--authorized]",
+  "  [--resume] [--authorized] [--improvements FILE] [--no-improve]",
   "  [--approve-launch] [--approve-guard] [--approve-blast]",
   "  [--approve-scale] [--approve-vault]",
   "node ree.mjs opportunities ingest FILE --out DIR [--json]",
@@ -36,8 +36,15 @@ const HELP = [
   "node ree.mjs verify --project DIR [--json]",
   "node ree.mjs handoff --project DIR --blast-dir DIR [--scout FILE] [--json]",
   "",
-  "pipeline runs scope, investigate, findings, spec, rebuild, verify, package,",
-  "guard, and handoff. Each stage writes checkpoints/<stage>.json. A failed",
+  "pipeline runs scope, investigate, findings, spec, improve, rebuild, verify,",
+  "package, guard, and handoff. improve writes improvements.json from Scout",
+  "weaknesses, Scale pricing and willingness-to-pay quotes, and build picks.",
+  "Each item cites that record and quote. Nothing is invented. With no",
+  "evidence the list is empty and the run says so. --improvements FILE reads",
+  "that file or a directory of scout.json, scale.json, and picks/*.json.",
+  "The same files are read from /home/box/shared/ree-board when that directory",
+  "exists. --no-improve reads nothing. Accepted items become extra features",
+  "marked improvement. Each stage writes checkpoints/<stage>.json. A failed",
   "stage stops the run. --resume continues a run in the same --out directory.",
   "An owned fixture is a directory with request.json and manifest.json. No",
   "network request is made. A directory with behavior-spec.json",
@@ -244,12 +251,21 @@ export async function runPipelineCommand(argv) {
       const name = flag(argv, "--name");
       if (!target || target.startsWith("--") || !out)
         throw new Error("Use pipeline TARGET --out DIR [--name NAME].");
+      const improvementsFile = flag(argv, "--improvements");
+      if (
+        improvementsFile &&
+        !argv.includes("--no-improve") &&
+        !existsSync(improvementsFile)
+      )
+        throw new Error("--improvements path was not found.");
       const outcome = await runProductPipeline({
         target,
         outDir: out,
         productName: name,
         resume: argv.includes("--resume"),
         authorized: argv.includes("--authorized"),
+        improvementsFile,
+        noImprove: argv.includes("--no-improve"),
         approvals: {
           launch: argv.includes("--approve-launch"),
           guard: argv.includes("--approve-guard"),

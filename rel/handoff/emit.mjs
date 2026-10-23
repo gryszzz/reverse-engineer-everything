@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { collectGaps, gapLines } from "../gaps/report.mjs";
+import { improvementLines, publicImprovements } from "../improve/collect.mjs";
 import { parseScoutTarget } from "../opportunities/parse.mjs";
 
 export const BLAST_SCHEMA = "ree.blast.handoff.v1";
@@ -230,6 +231,11 @@ export function emitHandoff({
   const quotes = customerQuotes(spec);
   const forbidden = [spec.target.name, scoutFacts.target_name].filter(Boolean);
   const gaps = collectGaps({ projectDir, forbidden });
+  const improvementsPath = join(projectDir, "improvements.json");
+  const improvements = existsSync(improvementsPath)
+    ? readJson(improvementsPath)
+    : null;
+  const shownImprovements = publicImprovements(improvements, forbidden);
   const summary =
     "Clean-room HTTP product. Each feature gets a data model, write rules, and CRUD routes. A path with one {name} segment gets get, update, and delete on the parent collection. Any other path template, or a method outside GET, POST, PUT, PATCH, and DELETE, is left out, with a reason. Market scores appear only when a Scout record supplied them.";
   for (const name of forbidden) {
@@ -264,7 +270,8 @@ export function emitHandoff({
       meaning:
         "implemented counts features whose HTTP route tests passed. unimplemented features were not built. failed means a route test failed.",
     },
-    differentiators: [],
+    differentiators: shownImprovements.items.map((item) => item.id),
+    improvements: shownImprovements,
     repo: { url: repo.url ?? null },
     demo: null,
     customer: {
@@ -417,6 +424,7 @@ export function emitHandoff({
       : "Launch approval was not recorded.",
     "Competitor names are omitted from this file.",
     "",
+    ...improvementLines(improvements, forbidden),
     ...gapLines(gaps),
   ].join("\n");
   for (const name of forbidden) {

@@ -1011,6 +1011,7 @@ function liveCard(live) {
     live.handoff_error ? el("p", {}, live.handoff_error) : null,
     live.error ? el("p", { class: "bad" }, live.error) : null,
     gapsCard(live.gaps),
+    betterCard(live.improvements),
   ]);
 }
 
@@ -1088,6 +1089,7 @@ function buildPanel() {
             "Dry run. Launch still needs Guard PASS and Tony's go-ahead.",
           ),
           gapsCard(result.gaps),
+          betterCard(result.improvements),
         ]),
     field("Product name", name),
     el("details", { class: "spec-json" }, [
@@ -1139,6 +1141,7 @@ function buildPanel() {
           ),
       pipeline?.message ? el("p", {}, pipeline.message) : null,
       gapsCard(pipeline?.gaps),
+      betterCard(pipeline?.improvements),
       button(
         "Run owned web pipeline",
         async () => {
@@ -1172,6 +1175,30 @@ function watchedRun() {
     state.project?.runs?.at(-1) ??
     null
   );
+}
+
+function betterCard(improvements) {
+  if (!improvements) return null;
+  const items = Array.isArray(improvements.items) ? improvements.items : [];
+  return el("article", { class: "card", "data-better": "1" }, [
+    el("h3", {}, improvements.title || "What we do better"),
+    improvements.note ? el("p", { class: "note" }, improvements.note) : null,
+    items.length === 0
+      ? el("p", {}, "The list is empty.")
+      : el(
+          "ol",
+          {},
+          items.map((item) =>
+            el(
+              "li",
+              {},
+              item.quote_omitted
+                ? `${item.id} (improvement). The quote repeated a recorded name and was omitted from this panel.`
+                : `${item.rank}. ${item.id} (improvement). ${item.kind}. ${item.quote}`,
+            ),
+          ),
+        ),
+  ]);
 }
 
 function gapsCard(gaps) {

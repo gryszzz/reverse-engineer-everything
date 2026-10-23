@@ -23,6 +23,11 @@ import { ingestSpec, postPipelineBoard } from "../opportunities/board.mjs";
 import { analyzeOutsideIn } from "../outside-in/analyze.mjs";
 import { SCHEMA_VERSION } from "../outside-in/constants.mjs";
 import { assertValidBehaviorSpec } from "../outside-in/validate.mjs";
+import {
+  collectImprovements,
+  DEFAULT_BOX_BOARD,
+  specWithImprovements,
+} from "../improve/collect.mjs";
 import { planProduct, scaffoldRebuild } from "../rebuild/scaffold.mjs";
 import { verifyRebuild } from "../rebuild/verify.mjs";
 
@@ -35,6 +40,7 @@ const STAGES = [
   "investigate",
   "findings",
   "spec",
+  "improve",
   "rebuild",
   "verify",
   "package",
@@ -107,6 +113,14 @@ function reusable(ctx, stage) {
     if (!sameApprovals(checkpoint.provenance?.approvals, ctx.run.approvals))
       return false;
   }
+  if (stage.id === "improve") {
+    const provenance = checkpoint.provenance ?? {};
+    if (provenance.no_improve !== (ctx.noImprove === true)) return false;
+    if ((provenance.evidence_file ?? null) !== (ctx.improvementsFile ?? null))
+      return false;
+    if ((provenance.improve_board ?? null) !== improveBoardPath(ctx))
+      return false;
+  }
   return true;
 }
 
@@ -117,6 +131,13 @@ function hydrate(ctx, stageId) {
   if (provenance.spec_path) {
     ctx.spec = readJson(join(ctx.outDir, provenance.spec_path));
     ctx.analysisDir = join(ctx.outDir, "analysis");
+  }
+  if (stageId === "improve") {
+    const path = join(
+      ctx.outDir,
+      provenance.improvements_path ?? "improvements.json",
+    );
+    if (existsSync(path)) ctx.improvements = readJson(path);
   }
   if (stageId === "rebuild") {
     ctx.productDir = join(ctx.outDir, "product");
@@ -253,6 +274,7 @@ function publish(ctx) {
     const marker = readJson(sharedMarker);
     run.shared_board = marker.shared_dir ?? null;
   }
+  if (ctx.improvements) run.improvements = ctx.improvements;
   if (ctx.verify) {
     run.verify = publicVerify(ctx.verify);
     run.implemented = ctx.verify.implemented;
@@ -574,13 +596,50 @@ async function stageSpec(ctx) {
   };
 }
 
+function improveBoardPath(ctx) {
+  if (ctx.improveBoard === null) return null;
+  if (typeof ctx.improveBoard === "string") return ctx.improveBoard;
+  return existsSync(DEFAULT_BOX_BOARD) ? DEFAULT_BOX_BOARD : null;
+}
+
+async function stageImprove(ctx) {
+  if (!isOutsideIn(ctx.mode)) throw new Error(NOT_A_SPEC);
+  const board = improveBoardPath(ctx);
+  const improvements = collectImprovements({
+    evidencePath: ctx.improvementsFile,
+    boxBoard: board,
+    noImprove: ctx.noImprove === true,
+    now: ctx.now,
+  });
+  ctx.improvements = improvements;
+  writeJson(join(ctx.outDir, "improvements.json"), improvements);
+  const count = improvements.items.length;
+  return {
+    message:
+      count === 0
+        ? improvements.note
+        : `Wrote ${count} cited improvement(s). Nothing was invented.`,
+    outputs: ["improvements.json"],
+    provenance: {
+      no_improve: ctx.noImprove === true,
+      evidence_file: ctx.improvementsFile ?? null,
+      improve_board: board,
+      count,
+      skipped: improvements.skipped.length,
+      improvements_path: "improvements.json",
+    },
+  };
+}
+
 async function stageRebuild(ctx) {
   const productDir = join(ctx.outDir, "product");
+  const spec = specWithImprovements(ctx.spec, ctx.improvements, ctx.now);
   const built = scaffoldRebuild({
-    spec: ctx.spec,
+    spec,
     productName: ctx.run.product_name,
     outDir: productDir,
     now: ctx.now,
+    improvements: ctx.improvements,
   });
   ctx.productDir = productDir;
   ctx.buildId = built.build_id;
@@ -590,6 +649,7 @@ async function stageRebuild(ctx) {
     outputs: [
       "product/provenance.json",
       "product/behavior-spec.json",
+      "product/improvements.json",
       "product/src/server.mjs",
     ],
     provenance: {
@@ -603,7 +663,10 @@ async function stageRebuild(ctx) {
 async function stageVerify(ctx) {
   const verify = verifyRebuild(ctx.productDir);
   ctx.verify = verify;
-  const accuracy = accuracyReport(ctx.spec, verify);
+  const accuracy = accuracyReport(
+    specWithImprovements(ctx.spec, ctx.improvements, ctx.now),
+    verify,
+  );
   writeJson(join(ctx.outDir, "accuracy.json"), accuracy);
   writeJson(join(ctx.outDir, "verify.json"), publicVerify(verify));
   const problems = [];
@@ -794,6 +857,7 @@ const STAGE_RUNNERS = {
   investigate: stageInvestigate,
   findings: stageFindings,
   spec: stageSpec,
+  improve: stageImprove,
   rebuild: stageRebuild,
   verify: stageVerify,
   package: stagePackage,
@@ -866,6 +930,9 @@ export async function runProductPipeline({
   sharedDir = undefined,
   boxShared = undefined,
   boxBoard = undefined,
+  improvementsFile = null,
+  noImprove = false,
+  improveBoard = undefined,
 }) {
   if (!target || !outDir)
     throw new Error("Use pipeline TARGET --out DIR [--name NAME].");
@@ -905,6 +972,10 @@ export async function runProductPipeline({
     sharedDir,
     boxShared,
     boxBoard,
+    improvementsFile,
+    noImprove: noImprove === true,
+    improveBoard,
+    improvements: null,
   };
   publish(ctx);
   for (const stage of run.stages) {

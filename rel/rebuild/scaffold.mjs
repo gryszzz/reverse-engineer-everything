@@ -563,6 +563,11 @@ function featureLabel(feature, spec) {
   return `${id} (${name})`;
 }
 
+function markedFeature(feature, spec) {
+  const label = featureLabel(feature, spec);
+  return feature?.origin === "improvement" ? `${label} (improvement)` : label;
+}
+
 function featureLines(spec, plan) {
   const byId = new Map(
     (spec.features ?? []).map((feature) => [feature.id, feature]),
@@ -576,7 +581,7 @@ function featureLines(spec, plan) {
   else {
     for (const item of implemented) {
       const feature = byId.get(item.id) ?? item;
-      lines.push(`- ${featureLabel(feature, spec)}`);
+      lines.push(`- ${markedFeature(feature, spec)}`);
     }
   }
   lines.push("", "Left out:");
@@ -584,7 +589,7 @@ function featureLines(spec, plan) {
   else {
     for (const item of plan.leftOut) {
       const feature = byId.get(item.id) ?? item;
-      lines.push(`- ${featureLabel(feature, spec)}: ${item.reason}.`);
+      lines.push(`- ${markedFeature(feature, spec)}: ${item.reason}.`);
     }
   }
   return lines;
@@ -787,6 +792,7 @@ export function scaffoldRebuild({
   now = new Date(),
   onEvent,
   pack = true,
+  improvements = null,
 }) {
   if (typeof productName !== "string" || !productName.trim())
     throw new Error("A new product name is required.");
@@ -865,6 +871,7 @@ export function scaffoldRebuild({
       "A path with one {name} segment gets get, update, and delete on the parent collection. Other path templates are not expanded.",
       "Search, relations, accounts, roles, webhooks, and a Stripe test checkout are built only when the spec supports them. A live Stripe key is refused.",
       "GraphQL operations, workflows, and rate limits are not built.",
+      "An improvement is an extra feature only when a Scout, Scale, or build pick records a quote. That quote is not copied into the product source.",
     ],
   };
   const manifest = {
@@ -924,6 +931,8 @@ export function scaffoldRebuild({
   write("NOTICE", NOTICE_TEXT);
   write("PRICING.md", pricingText(spec));
   write("FEATURE_REPORT.md", report);
+  if (improvements)
+    write("improvements.json", JSON.stringify(improvements, null, 2) + "\n");
   write(
     "coverage.json",
     JSON.stringify(plannedCoverage(plan, spec.features.length), null, 2) + "\n",

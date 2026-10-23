@@ -11,6 +11,7 @@ import {
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectGaps } from "../gaps/report.mjs";
+import { emptyBuildImprovements } from "../improve/collect.mjs";
 import { emitHandoff } from "../handoff/emit.mjs";
 import { runProductPipeline } from "../pipeline/run.mjs";
 import {
@@ -170,6 +171,7 @@ export function createBuild(root, body) {
       projectDir: outDir,
       forbidden: [spec?.target?.name].filter(Boolean),
     }),
+    improvements: emptyBuildImprovements(),
   };
 }
 
@@ -332,6 +334,7 @@ export function startLiveBuild(root, body) {
           projectDir: outDir,
           forbidden: [spec?.target?.name].filter(Boolean),
         });
+        status.improvements = emptyBuildImprovements();
         status.finished = true;
         status.package_ready = verify.exit_code === 0 && verify.failed === 0;
         status.status = status.package_ready ? "verified" : "failed";
