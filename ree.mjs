@@ -42,7 +42,7 @@ const help = [
   "                                                OpenAPI, HTML, or a docs folder into that spec",
   "node ree.mjs read INPUT --out DIR [--name NAME] [--authorized] [--json]",
   "                                                Public URL, API file, npm, GitHub, or a local folder",
-  "node ree.mjs pipeline TARGET --out DIR [--name NAME] [--resume] [--authorized]",
+  "node ree.mjs pipeline TARGET --out DIR [--name NAME] [--resume] [--authorized] [--improvements FILE] [--no-improve]",
   "                                                Directory, or a public URL that is its own scope",
   "node ree.mjs opportunities ingest FILE --out DIR",
   "node ree.mjs opportunities list --data DIR",
