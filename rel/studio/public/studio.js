@@ -1063,7 +1063,7 @@ function buildPanel() {
     !result
       ? emptyState(
           "No build yet",
-          "Paste a spec and a product name that is not the spec target. Each feature gets CRUD routes and a behavior test. A path with one {name} segment is built on the parent collection. Any other path template is left out. Pipeline picks are on Board, under Advanced.",
+          "Paste a spec and a product name that is not the spec target. Each feature gets CRUD routes and a behavior test. A path with one {name} segment gets get, update, and delete on the parent collection. JSON request bodies are accepted. Any other path template is left out. Pipeline picks are on Board, under Advanced.",
           null,
           null,
         )

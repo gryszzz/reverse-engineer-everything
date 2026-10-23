@@ -41,7 +41,7 @@ const help = [
   "node ree.mjs ingest-docs <url-or-dir> --out DIR [--name NAME] [--json]",
   "                                                OpenAPI, HTML, or a docs folder into that spec",
   "node ree.mjs pipeline TARGET --out DIR [--name NAME] [--resume] [--authorized]",
-  "                                                Directory, or an http(s) URL that needs --authorized",
+  "                                                Directory, or a public URL that is its own scope",
   "node ree.mjs opportunities ingest FILE --out DIR",
   "node ree.mjs opportunities list --data DIR",
   "node ree.mjs board picks --data DIR",

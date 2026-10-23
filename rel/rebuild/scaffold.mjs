@@ -12,7 +12,7 @@ import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertValidBehaviorSpec } from "../outside-in/validate.mjs";
 import { plannedCoverage } from "./coverage.mjs";
-import { SERVER_SOURCE, TEST_SOURCE } from "./product-source.mjs";
+import { serverSource, TEST_SOURCE } from "./product-source.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
@@ -157,8 +157,8 @@ function parametersOf(endpoint) {
  * A feature whose name equals an endpoint summary or operation id uses that
  * concrete path. A feature with no such endpoint gets its own collection.
  * Declared GET, POST, PUT, PATCH, and DELETE endpoints are built even when
- * no feature name matches them. A path with one {name} segment is one
- * route on the parent collection. Other path templates stay out.
+ * no feature name matches them. A path with one {name} segment gets get,
+ * update, and delete on the parent collection. Other path templates stay out.
  */
 export function planProduct(spec) {
   const quotes = quotesIn(spec);
@@ -262,7 +262,64 @@ export function planProduct(spec) {
       if (!stored) return null;
       made.push(stored);
     }
+    ensureItemVerbs(resource);
     return made;
+  }
+
+  function itemParam(collection) {
+    for (const endpoint of endpoints) {
+      const built = buildable(endpoint);
+      if (built.ok && built.item && built.item.collection === collection)
+        return built.item.param;
+    }
+    return "id";
+  }
+
+  function ensureItemVerbs(resource) {
+    const param = itemParam(resource.path);
+    const itemPath = `${resource.path}/{${param}}`;
+    const verbs = [
+      ["GET", "read", []],
+      ["PUT", "replace", resource.parameters],
+      ["PATCH", "merge", resource.parameters],
+      ["DELETE", "remove", []],
+    ];
+    for (const [method, action, fallbackParameters] of verbs) {
+      if (
+        routes.some(
+          (route) => route.method === method && route.path === itemPath,
+        )
+      )
+        continue;
+      const endpoint = endpoints.find((item) => {
+        const built = buildable(item);
+        return (
+          built.ok &&
+          built.path === itemPath &&
+          built.method === method &&
+          built.item
+        );
+      });
+      storeRoute({
+        method,
+        path: itemPath,
+        path_param: param,
+        collection: resource.path,
+        operation_id: endpoint?.operation_id ?? null,
+        parameters: endpoint ? parametersOf(endpoint) : fallbackParameters,
+        success_status: endpoint
+          ? successStatus(method, endpoint.response_codes)
+          : 200,
+        body:
+          endpoint?.body === "json" || method === "PUT" || method === "PATCH"
+            ? "json"
+            : null,
+        resource: resource.id,
+        action,
+        model: resource.model,
+        rules: resource.rules,
+      });
+    }
   }
 
   function collectionPath(feature) {
@@ -561,8 +618,8 @@ function readmeText(productName, spec, plan) {
       "Each built feature has a data model, write rules, and CRUD routes.",
       'GET returns `{ "items": [] }` with the model and rules.',
       "POST creates a record with an id and the field values. A query string, a form body, or a JSON object is accepted.",
-      "PUT and PATCH update that record when `id` is set in the query string or in a single `{name}` path, and append one when it is not.",
-      "DELETE with `id` removes that record. DELETE without `id` clears the collection.",
+      "PUT and PATCH update that record when `id` is in the path or the query string, and append one when it is not.",
+      "DELETE with `id` in the path or the query string removes that record. DELETE without `id` clears the collection.",
       'Both return `{ "deleted": true }`.',
       "A missing required field, a duplicate unique field, or a value longer than 80 characters returns 400.",
       "The success status is 200 or 201 when the spec lists that code. Otherwise POST uses 201 and the other methods use 200.",
@@ -592,7 +649,7 @@ function readmeText(productName, spec, plan) {
     "## Not implemented",
     "",
     "GraphQL, workflows, a pricing checkout, integrations, authentication, and rate limits are not built.",
-    "A path with one {name} segment is one route on the parent collection. GET reads one record and answers 404 when that id is missing.",
+    "A path with one {name} segment gets get, update, and delete on the parent collection. GET reads one record and answers 404 when that id is missing.",
     "Any other path template, or a method other than GET, POST, PUT, PATCH, and DELETE, is left out.",
     "",
     "See FEATURE_REPORT.md for the same implemented and left-out lists.",
@@ -790,7 +847,7 @@ export function scaffoldRebuild({
       "A feature with no matching endpoint gets its own collection.",
       "Declared GET, POST, PUT, PATCH, and DELETE endpoints are built even when no feature name matches.",
       "Records are stored in data/store.json. GET / is the product page. JSON field objects are accepted.",
-      "A path with one {name} segment is one route on the parent collection. Other path templates are not expanded.",
+      "A path with one {name} segment gets get, update, and delete on the parent collection. Other path templates are not expanded.",
       "GraphQL, workflows, pricing checkout, integrations, authentication, and rate limits are not built.",
     ],
   };
@@ -875,7 +932,7 @@ export function scaffoldRebuild({
       "",
     ].join("\n"),
   );
-  write("src/server.mjs", SERVER_SOURCE);
+  write("src/server.mjs", serverSource(name));
   write("test/product.test.mjs", TEST_SOURCE);
   write("behavior-spec.json", JSON.stringify(spec, null, 2) + "\n");
   write("provenance.json", JSON.stringify(provenance, null, 2) + "\n");
