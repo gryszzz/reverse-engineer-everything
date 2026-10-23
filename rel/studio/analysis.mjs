@@ -25,6 +25,7 @@ import {
   appendTimeline,
   evidenceTimeline,
   parseProgressLine,
+  readTimeline,
 } from "./theater.mjs";
 
 const active = new Map();
@@ -368,7 +369,8 @@ function finishJavascript(
       const evidencePath = join(output, "evidence.json");
       if (statSync(evidencePath).size <= 8_000_000) {
         const record = JSON.parse(readFileSync(evidencePath, "utf8"));
-        for (const event of evidenceTimeline(record))
+        const prior = readTimeline(output);
+        for (const event of evidenceTimeline(record, prior))
           appendTimeline(output, event);
       }
     } catch {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -239,4 +239,77 @@ test("onboarding, board ingest, and a dry-run build are live studio routes", asy
     (feature) => feature.name === "Shared boards",
   );
   assert.equal(shared.match, "unimplemented");
+});
+
+test("a live build shows files and tests, then packages on request", async () => {
+  const value = spec();
+  value.features.push({
+    id: "feature:create-a-board",
+    name: "Create a board",
+    detail: "People create a board from the client.",
+    origin: "docs",
+    citations: value.features[0].citations,
+  });
+  const empty = await api("/api/live-builds", {
+    method: "POST",
+    body: {
+      product_name: "Board Kit",
+      spec: value,
+      feature_ids: [],
+    },
+  });
+  assert.equal(empty.status, 400);
+  const started = await api("/api/live-builds", {
+    method: "POST",
+    body: {
+      product_name: "Board Kit",
+      spec: value,
+      feature_ids: ["feature:shared-boards"],
+    },
+  });
+  assert.equal(started.status, 201, JSON.stringify(started.body));
+  assert.match(started.body.live_id, /^live_[a-f0-9]{16}$/u);
+  let snapshot = null;
+  const deadline = Date.now() + 20000;
+  while (Date.now() < deadline) {
+    const polled = await api("/api/live-builds/" + started.body.live_id);
+    assert.equal(polled.status, 200);
+    snapshot = polled.body;
+    if (snapshot.finished === true) break;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 30));
+  }
+  assert.equal(snapshot.finished, true, JSON.stringify(snapshot));
+  assert.equal(snapshot.status, "verified", snapshot.error);
+  assert.equal(snapshot.package_path, null);
+  assert.equal(existsSync(snapshot.out_dir + "/product.tgz"), false);
+  assert.ok(snapshot.events.some((event) => event.phase === "spec-item"));
+  assert.ok(
+    snapshot.events.some(
+      (event) => event.phase === "file" && event.file === "src/server.mjs",
+    ),
+  );
+  assert.ok(snapshot.events.some((event) => event.phase === "test"));
+  const written = JSON.parse(
+    readFileSync(snapshot.out_dir + "/behavior-spec.json", "utf8"),
+  );
+  assert.deepEqual(
+    written.features.map((feature) => feature.id),
+    ["feature:shared-boards"],
+  );
+  assert.equal(
+    written.features.some((feature) => feature.id === "feature:create-a-board"),
+    false,
+  );
+  const packaged = await api(
+    "/api/live-builds/" + started.body.live_id + "/package",
+    {
+      method: "POST",
+      body: {},
+    },
+  );
+  assert.equal(packaged.status, 201, JSON.stringify(packaged.body));
+  assert.equal(existsSync(packaged.body.package_path), true);
+  const readme = readFileSync(snapshot.out_dir + "/README.md", "utf8");
+  assert.equal(readme.includes("Widget Cloud"), false);
+  assert.equal(packaged.body.dry_run, true);
 });

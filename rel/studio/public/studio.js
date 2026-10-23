@@ -35,6 +35,11 @@ const state = {
   buildSpec: "",
   pipeline: null,
   pipelineRunId: null,
+  draft: null,
+  draftChecks: {},
+  liveBuild: null,
+  liveBuildId: null,
+  selectedFact: null,
   onboardingSeen: true,
   explain: null,
   tour: false,
@@ -513,6 +518,10 @@ function theaterStats(events) {
     fileTotal: latest?.file_total ?? null,
     modules: modules.size,
     edges: events.filter((event) => event.phase === "edge").length,
+    functions: events.filter((event) => event.phase === "function").length,
+    calls: events.filter((event) => event.phase === "call").length,
+    strings: events.filter((event) => event.phase === "string").length,
+    behaviors: events.filter((event) => event.phase === "behavior").length,
     evidence: evidence?.evidence_id ?? null,
     provider: events.find((event) => event.provider)?.provider ?? "unrecorded",
   };
@@ -529,12 +538,20 @@ function elapsedLabel(events) {
 
 function theaterGraph(events) {
   const files = [];
+  const add = (file) => {
+    if (typeof file === "string" && file && !files.includes(file))
+      files.push(file);
+  };
   for (const event of events) {
-    if (event.file && !files.includes(event.file)) files.push(event.file);
+    if (event.phase === "call") {
+      add(event.from);
+      add(event.to);
+    } else add(event.file);
   }
-  const edges = events.filter(
-    (event) => event.phase === "edge" && event.to && files.includes(event.from),
-  );
+  const edges = events.filter((event) => {
+    if (event.phase !== "edge" && event.phase !== "call") return false;
+    return event.to && files.includes(event.from) && files.includes(event.to);
+  });
   return { files, edges };
 }
 
@@ -652,6 +669,216 @@ async function pollPipeline(ticket) {
   }
 }
 
+let livePoll = 0;
+
+function factForStatement(statement) {
+  const events = state.timeline.filter(
+    (event) => event.evidence_id && event.evidence_id === statement.evidence_id,
+  );
+  const named = events.filter(
+    (event) =>
+      typeof event.fact === "string" && statement.text?.includes(event.fact),
+  );
+  if (named.length === 1) return named[0];
+  const mint = events.find((event) => event.phase === "evidence");
+  if (mint)
+    return {
+      ...mint,
+      path: statement.path,
+      sentence: statement.text,
+    };
+  return {
+    source: "evidence",
+    phase: "finding",
+    message: statement.text,
+    evidence_id: statement.evidence_id,
+    path: statement.path,
+    produced_by: {
+      phase: null,
+      message: null,
+      note: "No progress line names this fact. It was read from Evidence.",
+    },
+  };
+}
+
+async function pollLive(ticket) {
+  if (ticket !== livePoll || !state.liveBuildId) return;
+  try {
+    const snapshot = await api("/api/live-builds/" + state.liveBuildId);
+    if (ticket !== livePoll) return;
+    state.liveBuild = snapshot;
+    if (snapshot.finished && snapshot.error) {
+      state.error = snapshot.error;
+      state.notice = "";
+    } else if (snapshot.finished && snapshot.status === "verified")
+      state.notice =
+        "Tests finished. Package as product writes the tarball. Sell steps stay a dry run.";
+    else if (snapshot.status === "packaged")
+      state.notice = snapshot.package_path
+        ? `Packaged ${snapshot.package_path}. Guard was not called.`
+        : "Packaged. Guard was not called.";
+    draw();
+    if (!snapshot.finished) setTimeout(() => pollLive(ticket), 200);
+  } catch (error) {
+    if (ticket !== livePoll) return;
+    setError(error);
+  }
+}
+
+async function startLive(body) {
+  const started = await api("/api/live-builds", { method: "POST", body });
+  state.liveBuildId = started.live_id;
+  state.liveBuild = {
+    live_id: started.live_id,
+    status: "running",
+    finished: false,
+    events: [],
+  };
+  state.error = "";
+  state.notice = "Build is writing files, then running tests.";
+  livePoll += 1;
+  draw();
+  pollLive(livePoll);
+}
+
+async function buildFromThis() {
+  const run = latestRun();
+  if (!run || !state.project)
+    throw new Error("Complete an investigation before building.");
+  const draft = await api(
+    `/api/projects/${state.project.id}/runs/${run.id}/spec-draft`,
+    { method: "POST", body: {} },
+  );
+  state.draft = draft;
+  state.draftChecks = Object.fromEntries(
+    (draft.features ?? []).map((feature) => [feature.id, true]),
+  );
+  if (!state.buildName) state.buildName = "REE Product";
+  state.view = "build";
+  state.notice = draft.note;
+  draw();
+}
+
+function draftCard() {
+  const draft = state.draft;
+  if (!draft) return null;
+  const features = draft.features ?? [];
+  return el("article", { class: "card" }, [
+    el("h3", {}, "Spec from this investigation"),
+    el("p", {}, draft.note || ""),
+    features.length === 0
+      ? el(
+          "p",
+          { class: "empty" },
+          "No feature was recovered. Nothing was invented.",
+        )
+      : el(
+          "div",
+          { class: "stack" },
+          features.map((feature) =>
+            el("label", { class: "check" }, [
+              el("input", {
+                type: "checkbox",
+                checked: state.draftChecks[feature.id] ? "checked" : false,
+                onchange: (event) => {
+                  state.draftChecks[feature.id] = event.target.checked;
+                },
+              }),
+              `${feature.name}. ${feature.detail}`,
+            ]),
+          ),
+        ),
+    features.length
+      ? button(
+          "Rebuild and verify",
+          () => {
+            const ids = features
+              .filter((feature) => state.draftChecks[feature.id])
+              .map((feature) => feature.id);
+            const run = latestRun();
+            return startLive({
+              product_name: state.buildName || "REE Product",
+              project_id: state.project.id,
+              run_id: run.id,
+              feature_ids: ids,
+            });
+          },
+          { class: "primary" },
+        )
+      : null,
+  ]);
+}
+
+function liveCard(live) {
+  if (!live) return null;
+  const events = live.events ?? [];
+  return el("article", { class: "card" }, [
+    el("h3", {}, `Live build ${live.status || "running"}`),
+    live.verify
+      ? el(
+          "p",
+          {},
+          `Implemented ${live.verify.implemented}. Unimplemented ${live.verify.unimplemented}. Failed ${live.verify.failed}.`,
+        )
+      : el(
+          "p",
+          { class: "note" },
+          "Files and tests appear as they are recorded.",
+        ),
+    events.length
+      ? el(
+          "ol",
+          { class: "timeline" },
+          events.map((event) =>
+            el(
+              "li",
+              {
+                class: statusClass(
+                  event.match === "fail" || event.status === "failed"
+                    ? "failed"
+                    : event.match === "pass" ||
+                        event.phase === "file" ||
+                        event.status === "implemented"
+                      ? "completed"
+                      : event.phase === "test"
+                        ? "running"
+                        : "recorded",
+                ),
+              },
+              `${event.phase} ${event.message}`,
+            ),
+          ),
+        )
+      : null,
+    live.package_ready && !live.package_path
+      ? button("Package as product", () => packageLive(), { class: "primary" })
+      : null,
+    live.package_path ? el("p", {}, `Package ${live.package_path}`) : null,
+    live.handoff_dir
+      ? el(
+          "p",
+          { class: "note" },
+          `Dry-run handoff ${live.handoff_dir}. Guard was not called.`,
+        )
+      : null,
+    live.handoff_error ? el("p", {}, live.handoff_error) : null,
+    live.error ? el("p", { class: "bad" }, live.error) : null,
+  ]);
+}
+
+async function packageLive() {
+  state.liveBuild = await api(
+    "/api/live-builds/" + state.liveBuildId + "/package",
+    {
+      method: "POST",
+      body: {},
+    },
+  );
+  state.notice =
+    "Packaged product.tgz. Guard, Blast, Scale, and Vault were not called.";
+  draw();
+}
+
 function buildPanel() {
   const name = el("input", {
     id: "build-name",
@@ -676,6 +903,7 @@ function buildPanel() {
   const result = state.build;
   const pipeline = state.pipeline;
   const pipelineRunning = pipeline && pipeline.finished !== true;
+  const live = state.liveBuild;
   return el("section", { class: "panel" }, [
     el("h2", {}, "Build"),
     el(
@@ -683,6 +911,8 @@ function buildPanel() {
       {},
       "Writes a clean-room HTTP product from a behavior spec. A feature becomes a route only when its name matches an endpoint. Quotes are not copied. The handoff is a dry run: Blast is not notified, Guard is not called, and Vault is not copied.",
     ),
+    draftCard(),
+    liveCard(live),
     !result
       ? emptyState(
           "No build yet",
@@ -715,13 +945,10 @@ function buildPanel() {
     button("Build and verify", async () => {
       state.buildName = name.value;
       state.buildSpec = spec.value;
-      state.build = await api("/api/builds", {
-        method: "POST",
-        body: { product_name: name.value, spec: JSON.parse(spec.value) },
+      await startLive({
+        product_name: name.value,
+        spec: JSON.parse(spec.value),
       });
-      state.notice =
-        "Build written. Matching HTTP features were tested. Features that do not name an endpoint stay unimplemented.";
-      draw();
     }),
     el("article", { class: "card" }, [
       el("h3", {}, "Owned web pipeline"),
@@ -849,14 +1076,27 @@ function theaterPanel() {
           : String(stats.files),
       ),
       stat("Modules", String(stats.modules)),
-      stat("Edges", String(stats.edges)),
+      stat("Functions", String(stats.functions)),
+      stat("Imports", String(stats.edges)),
+      stat("Calls", String(stats.calls)),
+      stat("Strings", String(stats.strings)),
+      stat("Behaviors", String(stats.behaviors)),
       stat(
         "Evidence",
         stats.evidence ? stats.evidence.slice(0, 12) + "…" : "not yet",
       ),
     ]),
     stageRow(),
+    recordedPhaseRow(events),
     holder,
+    factCard(),
+    events.length > 0 && !events.some((event) => event.phase === "hypothesis")
+      ? el(
+          "p",
+          { class: "note" },
+          "No hypothesis decision was recorded for this run.",
+        )
+      : null,
     events.length
       ? el(
           "ol",
@@ -864,17 +1104,14 @@ function theaterPanel() {
           events.map((event) =>
             el("li", {}, [
               el("span", { class: "phase" }, event.phase),
-              el("span", {}, event.message),
-              event.phase === "module" && event.file
-                ? button("Explain this", () =>
-                    showExplain({
-                      kind: "module",
-                      label: event.file,
-                      node_kind: "javascript-module",
-                      evidence_id: stats.evidence,
-                    }),
-                  )
-                : null,
+              button(
+                event.message,
+                () => {
+                  state.selectedFact = event;
+                  draw();
+                },
+                { class: "quiet" },
+              ),
             ]),
           ),
         )
@@ -909,6 +1146,59 @@ function theaterPanel() {
 
 function stat(label, value) {
   return el("div", {}, [el("dt", {}, label), el("dd", {}, value)]);
+}
+
+function recordedPhaseRow(events) {
+  const phases = [];
+  for (const event of events) {
+    if (typeof event.phase === "string" && !phases.includes(event.phase))
+      phases.push(event.phase);
+  }
+  if (phases.length === 0) return null;
+  return el(
+    "ol",
+    { class: "stages", "aria-label": "Recorded phases" },
+    phases.map((phase) =>
+      el("li", { class: "current", "data-stage": phase }, phase),
+    ),
+  );
+}
+
+function factCard() {
+  const event = state.selectedFact;
+  if (!event) return null;
+  const produced = event.produced_by;
+  const step = produced?.phase
+    ? `${produced.phase}: ${produced.message}`
+    : (produced?.note ??
+      "No progress line names this fact. It was read from Evidence.");
+  return el("article", { class: "card fact-card" }, [
+    el("h3", {}, "Recorded fact"),
+    el("p", {}, event.message || event.sentence || "No message was stored."),
+    el(
+      "p",
+      { class: "note" },
+      `Source: ${event.source || "unrecorded"}. Phase: ${event.phase || "unrecorded"}.`,
+    ),
+    event.evidence_id ? el("p", {}, `Evidence ${event.evidence_id}`) : null,
+    event.node_id ? el("p", {}, `Node ${event.node_id}`) : null,
+    event.relation_id ? el("p", {}, `Relation ${event.relation_id}`) : null,
+    event.path ? el("p", {}, `Path ${event.path}`) : null,
+    event.state ? el("p", {}, `Evidence state: ${event.state}.`) : null,
+    event.authority ? el("p", {}, `Authority: ${event.authority}.`) : null,
+    event.location?.line
+      ? el(
+          "p",
+          {},
+          `Location line ${event.location.line}${event.location.column === null || event.location.column === undefined ? "" : `, column ${event.location.column}`}.`,
+        )
+      : null,
+    el("p", {}, `Producing step: ${step}`),
+    button("Close", () => {
+      state.selectedFact = null;
+      draw();
+    }),
+  ]);
 }
 
 function stageRow() {
@@ -946,7 +1236,7 @@ function theaterSvg(graph) {
   title.textContent =
     graph.files.length === 0
       ? "No parsed file has been reported yet."
-      : "Files the engine reported while parsing.";
+      : "Files and calls named by recorded events.";
   svg.append(title);
   const yOf = new Map();
   graph.files.forEach((file, index) => {
@@ -984,11 +1274,14 @@ function theaterSvg(graph) {
     const to = yOf.get(edge.to);
     if (from === undefined || to === undefined) continue;
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    const call = edge.phase === "call";
     path.setAttribute(
       "d",
-      `M 236 ${from + 16} C 300 ${from + 16}, 300 ${to + 16}, 236 ${to + 16}`,
+      call
+        ? `M 236 ${from + 16} C 420 ${from + 16}, 420 ${to + 16}, 236 ${to + 16}`
+        : `M 236 ${from + 16} C 300 ${from + 16}, 300 ${to + 16}, 236 ${to + 16}`,
     );
-    path.setAttribute("class", "edge-line");
+    path.setAttribute("class", call ? "edge-line edge-call" : "edge-line");
     svg.append(path);
   }
   const minimap = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -1554,6 +1847,7 @@ function findingsPanel() {
           },
         ),
     holder,
+    factCard(),
     state.edge ? edgeDetail() : null,
     state.source ? sourceDetail() : null,
     mode() === "advanced"
@@ -1563,9 +1857,12 @@ function findingsPanel() {
           { class: "note" },
           "Advanced opens readiness, the exact command, and the rest of the workspace.",
         ),
+    run
+      ? button("Build from this", () => buildFromThis(), { class: "primary" })
+      : null,
     nextStep(
       run
-        ? "Next: open Build to scaffold a new folder from a behavior spec. Build does not copy this target."
+        ? "Next: Build from this. Review the spec, uncheck features you do not want, then rebuild and verify."
         : "Next: finish an analysis. Build is for a behavior spec, not for copying this target.",
     ),
   ]);
@@ -1758,6 +2055,12 @@ function runCard(run) {
             unknowns: run.narrative?.unknowns ?? [],
           }),
         ),
+        " ",
+        button("Show evidence", () => {
+          state.selectedFact = factForStatement(statement);
+          state.view = "findings";
+          draw();
+        }),
       ]),
     );
   if ((run.narrative?.unknowns ?? []).length)
@@ -1909,6 +2212,9 @@ function evidenceResult(result) {
     (narrative?.unknowns ?? []).length
       ? el("p", { class: "note" }, `Unknowns: ${narrative.unknowns.join(" ")}`)
       : null,
+    latestRun()
+      ? button("Build from this", () => buildFromThis(), { class: "primary" })
+      : null,
     el(
       "ul",
       {},
@@ -2038,6 +2344,9 @@ function researchPanel() {
       disabled: !config?.enabled,
     }),
     ...sessions.slice(-1).map(sessionCard),
+    latestRun()
+      ? button("Build from this", () => buildFromThis(), { class: "primary" })
+      : null,
   ]);
 }
 
