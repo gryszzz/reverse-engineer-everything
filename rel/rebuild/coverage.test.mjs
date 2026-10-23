@@ -61,6 +61,10 @@ test("the owned desk fixture stays at or above 80 percent", async () => {
     assert.equal(byName["Archive a board"].status, "implemented");
     assert.equal(byName["Open a board"].status, "implemented");
     assert.equal(byName["Open a board"].reason, null);
+    assert.equal(measured.verify.total, 6);
+    assert.equal(measured.verify.implemented, 6);
+    assert.equal(measured.verify.unimplemented, 0);
+    assert.equal(measured.verify.failed, 0);
     assert.equal(byName["Open a board"].route.path, "/boards/{id}");
     const source = ["behaviors.mjs", "routes.mjs", "server.mjs"]
       .map((name) => readFileSync(join(measured.product, "src", name), "utf8"))
@@ -111,7 +115,26 @@ test("the owned desk fixture stays at or above 80 percent", async () => {
         body: JSON.stringify({ boardName: "beta" }),
       });
       assert.equal(jsonCreated.status, 201);
-      assert.equal((await jsonCreated.json()).boardName, "beta");
+      const beta = await jsonCreated.json();
+      assert.equal(beta.boardName, "beta");
+      const changed = await fetch(
+        `http://127.0.0.1:${port}/boards/${beta.id}`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ boardName: "gamma" }),
+        },
+      );
+      assert.equal(changed.status, 200);
+      assert.equal((await changed.json()).boardName, "gamma");
+      const removed = await fetch(
+        `http://127.0.0.1:${port}/boards/${beta.id}`,
+        { method: "DELETE" },
+      );
+      assert.equal(removed.status, 200);
+      assert.equal((await removed.json()).deleted, true);
+      const gone = await fetch(`http://127.0.0.1:${port}/boards/${beta.id}`);
+      assert.equal(gone.status, 404);
       const badJson = await fetch(`http://127.0.0.1:${port}/boards`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -134,6 +157,10 @@ test("the owned desk fixture stays at or above 80 percent", async () => {
       assert.match(page.headers.get("content-type") ?? "", /^text\/html/);
       const html = await page.text();
       assert.match(html, /data-records/);
+      assert.match(html, /data-product="Desk Kit"/);
+      assert.equal(html.includes("Desk Ledger"), false);
+      assert.equal(html.includes("<h1>Product</h1>"), false);
+      assert.equal(html.includes("<h1>Records</h1>"), false);
       assert.equal(html.includes("Model:"), false);
       assert.match(html, /data-path="\/boards"/);
       assert.match(html, /data-item="\/boards\/\{id\}"/);

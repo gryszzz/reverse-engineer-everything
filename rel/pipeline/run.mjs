@@ -287,6 +287,13 @@ function httpTarget(value) {
   return url;
 }
 
+function urlTargetName(value) {
+  const hostname = new URL(value).hostname;
+  if (hostname.includes(":") || /^\d{1,3}(?:\.\d{1,3}){3}$/u.test(hostname))
+    return "REE public read";
+  return hostname;
+}
+
 function readIngestedSpec(dir) {
   const specPath = join(dir, "behavior-spec.json");
   let spec;
@@ -339,11 +346,11 @@ async function stageScope(ctx) {
   if (ctx.url) {
     ctx.mode = "outside-in-url";
     return {
-      message: `Authorized URL. Investigate will request ${ctx.url}.`,
+      message: `This URL is the authorization scope. Investigate will request ${ctx.url} and its robots.txt. Requests are rate-limited. There is no login.`,
       outputs: [],
       provenance: {
         mode: "outside-in-url",
-        authorization: "authorized",
+        authorization: "url",
         network: true,
         url: ctx.url,
       },
@@ -410,7 +417,7 @@ async function stageInvestigate(ctx) {
   if (ctx.mode === "outside-in-url") {
     const analysisDir = join(ctx.outDir, "analysis");
     const result = await analyzeOutsideIn({
-      target: { name: new URL(ctx.url).hostname, urls: [ctx.url] },
+      target: { name: urlTargetName(ctx.url), urls: [ctx.url] },
       fetchImpl: ctx.fetchImpl ?? undefined,
       outDir: analysisDir,
       now: () => ctx.now,
@@ -862,10 +869,6 @@ export async function runProductPipeline({
   if (!target || !outDir)
     throw new Error("Use pipeline TARGET --out DIR [--name NAME].");
   const parsedUrl = httpTarget(target);
-  if (parsedUrl && authorized !== true)
-    throw new Error(
-      "A URL needs --authorized. This run stopped before any request.",
-    );
   let fixture;
   let url = null;
   if (parsedUrl) {

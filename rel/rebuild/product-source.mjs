@@ -108,6 +108,8 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { routes } from "./routes.mjs";
 
+const PRODUCT_NAME = %%PRODUCT_NAME%%;
+
 export function createApp(dataDir) {
   const root = dataDir || process.env.REE_PRODUCT_DATA || process.cwd();
   const dataFile = join(root, "data", "store.json");
@@ -401,6 +403,12 @@ function send(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
+function markFrom(name) {
+  const parts = String(name).split(/\\s+/).filter(Boolean);
+  const letters = (parts[0] ? parts[0].charAt(0) : "R") + (parts[1] ? parts[1].charAt(0) : "");
+  return letters.toUpperCase();
+}
+
 function titleFrom(path) {
   const parts = String(path).split("/").filter(Boolean);
   const last = (parts[parts.length - 1] || "Records").replace(/[{}]/g, "");
@@ -486,9 +494,24 @@ function page() {
         '" data-param="' +
         escapeHtml(item.path_param)
       : "";
-    const open = item
-      ? '<button type="button" data-method="GET" data-item="1">Open</button>'
-      : "";
+    const verb = (label, method, primary, onItem) =>
+      '<button type="button"' +
+      (primary ? ' class="primary"' : "") +
+      ' data-method="' +
+      method +
+      '"' +
+      (onItem ? ' data-item="1"' : "") +
+      ">" +
+      label +
+      "</button>";
+    const open = item ? verb("Open", "GET", false, true) : "";
+    const change = item
+      ? verb("Update", "PUT", false, true) +
+        verb("Patch", "PATCH", false, true) +
+        verb("Delete", "DELETE", false, true)
+      : verb("Update", "PUT", false, false) +
+        verb("Patch", "PATCH", false, false) +
+        verb("Delete", "DELETE", false, false);
     const itemLine = item
       ? '<p class="quiet">One record <code>' +
         escapeHtml(item.path) +
@@ -508,15 +531,26 @@ function page() {
       inputs +
       '<label>id <input name="id" autocomplete="off"></label></div><p class="quiet">Rules: ' +
       escapeHtml(rules) +
-      '.</p><div class="actions"><button type="button" class="primary" data-method="GET">List</button><button type="button" class="primary" data-method="POST">Create</button>' +
+      '.</p><div class="actions">' +
+      verb("List", "GET", true, false) +
+      verb("Create", "POST", true, false) +
       open +
-      '<button type="button" data-method="PUT">Update</button><button type="button" data-method="PATCH">Patch</button><button type="button" data-method="DELETE">Delete</button></div><p class="status" data-status role="status"></p><div class="records" data-records></div></section>'
+      change +
+      '</div><p class="status" data-status role="status"></p><div class="records" data-records></div></section>'
     );
   });
   return (
-    '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Records</title><style>' +
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' +
+    escapeHtml(PRODUCT_NAME) +
+    "</title><style>" +
     PAGE_STYLE +
-    '</style></head><body><header class="top"><div class="brand"><p class="mark">Rec</p><div><h1>Records</h1><p class="quiet">Saved on this machine.</p></div></div><p class="quiet">data/store.json. Write rules are enforced.</p></header><main>' +
+    '</style></head><body><header class="top"><div class="brand"><p class="mark">' +
+    escapeHtml(markFrom(PRODUCT_NAME)) +
+    '</p><div><h1 data-product="' +
+    escapeHtml(PRODUCT_NAME) +
+    '">' +
+    escapeHtml(PRODUCT_NAME) +
+    '</h1><p class="quiet">A local record book.</p></div></div><p class="quiet">Saved on this machine.</p></header><main>' +
     sections.join("") +
     "</main><script>" +
     PAGE_SCRIPT +
@@ -555,6 +589,13 @@ if (entry && import.meta.url === pathToFileURL(resolve(entry)).href) {
   });
 }
 `;
+
+export function serverSource(productName) {
+  return SERVER_SOURCE.replaceAll(
+    "%%PRODUCT_NAME%%",
+    JSON.stringify(String(productName)),
+  );
+}
 
 export const TEST_SOURCE = `import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
@@ -600,11 +641,14 @@ for (const behavior of behaviors) {
       const primary = routes.find((item) => item.key === behavior.handler);
       assert.ok(primary, behavior.id);
       const owned = routes.filter((item) => item.resource === primary.resource);
+      const prefer = (action) =>
+        owned.find((item) => item.action === action && item.path_param) ??
+        owned.find((item) => item.action === action);
       const create = owned.find((item) => item.action === "create") ?? primary;
       const list = owned.find((item) => item.action === "list");
-      const update = owned.find((item) => item.action === "replace");
-      const merge = owned.find((item) => item.action === "merge");
-      const remove = owned.find((item) => item.action === "remove");
+      const update = prefer("replace");
+      const merge = prefer("merge");
+      const remove = prefer("remove");
       const dataDir = mkdtempSync(join(tmpdir(), "ree-product-"));
       const server = await listen(0, "127.0.0.1", dataDir);
       try {
@@ -620,6 +664,7 @@ for (const behavior of behaviors) {
           : 'data-path="' + primary.path + '"';
         assert.equal(html.includes(marker), true, primary.path);
         assert.equal(html.includes("application/json"), true);
+        assert.match(html, /data-product="/);
         const created = await call(base, create, "sample");
         assert.equal(created.status, create.success_status);
         const body = await created.json();
@@ -697,10 +742,7 @@ for (const behavior of behaviors) {
           assert.equal(updated.id, body.id);
         }
         if (remove) {
-          const gone = await fetch(
-            base + remove.path + "?id=" + encodeURIComponent(body.id),
-            { method: "DELETE" },
-          );
+          const gone = await call(base, remove, null, body.id);
           assert.equal(gone.status, remove.success_status);
           assert.equal((await gone.json()).deleted, true);
           if (list) {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import {
   existsSync,
   mkdtempSync,
@@ -12,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { emitHandoff, blastDirectory } from "../handoff/emit.mjs";
 import {
   ingestScout,
@@ -32,6 +33,34 @@ import { validateBehaviorSpec } from "../outside-in/validate.mjs";
 const home = mkdtempSync(join(tmpdir(), "ree-pipeline-"));
 const cli = fileURLToPath(new URL("../../ree.mjs", import.meta.url));
 process.on("exit", () => rmSync(home, { recursive: true, force: true }));
+
+function runChild(args, env, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, args, { env });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error("pipeline timed out"));
+    }, timeoutMs);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (status) => {
+      clearTimeout(timer);
+      resolve({ status, stdout, stderr });
+    });
+  });
+}
 
 const citation = {
   url: "https://widgets.example/docs",
@@ -872,22 +901,22 @@ test("pipeline resumes after a product name collision", () => {
   );
 });
 
-test("a URL enters the pipeline only after authorization", async () => {
+test("a public URL is the pipeline authorization scope", async () => {
   let called = false;
   const fetchImpl = async () => {
     called = true;
     throw new Error("fetch");
   };
-  await assert.rejects(
-    () =>
-      runProductPipeline({
-        target: "https://notes.example/keep",
-        outDir: join(home, "url-noauth"),
-        authorized: false,
-        fetchImpl,
-      }),
-    /A URL needs --authorized\. This run stopped before any request\./,
-  );
+  const refused = await runProductPipeline({
+    target: "http://127.0.0.1:9/notes",
+    outDir: join(home, "url-private"),
+    productName: "Note Kit",
+    fetchImpl,
+    minIntervalMs: 0,
+    sleep: async () => {},
+  });
+  assert.equal(refused.code, 1);
+  assert.match(refused.message, /Outside-in status is refused/);
   assert.equal(called, false);
   await assert.rejects(
     () =>
@@ -900,19 +929,6 @@ test("a URL enters the pipeline only after authorization", async () => {
     /Use a URL without embedded credentials\./,
   );
   assert.equal(called, false);
-  const denied = spawnSync(
-    process.execPath,
-    [
-      cli,
-      "pipeline",
-      "https://notes.example/keep",
-      "--out",
-      join(home, "cli-url"),
-    ],
-    { encoding: "utf8" },
-  );
-  assert.equal(denied.status, 2, denied.stderr);
-  assert.match(denied.stderr, /stopped before any request/);
 
   const calls = [];
   function pageResponse(body, type) {
@@ -941,7 +957,6 @@ test("a URL enters the pipeline only after authorization", async () => {
     target: "https://notes.example/keep",
     outDir: out,
     productName: "Note Kit",
-    authorized: true,
     fetchImpl: live,
     minIntervalMs: 0,
     sleep: async () => {},
@@ -965,7 +980,6 @@ test("a URL enters the pipeline only after authorization", async () => {
   const resumed = await runProductPipeline({
     target: "https://notes.example/keep",
     outDir: out,
-    authorized: true,
     resume: true,
     fetchImpl: async () => {
       throw new Error("resume fetched");
@@ -989,6 +1003,122 @@ test("a URL enters the pipeline only after authorization", async () => {
     /different target/,
   );
 });
+
+test(
+  "a fixture URL runs the pipeline, accepts JSON, and shows the product name",
+  { timeout: 120000 },
+  async () => {
+    const htmlPage = [
+      '<!doctype html><html><head><meta charset="utf-8"><title>Notes</title></head>',
+      "<body><h2>Keep a note</h2><p>A note has a short title.</p></body></html>",
+    ].join("");
+    const fixture = createServer((req, res) => {
+      const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+      if (path === "/robots.txt") {
+        res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+        res.end("User-agent: *\nAllow: /\n");
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(htmlPage);
+    });
+    await new Promise((resolveListen) =>
+      fixture.listen(0, "127.0.0.1", resolveListen),
+    );
+    const address = fixture.address();
+    const host = `127.0.0.1:${address.port}`;
+    const target = `http://${host}/notes`;
+    const out = join(home, "fixture-url");
+    const dataDir = mkdtempSync(join(tmpdir(), "ree-url-product-"));
+    try {
+      const child = await runChild(
+        [
+          cli,
+          "pipeline",
+          target,
+          "--name",
+          "Note Desk",
+          "--out",
+          out,
+          "--json",
+        ],
+        { ...process.env, REE_STUDIO_FIXTURE_HOST: host },
+        90000,
+      );
+      assert.equal(child.status, 0, child.stderr + "\n" + child.stdout);
+      const outcome = JSON.parse(child.stdout);
+      assert.equal(outcome.code, 0);
+      assert.equal(outcome.product_name, "Note Desk");
+      const scope = JSON.parse(
+        readFileSync(join(out, "checkpoints/scope.json"), "utf8"),
+      );
+      assert.equal(scope.provenance.authorization, "url");
+      assert.equal(scope.provenance.url, target);
+      const spec = JSON.parse(
+        readFileSync(join(out, "analysis/behavior-spec.json"), "utf8"),
+      );
+      assert.equal(spec.target.name, "REE public read");
+      const product = outcome.product_dir;
+      assert.equal(
+        readFileSync(join(product, "README.md"), "utf8").includes(host),
+        false,
+      );
+      const { routes } = await import(
+        pathToFileURL(join(product, "src/routes.mjs")).href
+      );
+      const { listen } = await import(
+        pathToFileURL(join(product, "src/server.mjs")).href
+      );
+      const create = routes.find((route) => route.method === "POST");
+      const read = routes.find(
+        (route) => route.action === "read" && route.path_param,
+      );
+      assert.ok(create, "a create route");
+      assert.ok(read, "a get-by-id route");
+      const server = await listen(0, "127.0.0.1", dataDir);
+      try {
+        const base = `http://127.0.0.1:${server.address().port}`;
+        const ui = await fetch(base + "/");
+        const html = await ui.text();
+        assert.match(html, /data-product="Note Desk"/);
+        assert.equal(html.includes(host), false);
+        const payload = {};
+        for (const name of create.parameters) payload[name] = "alpha";
+        const created = await fetch(base + create.path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        assert.equal(
+          created.status,
+          create.success_status,
+          await created.text(),
+        );
+        const body = JSON.parse(
+          readFileSync(join(dataDir, "data", "store.json"), "utf8"),
+        );
+        const record = Object.values(body)
+          .flatMap((bucket) => bucket.items ?? [])
+          .find((item) => item.id);
+        assert.ok(record);
+        const opened = await fetch(
+          base +
+            read.path.replace(
+              "{" + read.path_param + "}",
+              encodeURIComponent(record.id),
+            ),
+        );
+        assert.equal(opened.status, 200);
+        assert.equal((await opened.json()).id, record.id);
+      } finally {
+        await new Promise((resolveClose) => server.close(resolveClose));
+      }
+    } finally {
+      await new Promise((resolveClose) => fixture.close(resolveClose));
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  },
+);
 
 test("package writes the shared board when that directory already exists", async () => {
   const web = fileURLToPath(
