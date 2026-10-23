@@ -602,7 +602,17 @@ node ree.mjs studio --open</code></pre>
   --url https://widgets.example/ \
   --docs https://widgets.example/openapi.yaml \
   --out /tmp/widgets-spec \
-  --json</code></pre>
+  --json
+
+node ree.mjs ingest-docs https://notes.example/openapi.yaml \
+  --out /tmp/notes-spec</code></pre>
+        <p>
+          <code>ingest-docs</code> also reads a local OpenAPI, HTML, or Markdown
+          folder and writes <code>ingest.json</code> with endpoint paths,
+          features, and pricing tiers. A URL is one document. It is not crawled,
+          and it does not log in. <code>pipeline</code> accepts that spec
+          directory and does not fetch it again.
+        </p>
         <div class="grid">
           <article class="card">
             <h3>Public documents only</h3>

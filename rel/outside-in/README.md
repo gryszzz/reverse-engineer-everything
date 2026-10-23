@@ -6,6 +6,10 @@ BLAST's ANALYZE adapter, can read. The command is opt-in. `inspect`,
 `analyze`, the Investigation Studio, and the REA engine keep their current
 behavior.
 
+`node ree.mjs ingest-docs <url-or-dir> --out DIR` uses this collector. A
+directory is local. A URL is one public document: robots, a one-second gap,
+and no login. The pipeline accepts the written `behavior-spec.json`.
+
 It does not need `npm run build:cached`. It uses Node's HTTP client, so the
 same command runs on Linux and other headless hosts. It does not use the Mac
 app, a browser, or a GUI.

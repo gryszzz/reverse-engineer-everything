@@ -8,6 +8,8 @@ Go and Rust cases write owned ELF, PE, and thin Mach-O images at run time with `
 
 `statistics.modules` counts bundler registrations. The bench reads source-module graph nodes instead.
 
+`docs/` is an owned public-docs folder: OpenAPI, an HTML reference, Markdown, and a pricing page. `node ree.mjs bench` runs `ingest-docs` on it. Ground truth is the headings, endpoint lines, resource paths, quotes, and tier names that are in those files. `skip-me.js`, `notes.txt`, and `a/b/c/d/e/` are outside the ingest and are not expected findings. The walker also skips `node_modules`; that directory is not part of this fixture. A URL ingest is not part of this case. Rate-limit amounts stay in the behavior spec; the scorer has no rate-limit type.
+
 These recoveries stay out of the ground truth because the static facts do not establish them:
 
 - A destructured dynamic import (`const { name } = await import(...)`), a re-export, a computed callee, `eval` / `Function`, or a method reached through a later assignment.

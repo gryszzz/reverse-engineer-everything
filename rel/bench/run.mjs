@@ -9,6 +9,7 @@ import {
   elfFindings,
   goFindings,
   javascriptFindings,
+  ingestDocsFindings,
   outsideInFindings,
   peResourceFindings,
   rustFindings,
@@ -335,6 +336,25 @@ async function runCase(spec, thresholds) {
       const extracted = outsideInFindings(
         JSON.parse(child.stdout),
         join(repoRoot, spec.fixture),
+      );
+      return finish(spec, extracted, thresholds);
+    }
+    if (spec.kind === "ingest-docs") {
+      const outDir = join(work, "out");
+      const child = run([
+        join(repoRoot, "ree.mjs"),
+        "ingest-docs",
+        join(repoRoot, spec.docs),
+        "--name",
+        spec.name,
+        "--out",
+        outDir,
+        "--json",
+      ]);
+      requireOk(child, "ingest-docs");
+      const extracted = ingestDocsFindings(
+        JSON.parse(child.stdout),
+        join(repoRoot, spec.docs),
       );
       return finish(spec, extracted, thresholds);
     }

@@ -57,6 +57,8 @@ jobs:
         run: node --test rel/intake.test.mjs
       - name: Verify outside-in public documentation mode
         run: node --test rel/outside-in/outside-in.test.mjs
+      - name: Verify public-docs ingest
+        run: node --test rel/ingest/ingest-docs.test.mjs
       - name: Feature coverage stays at least 80 percent
         run: |
           node --test rel/rebuild/coverage.test.mjs
