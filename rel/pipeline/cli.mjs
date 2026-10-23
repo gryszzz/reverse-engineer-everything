@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { emitHandoff } from "../handoff/emit.mjs";
 import {
   exportBoard,
@@ -7,6 +8,13 @@ import {
   listOpportunities,
   listPicks,
 } from "../opportunities/board.mjs";
+import {
+  configuredSharedDir,
+  exportSharedBoard,
+  readSharedPicks,
+  SHARED_PICKS_SCHEMA,
+} from "../opportunities/shared.mjs";
+import { defaultStudioDataDir } from "../studio/server.mjs";
 import { scaffoldRebuild } from "../rebuild/scaffold.mjs";
 import { verifyRebuild } from "../rebuild/verify.mjs";
 import { runProductPipeline } from "./run.mjs";
@@ -21,7 +29,9 @@ const HELP = [
   "node ree.mjs opportunities ingest FILE --out DIR [--json]",
   "node ree.mjs opportunities list --data DIR [--json]",
   "node ree.mjs board picks --data DIR [--json]",
+  "node ree.mjs board picks --from DIR [--json]",
   "node ree.mjs board export --data DIR --out DIR [--json]",
+  "node ree.mjs board export --to DIR [--data DIR] [--json]",
   "node ree.mjs rebuild --spec FILE --name NAME --out DIR [--json]",
   "node ree.mjs verify --project DIR [--json]",
   "node ree.mjs handoff --project DIR --blast-dir DIR [--scout FILE] [--json]",
@@ -45,9 +55,15 @@ const HELP = [
   "a Vault manifest, and requests/guard.json, requests/blast.json, and",
   "requests/scale.json. It does not notify Blast, call Guard, call Scale, or",
   "copy into Vault.",
-  "board picks lists pick files. board export copies findings, picks, and those",
-  "request files. A pick is a feature whose route test passed. Neither command",
-  "calls Guard, Blast, or Scale.",
+  "board picks --data DIR lists pick files. A pick is a feature whose route",
+  "test passed. board picks --from DIR reads agent verdict files in picks/.",
+  "Each file has agent, id, verdict (build, skip, or maybe), reason, angle,",
+  "and date. board export --data DIR --out DIR copies findings, picks, and",
+  "request files. board export --to DIR writes the Opportunity Board for other",
+  "agents: board.json and findings/<id>/ with a findings report and a clean-room",
+  "spec draft. Omit --to or --from to use REE_SHARED_BOARD. URL usernames,",
+  "passwords, and credential query parameters are removed. None of these",
+  "commands call Guard, Blast, or Scale.",
   "On a machine with /home/box/shared, omit --blast-dir to use",
   "/home/box/shared/ree-to-blast/<build_id>/.",
 ].join("\n");
@@ -71,38 +87,107 @@ function printHonesty() {
   );
 }
 
+function printAgentPicks(result, json) {
+  const payload = {
+    schema_version: SHARED_PICKS_SCHEMA,
+    picks: result.picks,
+    rejected: result.rejected,
+    note: "These are agent verdicts. Guard was not called. Blast was not notified. Scale was not called.",
+  };
+  if (json) console.log(JSON.stringify(payload, null, 2));
+  else {
+    console.log(`Agent picks: ${result.picks.length}`);
+    for (const pick of result.picks) {
+      console.log(`${pick.agent} ${pick.id} ${pick.verdict}`);
+      console.log(pick.reason);
+      console.log(`Angle: ${pick.angle}`);
+      console.log(pick.date);
+    }
+    for (const rejected of result.rejected)
+      console.log(`Rejected ${rejected.file}: ${rejected.reason}`);
+    printHonesty();
+  }
+}
+
+function printPipelinePicks(data, json) {
+  const picks = listPicks(data);
+  if (json) console.log(JSON.stringify(picks, null, 2));
+  else {
+    console.log(`Picks: ${picks.length}`);
+    for (const pick of picks) {
+      const route = pick.route
+        ? `${pick.route.method} ${pick.route.path}`
+        : "no route";
+      console.log(`${pick.name} ${route} ${pick.id}`);
+    }
+    printHonesty();
+  }
+}
+
+function printSharedExport(dest, exported, json) {
+  if (json) console.log(JSON.stringify(exported, null, 2));
+  else {
+    console.log("Shared board " + dest);
+    console.log(`Items ${exported.item_count}.`);
+    printHonesty();
+  }
+}
+
 function runBoardCommand(argv, json) {
+  const sub = argv[1];
   const data = flag(argv, "--data");
-  if (!data)
+  const from = flag(argv, "--from");
+  const to = flag(argv, "--to");
+  const out = flag(argv, "--out");
+  if (sub === "picks") {
+    if (from && data)
+      throw new Error(
+        "Use board picks --data DIR for pipeline picks, or board picks --from DIR for agent verdicts.",
+      );
+    if (from || !data) {
+      const dir = configuredSharedDir(from);
+      if (!dir)
+        throw new Error(
+          "Use board picks --data DIR, or board picks --from DIR. The default directory is REE_SHARED_BOARD.",
+        );
+      printAgentPicks(readSharedPicks(dir), json);
+      return 0;
+    }
+    printPipelinePicks(data, json);
+    return 0;
+  }
+  if (sub !== "export")
     throw new Error(
-      "Use board picks --data DIR or board export --data DIR --out DIR.",
+      "Use board picks --data DIR, board picks --from DIR, board export --data DIR --out DIR, or board export --to DIR.",
     );
-  if (argv[1] === "picks") {
-    const picks = listPicks(data);
-    if (json) console.log(JSON.stringify(picks, null, 2));
+  if (out && to)
+    throw new Error(
+      "Use board export --data DIR --out DIR, or board export --to DIR.",
+    );
+  if (out) {
+    if (!data) throw new Error("Use board export --data DIR --out DIR.");
+    const exported = exportBoard({ dataDir: data, outDir: out });
+    if (json) console.log(JSON.stringify(exported, null, 2));
     else {
-      console.log(`Picks: ${picks.length}`);
-      for (const pick of picks) {
-        const route = pick.route
-          ? `${pick.route.method} ${pick.route.path}`
-          : "no route";
-        console.log(`${pick.name} ${route} ${pick.id}`);
-      }
+      console.log("Exported " + out);
+      console.log(
+        `Findings ${exported.findings.length}. Picks ${exported.picks.length}.`,
+      );
       printHonesty();
     }
     return 0;
   }
-  const out = flag(argv, "--out");
-  if (!out) throw new Error("Use board export --data DIR --out DIR.");
-  const exported = exportBoard({ dataDir: data, outDir: out });
-  if (json) console.log(JSON.stringify(exported, null, 2));
-  else {
-    console.log("Exported " + out);
-    console.log(
-      `Findings ${exported.findings.length}. Picks ${exported.picks.length}.`,
+  if (data && !to) throw new Error("Use board export --data DIR --out DIR.");
+  const dest = configuredSharedDir(to);
+  if (!dest)
+    throw new Error(
+      "Use board export --to DIR, or set REE_SHARED_BOARD. Pipeline copies still use board export --data DIR --out DIR.",
     );
-    printHonesty();
-  }
+  const exported = exportSharedBoard({
+    sourceDir: data ?? join(defaultStudioDataDir(), "opportunities"),
+    toDir: dest,
+  });
+  printSharedExport(dest, exported, json);
   return 0;
 }
 
@@ -275,7 +360,7 @@ export async function runPipelineCommand(argv) {
     }
     if (command === "board")
       throw new Error(
-        "Use board picks --data DIR or board export --data DIR --out DIR.",
+        "Use board picks --data DIR, board picks --from DIR, board export --data DIR --out DIR, or board export --to DIR.",
       );
     throw new Error("Unknown pipeline command.");
   } catch (error) {

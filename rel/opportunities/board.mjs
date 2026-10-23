@@ -105,6 +105,33 @@ export function ingestScout(directory, value, now = new Date()) {
   return writeBoard(directory, board);
 }
 
+/** Names and details only. Quotes and citation URLs stay off the board item. */
+export function specFacts(spec) {
+  return {
+    status: typeof spec.status === "string" ? spec.status : null,
+    clean_room_statement:
+      typeof spec.clean_room_statement === "string"
+        ? spec.clean_room_statement
+        : null,
+    features: (spec.features ?? []).map((feature) => ({
+      id: feature.id,
+      name: feature.name,
+      detail: feature.detail,
+    })),
+    endpoints: (spec.api?.endpoints ?? []).map((endpoint) => ({
+      method: endpoint.method,
+      path: endpoint.path,
+      operation_id: endpoint.operation_id ?? null,
+      parameters: endpoint.parameters ?? [],
+      body: endpoint.body ?? null,
+      response_codes: endpoint.response_codes ?? [],
+    })),
+    limitation_count: Array.isArray(spec.limitations)
+      ? spec.limitations.length
+      : null,
+  };
+}
+
 export function ingestSpec(directory, value, now = new Date()) {
   const spec = assertValidBehaviorSpec(value);
   const board = readBoard(directory);
@@ -125,6 +152,7 @@ export function ingestSpec(directory, value, now = new Date()) {
         generated_at: spec.generated_at,
         target: spec.target,
         clean_room: spec.clean_room,
+        spec_facts: specFacts(spec),
       },
     },
     key,

@@ -18,6 +18,10 @@ import {
   listOpportunities,
   listPicks,
 } from "../opportunities/board.mjs";
+import {
+  configuredSharedDir,
+  readSharedPicks,
+} from "../opportunities/shared.mjs";
 import { packageRebuild, scaffoldRebuild } from "../rebuild/scaffold.mjs";
 import { verifyRebuild, verifyRebuildLive } from "../rebuild/verify.mjs";
 import { studioError } from "./errors.mjs";
@@ -58,10 +62,36 @@ function collectPicks(root) {
   return picks;
 }
 
-export function readOpportunityBoard(root) {
+function attachAgentPicks(items, byId) {
+  return items.map((item) => ({
+    ...item,
+    agent_picks: byId.get(item.id) ?? [],
+  }));
+}
+
+export function readOpportunityBoard(root, options = {}) {
+  const listed = listOpportunities(opportunityDirectory(root));
+  const sharedDir = configuredSharedDir(options.sharedDir);
+  const shared = sharedDir
+    ? readSharedPicks(sharedDir)
+    : { picks: [], rejected: [] };
+  const byId = new Map();
+  for (const pick of shared.picks) {
+    const list = byId.get(pick.id) ?? [];
+    list.push(pick);
+    byId.set(pick.id, list);
+  }
+  const scout = attachAgentPicks(listed.scout, byId);
+  const specs = attachAgentPicks(listed.specs, byId);
+  const known = new Set([...scout, ...specs].map((item) => item.id));
   return {
-    ...listOpportunities(opportunityDirectory(root)),
+    schema_version: listed.schema_version,
+    scout,
+    specs,
     picks: collectPicks(root),
+    agent_picks: shared.picks,
+    agent_pick_errors: shared.rejected,
+    unmatched_agent_picks: shared.picks.filter((pick) => !known.has(pick.id)),
   };
 }
 
@@ -72,7 +102,7 @@ export function ingestOpportunity(root, value) {
   if (value.schema_version === "ree.outside-in.behavior-spec.v1")
     ingestSpec(directory, value);
   else ingestScout(directory, value);
-  return listOpportunities(directory);
+  return readOpportunityBoard(root);
 }
 
 function slug(name) {

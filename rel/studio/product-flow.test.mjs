@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -325,4 +332,138 @@ test("a live build shows files and tests, then packages on request", async () =>
   const readme = readFileSync(snapshot.out_dir + "/README.md", "utf8");
   assert.equal(readme.includes("Widget Cloud"), false);
   assert.equal(packaged.body.dry_run, true);
+});
+
+test("shared agent verdicts sit beside the matching board entry", async () => {
+  const shared = join(root, "shared-picks");
+  mkdirSync(join(shared, "picks"), { recursive: true });
+  const previous = process.env.REE_SHARED_BOARD;
+  process.env.REE_SHARED_BOARD = shared;
+  const local = await startStudio({ dataDir: join(root, "agent-studio") });
+  const localApi = (path, options = {}) => {
+    const headers = { "x-ree-studio-token": local.token };
+    if (options.body !== undefined)
+      headers["content-type"] = "application/json";
+    return new Promise((resolve, reject) => {
+      const req = request(
+        {
+          hostname: "127.0.0.1",
+          port: local.server.address().port,
+          path,
+          method: options.method ?? "GET",
+          headers,
+        },
+        (res) => {
+          const chunks = [];
+          res.on("data", (chunk) => chunks.push(chunk));
+          res.on("end", () => {
+            const text = Buffer.concat(chunks).toString("utf8");
+            resolve({
+              status: res.statusCode,
+              body: text ? JSON.parse(text) : null,
+            });
+          });
+        },
+      );
+      req.on("error", reject);
+      req.end(
+        options.body === undefined ? undefined : JSON.stringify(options.body),
+      );
+    });
+  };
+  try {
+    const ingested = await localApi("/api/board", {
+      method: "POST",
+      body: {
+        target_name: "Widget Cloud",
+        url: "https://widgets.example/",
+        category: "search",
+        pricing: {
+          plans: ["Starter"],
+          model: "seat",
+          source_url: "https://widgets.example/pricing",
+        },
+        weaknesses: [
+          {
+            type: "support",
+            summary: "Slow replies.",
+            evidence_urls: ["https://widgets.example/reviews"],
+          },
+        ],
+        market_signal: {
+          review_count: 1,
+          rating: 3,
+          complaint_volume: 1,
+          search_demand: 1,
+          notes: "Recorded by Scout.",
+        },
+        scores: {
+          pain: 2,
+          willingness_to_pay: 2,
+          build_ease: 2,
+          competitor_weakness: 2,
+          reach: 2,
+          total: 10,
+        },
+        confidence: 40,
+        found_at: "2026-10-22T00:00:00.000Z",
+        tracker_ref: "tracker",
+      },
+    });
+    assert.equal(ingested.status, 201, JSON.stringify(ingested.body));
+    const id = ingested.body.scout[0].id;
+    writeFileSync(
+      join(shared, "picks", "ada.json"),
+      JSON.stringify({
+        agent: "ada",
+        id,
+        verdict: "maybe",
+        reason: "Small enough to build.",
+        angle: "Start with the note route.",
+        date: "2026-10-23T04:00:00.000Z",
+      }) + "\n",
+    );
+    writeFileSync(
+      join(shared, "picks", "bad.json"),
+      JSON.stringify({
+        agent: "nope",
+        id,
+        verdict: "ship",
+        reason: "no",
+        angle: "no",
+        date: "2026-10-23T04:00:00.000Z",
+      }) + "\n",
+    );
+    writeFileSync(
+      join(shared, "picks", "other.json"),
+      JSON.stringify({
+        agent: "bea",
+        id: "opp_" + "ef".repeat(8),
+        verdict: "skip",
+        reason: "No matching entry.",
+        angle: "Wait.",
+        date: "2026-10-23T04:00:00.000Z",
+      }) + "\n",
+    );
+    const board = await localApi("/api/board");
+    assert.equal(board.status, 200, JSON.stringify(board.body));
+    assert.equal(board.body.scout[0].agent_picks.length, 1);
+    assert.equal(board.body.scout[0].agent_picks[0].verdict, "maybe");
+    assert.equal(board.body.scout[0].agent_picks[0].agent, "ada");
+    assert.equal(board.body.agent_pick_errors.length, 1);
+    assert.match(
+      board.body.agent_pick_errors[0].reason,
+      /build, skip, or maybe/,
+    );
+    assert.equal(board.body.unmatched_agent_picks[0].verdict, "skip");
+    const page = readFileSync(
+      new URL("./public/studio.js", import.meta.url),
+      "utf8",
+    );
+    assert.match(page, /No agent verdict for this entry/);
+  } finally {
+    local.server.close();
+    if (previous === undefined) delete process.env.REE_SHARED_BOARD;
+    else process.env.REE_SHARED_BOARD = previous;
+  }
 });

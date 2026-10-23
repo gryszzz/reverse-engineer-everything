@@ -593,6 +593,65 @@ function pickLabel(pick) {
   return `${pick.name}: ${route}`;
 }
 
+function agentVerdictLine(pick) {
+  return `${pick.agent}: ${pick.verdict}. ${pick.reason} Angle: ${pick.angle}. ${pick.date}`;
+}
+
+function agentVerdicts(item) {
+  const shared =
+    (state.board?.agent_picks?.length ?? 0) > 0 ||
+    (state.board?.agent_pick_errors?.length ?? 0) > 0;
+  if (!shared) return null;
+  const verdicts = item.agent_picks ?? [];
+  if (verdicts.length === 0)
+    return el("p", { class: "note" }, "No agent verdict for this entry.");
+  return el(
+    "ul",
+    { class: "agent-picks" },
+    verdicts.map((pick) =>
+      el("li", { dataset: { verdict: pick.verdict } }, agentVerdictLine(pick)),
+    ),
+  );
+}
+
+function opportunityList(items, text) {
+  if (!items.length) return null;
+  return el(
+    "ul",
+    {},
+    items.map((item) => el("li", {}, [text(item), agentVerdicts(item)])),
+  );
+}
+
+function agentVerdictSections() {
+  const unmatched = state.board?.unmatched_agent_picks ?? [];
+  const errors = state.board?.agent_pick_errors ?? [];
+  return [
+    unmatched.length
+      ? el("section", {}, [
+          el("h3", {}, "Verdicts with no matching entry"),
+          el(
+            "ul",
+            { id: "unmatched-agent-picks" },
+            unmatched.map((pick) => el("li", {}, agentVerdictLine(pick))),
+          ),
+        ])
+      : null,
+    errors.length
+      ? el("section", {}, [
+          el("h3", {}, "Verdict files that were not shown"),
+          el(
+            "ul",
+            { id: "agent-pick-errors" },
+            errors.map((error) =>
+              el("li", {}, `${error.file}: ${error.reason}`),
+            ),
+          ),
+        ])
+      : null,
+  ];
+}
+
 function boardPanel() {
   const input = el("textarea", {
     id: "board-json",
@@ -607,7 +666,7 @@ function boardPanel() {
     el(
       "p",
       {},
-      "Scout scores stay the integers in the file. A behavior spec is listed by coverage and has no market score. A pick is a pipeline feature whose route test passed.",
+      "Scout scores stay the integers in the file. A behavior spec is listed by coverage and has no market score. A pick is a pipeline feature whose route test passed. An agent verdict from the shared folder is build, skip, or maybe, and it is shown beside the matching entry.",
     ),
     el("h3", {}, "Picks"),
     picks.length === 0
@@ -632,32 +691,17 @@ function boardPanel() {
           "No opportunities ingested. Paste a Scout target or an outside-in spec.",
         )
       : null,
-    scout.length
-      ? el(
-          "ul",
-          {},
-          scout.map((item) =>
-            el(
-              "li",
-              {},
-              `${item.target_name}: ${item.listing.scores.total}/25, confidence ${item.listing.confidence}. ${item.listing.note}`,
-            ),
-          ),
-        )
-      : null,
-    specs.length
-      ? el(
-          "ul",
-          {},
-          specs.map((item) =>
-            el(
-              "li",
-              {},
-              `${item.target_name}: ${item.listing.coverage.features} features. ${item.listing.note}`,
-            ),
-          ),
-        )
-      : null,
+    opportunityList(
+      scout,
+      (item) =>
+        `${item.target_name}: ${item.listing.scores.total}/25, confidence ${item.listing.confidence}. ${item.listing.note}`,
+    ),
+    opportunityList(
+      specs,
+      (item) =>
+        `${item.target_name}: ${item.listing.coverage.features} features. ${item.listing.note}`,
+    ),
+    ...agentVerdictSections(),
     input,
     button("Ingest", async () => {
       const value = JSON.parse(input.value);
