@@ -21,6 +21,12 @@ import { approveSetup } from "./setup-offers.mjs";
 import { engineChildEnv } from "./tool-env.mjs";
 import { writeUpload } from "./uploads.mjs";
 import { approveLink, performLink, planLink } from "./links.mjs";
+import {
+  draftOutsideInRun,
+  planStudioOutsideIn,
+  readOutsideInSpec,
+  runStudioOutsideIn,
+} from "./outside-in-run.mjs";
 import { fileURLToPath } from "node:url";
 import { classifyTarget } from "../intake.mjs";
 import {
@@ -304,10 +310,17 @@ function intakeSnapshot(path) {
   };
 }
 
-function requireRun(project, runId) {
+function requireFinishedRun(project, runId) {
   const run = project.runs.find((item) => item.id === runId);
   if (!run) throw studioError("Unknown run.", 404);
-  if (run.status !== "completed" || !run.evidence_id)
+  if (run.status !== "completed")
+    throw studioError("That run is not complete.", 409);
+  return run;
+}
+
+function requireRun(project, runId) {
+  const run = requireFinishedRun(project, runId);
+  if (!run.evidence_id)
     throw studioError("That run has no retained Evidence.", 409);
   return run;
 }
@@ -501,7 +514,22 @@ async function handleApi(context) {
     if (typeof body?.run_id === "string") {
       if (typeof body.project_id !== "string")
         throw studioError("A project id is required with a run id.", 400);
-      const run = requireRun(store.read(body.project_id), body.run_id);
+      const run = requireFinishedRun(store.read(body.project_id), body.run_id);
+      if (run.kind === "outside-in") {
+        if (run.outside_in?.rebuild !== true)
+          throw studioError(
+            run.outside_in?.note ||
+              "This page does not support a rebuild. No feature was recovered, and none was invented.",
+            400,
+          );
+        return startLiveBuild(store.root, {
+          product_name: body.product_name,
+          feature_ids: body.feature_ids,
+          spec: readOutsideInSpec(run),
+        });
+      }
+      if (!run.evidence_id)
+        throw studioError("That run has no retained Evidence.", 409);
       return startLiveBuild(store.root, {
         product_name: body.product_name,
         feature_ids: body.feature_ids,
@@ -601,6 +629,10 @@ async function handleApi(context) {
       return project;
     });
   }
+  if (method === "POST" && rest === "/outside-in/plan")
+    return planStudioOutsideIn(body.input);
+  if (method === "POST" && rest === "/outside-in")
+    return runStudioOutsideIn({ store, projectId, body });
   if (method === "POST" && rest === "/links/plan") return planLink(body.input);
   if (method === "POST" && rest === "/links") {
     const plan = approveLink({
@@ -674,7 +706,10 @@ async function handleApi(context) {
   }
   const specDraft = rest.match(/^\/runs\/(run_[a-f0-9]{16})\/spec-draft$/u);
   if (method === "POST" && specDraft) {
-    const run = requireRun(store.read(projectId), specDraft[1]);
+    const run = requireFinishedRun(store.read(projectId), specDraft[1]);
+    if (run.kind === "outside-in") return draftOutsideInRun(run);
+    if (!run.evidence_id)
+      throw studioError("That run has no retained Evidence.", 409);
     const { draftSpecFromEvidence } = await import("./from-findings.mjs");
     return draftSpecFromEvidence(evidenceRecord(run), {
       evidencePath: join(run.output_dir, "evidence.json"),

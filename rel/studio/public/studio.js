@@ -1626,6 +1626,7 @@ function primePath() {
   }
   if (
     run &&
+    run.kind !== "outside-in" &&
     state.project &&
     state.graphFor !== run.id &&
     !state.graphLoading
@@ -3073,7 +3074,10 @@ async function showLinkPlan(input) {
   await ensureProject();
   state.phase = "planning";
   draw();
-  state.linkPlan = await api(`/api/projects/${state.project.id}/links/plan`, {
+  const route = /^https?:\/\//iu.test(input.trim())
+    ? "outside-in/plan"
+    : "links/plan";
+  state.linkPlan = await api(`/api/projects/${state.project.id}/${route}`, {
     method: "POST",
     body: { input },
   });
@@ -3093,6 +3097,35 @@ async function frontDoorRun() {
       await showLinkPlan(typed);
       state.notice = "Review the fetch plan, then confirm authorization again.";
       draw();
+      return;
+    }
+    if (state.linkPlan.kind === "outside-in") {
+      state.phase = "running";
+      state.draft = null;
+      state.draftFor = "";
+      state.draftError = "";
+      draw();
+      const started = await api(
+        `/api/projects/${state.project.id}/outside-in`,
+        {
+          method: "POST",
+          body: {
+            input: state.linkPlan.input,
+            approved: true,
+            plan_digest: state.linkPlan.plan_digest,
+            authorized: true,
+          },
+        },
+      );
+      state.project = started.project;
+      state.notice = started.note;
+      state.phase = "idle";
+      state.view = "findings";
+      state.scrollTo = "findings";
+      state.linkInput = "";
+      state.linkPlan = null;
+      draw();
+      await refreshProject();
       return;
     }
     state.phase = "fetching";
