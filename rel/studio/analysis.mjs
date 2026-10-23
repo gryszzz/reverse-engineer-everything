@@ -1,12 +1,13 @@
 import { spawn } from "node:child_process";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import { beginStreamingAnalysis } from "../analyze-static.mjs";
 import {
   bestReadyRoute,
@@ -27,6 +28,27 @@ import {
   parseProgressLine,
   readTimeline,
 } from "./theater.mjs";
+
+/**
+ * The static JavaScript route reads a directory or an ASAR.
+ * A fetched single source file is copied into a sibling directory so that
+ * route can run. The original file stays in place.
+ */
+function stageJavascriptTarget(path) {
+  let stats;
+  try {
+    stats = statSync(path);
+  } catch {
+    return path;
+  }
+  if (stats.isDirectory()) return path;
+  const ext = extname(path).toLowerCase();
+  if (ext !== ".js" && ext !== ".mjs" && ext !== ".cjs") return path;
+  const staged = join(dirname(path), "staged-source");
+  mkdirSync(staged, { recursive: true });
+  copyFileSync(path, join(staged, basename(path)));
+  return staged;
+}
 
 const active = new Map();
 const children = new Map();
@@ -181,9 +203,13 @@ export function startStaticAnalysis({
       mkdirSync(runsDir, { recursive: true });
     else mkdirSync(output, { recursive: true });
     const savedQuestion = question ?? project.question;
+    const target =
+      chosen.id === "javascript-static"
+        ? stageJavascriptTarget(artifact.path)
+        : artifact.path;
     let argv = commandArgv({
       id: chosen.id,
-      target: artifact.path,
+      target,
       output,
       question: savedQuestion,
     });
@@ -223,7 +249,7 @@ export function startStaticAnalysis({
     try {
       if (chosen.id === "javascript-static") {
         streaming = beginStreamingAnalysis({
-          target: artifact.path,
+          target,
           out: output,
           authorized: true,
           question: savedQuestion,
@@ -261,12 +287,14 @@ export function startStaticAnalysis({
       });
     } catch (error) {
       active.delete(store.root);
+      const message =
+        error instanceof Error ? error.message : "Could not start analysis.";
       finishRun(store, projectId, runId, {
         status: "failed",
-        error:
-          error instanceof Error ? error.message : "Could not start analysis.",
+        error: message,
       });
-      throw error;
+      if (Number.isInteger(error?.status)) throw error;
+      throw studioError(message);
     }
     children.set(runId, child);
     let stdout = "";

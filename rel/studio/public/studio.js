@@ -51,6 +51,14 @@ const state = {
   lessonStep: 0,
   diffLab: null,
   modelOptIn: false,
+  about: false,
+  scrollTo: "",
+  draftLoading: false,
+  draftFor: "",
+  draftError: "",
+  boardLoading: false,
+  graphLoading: false,
+  graphFor: "",
 };
 
 function visibleViews() {
@@ -144,6 +152,7 @@ async function refreshProject() {
     const updated = state.project.runs.find((run) => run.id === runningId);
     if (updated?.status === "completed") {
       state.view = "analyze";
+      state.scrollTo = "analyze";
       state.phase = "idle";
       state.notice =
         "Analysis finished. The timeline is recorded engine progress and Evidence.";
@@ -163,6 +172,7 @@ async function refreshProject() {
       await api(`/api/projects/${state.project.id}/runs/${watched.id}/timeline`)
     ).events;
   if (busy) setTimeout(() => refreshProject().then(draw).catch(setError), 400);
+  if (watched) draw();
 }
 
 function openView(id) {
@@ -174,6 +184,11 @@ function openView(id) {
   }
   state.view = id;
   state.palette = false;
+  if (
+    mode() !== "advanced" &&
+    ["door", "analyze", "findings", "build"].includes(id)
+  )
+    state.scrollTo = id;
   if (id === "board")
     api("/api/board")
       .then((board) => {
@@ -249,7 +264,8 @@ function shell() {
         ...primaryFlow.map(([id, label]) =>
           button(label, () => openView(id), {
             class: state.view === id ? "nav current" : "nav",
-            "aria-current": state.view === id ? "page" : undefined,
+            "aria-current": state.view === id ? "page" : "false",
+            dataset: { pathId: id },
           }),
         ),
         ...(advanced
@@ -279,26 +295,43 @@ function shell() {
           }),
         ),
       ]),
-      el("main", { id: "main", tabindex: "-1" }, [
-        state.error
-          ? el("p", { class: "banner bad", role: "alert" }, state.error)
-          : null,
-        state.notice
-          ? el("p", { class: "banner", role: "status" }, state.notice)
-          : null,
-        onboardingCard(),
-        flowStepper(),
-        panel(),
-        explainCard(),
-      ]),
+      el(
+        "main",
+        {
+          id: "main",
+          class: simplePath() ? "wide" : undefined,
+          tabindex: "-1",
+        },
+        [
+          state.error
+            ? el("p", { class: "banner bad", role: "alert" }, state.error)
+            : null,
+          state.notice
+            ? el("p", { class: "banner", role: "status" }, state.notice)
+            : null,
+          onboardingCard(),
+          flowStepper(),
+          panel(),
+          explainCard(),
+        ],
+      ),
     ]),
+    studioFooter(),
     state.palette ? palette() : null,
     state.shortcuts ? shortcutSheet() : null,
     state.tour ? tourCard() : null,
   );
 }
 
+function simplePath() {
+  return (
+    mode() !== "advanced" &&
+    ["door", "analyze", "findings", "build"].includes(state.view)
+  );
+}
+
 function panel() {
+  if (simplePath()) return pathScreen();
   if (state.view === "readiness") return readinessPanel();
   if (state.view === "analyze" || state.view === "theater")
     return theaterPanel();
@@ -319,7 +352,7 @@ function panel() {
   return overviewPanel();
 }
 
-function doorPanel() {
+function doorPanel(options = {}) {
   const link = el("input", {
     id: "link-input",
     placeholder: "https://github.com/org/repo, a file URL, or an npm package",
@@ -375,67 +408,91 @@ function doorPanel() {
   const ready = artifact?.intake.routes?.find(
     (route) => route.status === "ready",
   );
-  return el("section", { class: "panel door" }, [
-    el("p", { class: "eyebrow" }, "Start"),
-    el("h2", {}, "Drop a file, folder, or paste a link"),
-    el(
-      "p",
-      {},
-      "A drop is copied here and classified. A link is fetched only after you approve the plan. The route reads the target. It does not launch it.",
-    ),
-    el(
-      "p",
-      { class: "status-live", role: "status", "data-phase": state.phase },
-      phaseText(),
-    ),
-    stageRow(),
-    drop,
-    el("div", { class: "file-row" }, [
-      field("File", file),
-      field("Folder", folder),
-    ]),
-    field("Link", link),
-    button("Show what will be fetched", () => showLinkPlan(link.value)),
-    state.linkPlan ? linkPlanCard(state.linkPlan) : null,
-    artifact
-      ? el("article", { class: "card" }, [
-          el("h3", {}, artifact.intake.label),
-          el("p", {}, artifact.intake.basis),
-          ready
-            ? el("p", {}, `Ready route: ${ready.label}.`)
-            : el(
-                "p",
-                { class: "note" },
-                "No route is ready for this artifact. Advanced mode lists every status.",
-              ),
-          artifact.provenance
-            ? el(
-                "p",
-                { class: "note" },
-                `Fetched ${artifact.provenance.fetches.map((item) => item.url).join(", ")}. sha256 recorded. Not executed.`,
-              )
-            : null,
-        ])
-      : null,
-    state.capabilities && artifact ? capabilitiesPanel(artifact) : null,
-    el("label", { class: "check" }, [
-      checkbox,
-      state.linkPlan
-        ? "I approve the fetch plan above, and I am authorized to inspect the result. The download is not executed."
-        : "I am authorized to inspect this target. The chosen route reads it and does not launch it.",
-    ]),
-    button(
-      state.linkPlan ? "Fetch and analyze" : "Analyze",
-      () => frontDoorRun(),
-      { class: "primary" },
-    ),
-    nextStep(
-      "Next: tick authorization, then Analyze. The live timeline is the next screen.",
-    ),
-    mode() === "advanced"
-      ? button("Use the owned JavaScript fixture", () => addOwned())
-      : null,
-  ]);
+  const embedded = options.embedded === true;
+  return el(
+    "section",
+    {
+      class: embedded ? "path-block door" : "panel door",
+      id: embedded ? "path-door" : undefined,
+    },
+    [
+      el(
+        "p",
+        { class: embedded ? "step-kicker" : "eyebrow" },
+        embedded ? "1 · Paste or drop" : "Start",
+      ),
+      el(
+        "h2",
+        {},
+        embedded
+          ? "Paste a link or drop a file"
+          : "Drop a file, folder, or paste a link",
+      ),
+      el(
+        "p",
+        {},
+        embedded
+          ? "Approve the fetch plan before anything is downloaded. The route reads the target. It does not launch it."
+          : "A drop is copied here and classified. A link is fetched only after you approve the plan. The route reads the target. It does not launch it.",
+      ),
+      el(
+        "p",
+        { class: "status-live", role: "status", "data-phase": state.phase },
+        phaseText(),
+      ),
+      stageRow(),
+      drop,
+      el("div", { class: "file-row" }, [
+        field("File", file),
+        field("Folder", folder),
+      ]),
+      field("Link", link),
+      button("Show what will be fetched", () => showLinkPlan(link.value)),
+      state.linkPlan ? linkPlanCard(state.linkPlan) : null,
+      artifact
+        ? el("article", { class: "card" }, [
+            el("h3", {}, artifact.intake.label),
+            el("p", {}, artifact.intake.basis),
+            ready
+              ? el("p", {}, `Ready route: ${ready.label}.`)
+              : el(
+                  "p",
+                  { class: "note" },
+                  "No route is ready for this artifact. Advanced mode lists every status.",
+                ),
+            artifact.provenance
+              ? el(
+                  "p",
+                  { class: "note" },
+                  `Fetched ${artifact.provenance.fetches.map((item) => item.url).join(", ")}. sha256 recorded. Not executed.`,
+                )
+              : null,
+          ])
+        : null,
+      !embedded && state.capabilities && artifact
+        ? capabilitiesPanel(artifact)
+        : null,
+      el("label", { class: "check" }, [
+        checkbox,
+        state.linkPlan
+          ? "I approve the fetch plan above, and I am authorized to inspect the result. The download is not executed."
+          : "I am authorized to inspect this target. The chosen route reads it and does not launch it.",
+      ]),
+      button(
+        state.linkPlan ? "Fetch and analyze" : "Analyze",
+        () => frontDoorRun(),
+        { class: "primary" },
+      ),
+      embedded
+        ? null
+        : nextStep(
+            "Next: tick authorization, then Analyze. The live timeline is the next screen.",
+          ),
+      mode() === "advanced"
+        ? button("Use the owned JavaScript fixture", () => addOwned())
+        : null,
+    ],
+  );
 }
 
 function capabilitiesPanel(artifact) {
@@ -479,15 +536,23 @@ function capabilitiesPanel(artifact) {
 }
 
 function linkPlanCard(plan) {
-  return el("article", { class: "card" }, [
+  return el("article", { class: "card plan" }, [
     el("h3", {}, "This is what will be fetched"),
     el("p", {}, plan.note),
-    ...plan.requests.map((request) =>
-      el(
-        "p",
-        { class: "mono" },
-        `${request.purpose}: ${request.url} · limit ${request.limit_bytes} bytes · ${request.timeout_ms} ms${request.exact ? "" : " · the exact URL is constrained by this rule"}`,
-      ),
+    el(
+      "dl",
+      { class: "plan-list" },
+      plan.requests.flatMap((request) => [
+        el("dt", {}, request.purpose),
+        el("dd", {}, [
+          el("code", {}, request.url),
+          el(
+            "span",
+            { class: "note" },
+            `${request.limit_bytes} bytes · ${request.timeout_ms} ms${request.exact ? "" : " · the exact URL is constrained by this rule"}`,
+          ),
+        ]),
+      ]),
     ),
     plan.git ? el("pre", { class: "mono" }, plan.git.argv.join(" ")) : null,
     el("p", { class: "note" }, `Destination: ${plan.destination}.`),
@@ -562,7 +627,10 @@ function flowStepper() {
     primaryFlow.map(([id, label]) =>
       el(
         "li",
-        { class: state.view === id ? "current" : "" },
+        {
+          class: state.view === id ? "current" : "",
+          dataset: { pathId: id },
+        },
         button(label, () => openView(id), { class: "step" }),
       ),
     ),
@@ -818,11 +886,14 @@ async function buildFromThis() {
     { method: "POST", body: {} },
   );
   state.draft = draft;
+  state.draftFor = run.id;
+  state.draftError = "";
   state.draftChecks = Object.fromEntries(
     (draft.features ?? []).map((feature) => [feature.id, true]),
   );
   if (!state.buildName) state.buildName = "REE Product";
   state.view = "build";
+  state.scrollTo = "build";
   state.notice = draft.note;
   draw();
 }
@@ -838,13 +909,13 @@ function draftCard() {
       ? el(
           "p",
           { class: "empty" },
-          "No feature was recovered. Nothing was invented.",
+          "This input does not support a rebuild. No feature was recovered, and none was invented.",
         )
       : el(
           "div",
-          { class: "stack" },
+          { class: "stack feature-grid" },
           features.map((feature) =>
-            el("label", { class: "check" }, [
+            el("label", { class: "check feature" }, [
               el("input", {
                 type: "checkbox",
                 checked: state.draftChecks[feature.id] ? "checked" : false,
@@ -852,7 +923,12 @@ function draftCard() {
                   state.draftChecks[feature.id] = event.target.checked;
                 },
               }),
-              `${feature.name}. ${feature.detail}`,
+              el("span", {}, [
+                el("strong", {}, feature.name),
+                feature.detail
+                  ? el("span", { class: "note" }, feature.detail)
+                  : null,
+              ]),
             ]),
           ),
         ),
@@ -883,11 +959,11 @@ function liveCard(live) {
   return el("article", { class: "card" }, [
     el("h3", {}, `Live build ${live.status || "running"}`),
     live.verify
-      ? el(
-          "p",
-          {},
-          `Implemented ${live.verify.implemented}. Unimplemented ${live.verify.unimplemented}. Failed ${live.verify.failed}.`,
-        )
+      ? el("div", { class: "metrics" }, [
+          metric("Implemented", live.verify.implemented),
+          metric("Unimplemented", live.verify.unimplemented),
+          metric("Failed", live.verify.failed),
+        ])
       : el(
           "p",
           { class: "note" },
@@ -913,7 +989,10 @@ function liveCard(live) {
                         : "recorded",
                 ),
               },
-              `${event.phase} ${event.message}`,
+              [
+                el("span", { class: "phase" }, event.phase || "step"),
+                el("span", {}, event.message || ""),
+              ],
             ),
           ),
         )
@@ -977,7 +1056,7 @@ function buildPanel() {
     el(
       "p",
       {},
-      "Writes a clean-room HTTP product from a behavior spec. Each feature gets a data model, write rules, and CRUD routes. A path with one {name} segment is built on the parent collection. Any other path template is left out, with a reason. Quotes are not copied. The handoff is a dry run: Blast is not notified, Guard is not called, Scale is not called, and Vault is not copied.",
+      "A clean-room HTTP product from this spec. Quotes are not copied. Launch stays a dry run.",
     ),
     draftCard(),
     liveCard(live),
@@ -990,11 +1069,11 @@ function buildPanel() {
         )
       : el("article", { class: "card" }, [
           el("p", {}, `Build ${result.build_id}`),
-          el(
-            "p",
-            {},
-            `Implemented ${result.verify.implemented}. Unimplemented ${result.verify.unimplemented}. Failed ${result.verify.failed}.`,
-          ),
+          el("div", { class: "metrics" }, [
+            metric("Implemented", result.verify.implemented),
+            metric("Unimplemented", result.verify.unimplemented),
+            metric("Failed", result.verify.failed),
+          ]),
           el(
             "p",
             {},
@@ -1009,7 +1088,10 @@ function buildPanel() {
           ),
         ]),
     field("Product name", name),
-    spec,
+    el("details", { class: "spec-json" }, [
+      el("summary", {}, "Spec JSON"),
+      spec,
+    ]),
     button("Build and verify", async () => {
       state.buildName = name.value;
       state.buildSpec = spec.value;
@@ -1041,7 +1123,10 @@ function buildPanel() {
                         : stage.status,
                   ),
                 },
-                `${stage.id} ${stage.status}`,
+                [
+                  el("span", { class: "phase" }, stage.id),
+                  el("span", { class: "status-pill" }, stage.status),
+                ],
               ),
             ),
           )
@@ -1086,17 +1171,25 @@ function watchedRun() {
   );
 }
 
-function processFact(event) {
-  const parts = [event.at, event.kind];
+function metric(label, value) {
+  return el("div", { class: "metric" }, [
+    el("span", { class: "metric-value" }, String(value ?? 0)),
+    el("span", { class: "metric-label" }, label),
+  ]);
+}
+
+function processDetail(event) {
+  const parts = [];
   if (event.route_id) parts.push(event.route_id);
   if (event.bytes) parts.push(`${event.bytes} bytes`);
   if (event.evidence_id) parts.push(event.evidence_id);
   if (event.code !== undefined && event.code !== null)
     parts.push(`exit ${event.code}`);
-  return parts.filter((part) => part !== undefined && part !== "").join(" ");
+  return parts.join(" ") || event.at || "";
 }
 
-function theaterPanel() {
+function theaterPanel(options = {}) {
+  const embedded = options.embedded === true;
   const events = shownEvents();
   const stats = theaterStats(events);
   const graph = theaterGraph(events);
@@ -1104,82 +1197,198 @@ function theaterPanel() {
   holder.append(theaterSvg(graph));
   const run = watchedRun();
   const processEvents = run?.events ?? [];
-  return el("section", { class: "panel theater" }, [
-    el("p", { class: "eyebrow" }, "Live analysis"),
-    el("h2", {}, "Analyze"),
+  return el(
+    "section",
+    {
+      class: embedded ? "path-block theater" : "panel theater",
+      id: embedded ? "path-analyze" : undefined,
+    },
+    [
+      el(
+        "p",
+        { class: embedded ? "step-kicker" : "eyebrow" },
+        embedded ? "2 · Watch it analyze" : "Live analysis",
+      ),
+      el("h2", {}, "Analyze"),
+      el(
+        "p",
+        {},
+        embedded
+          ? "The graph and timeline use recorded engine events. A line appears only after the engine writes it."
+          : "Each line is an engine progress event or a fact read from written Evidence. Process lines are start, the first output chunk, and exit.",
+      ),
+      !state.project
+        ? emptyState(
+            "Nothing to watch yet",
+            "Drop a file on the front door. A line appears only when the engine emits it.",
+            "Go to the front door",
+            () => {
+              state.view = "door";
+              draw();
+            },
+          )
+        : null,
+      state.project && !run
+        ? emptyState(
+            "No analysis has started",
+            "Authorize the target on the front door, then press Analyze.",
+            "Go to the front door",
+            () => {
+              state.view = "door";
+              draw();
+            },
+          )
+        : null,
+      el("div", { class: "stats" }, [
+        stat("Provider", stats.provider),
+        stat("Elapsed", elapsedLabel(events)),
+        stat(
+          "Files parsed",
+          stats.fileTotal
+            ? `${stats.files}/${stats.fileTotal}`
+            : String(stats.files),
+        ),
+        stat("Modules", String(stats.modules)),
+        stat("Functions", String(stats.functions)),
+        stat("Imports", String(stats.edges)),
+        stat("Calls", String(stats.calls)),
+        stat("Strings", String(stats.strings)),
+        stat("Behaviors", String(stats.behaviors)),
+        stat(
+          "Evidence",
+          stats.evidence ? stats.evidence.slice(0, 12) + "…" : "not yet",
+        ),
+      ]),
+      stageRow(),
+      recordedPhaseRow(events),
+      holder,
+      factCard(),
+      events.length > 0 && !events.some((event) => event.phase === "hypothesis")
+        ? el(
+            "p",
+            { class: "note" },
+            "No hypothesis decision was recorded for this run.",
+          )
+        : null,
+      events.length
+        ? el(
+            "ol",
+            { class: "timeline" },
+            events.map((event) =>
+              el("li", {}, [
+                el("span", { class: "phase" }, event.phase),
+                button(
+                  event.message,
+                  () => {
+                    state.selectedFact = event;
+                    draw();
+                  },
+                  { class: "quiet" },
+                ),
+              ]),
+            ),
+          )
+        : run
+          ? el(
+              "p",
+              { class: "empty" },
+              "This run has no recorded engine progress lines.",
+            )
+          : null,
+      processEvents.length
+        ? el(
+            "ol",
+            { class: "timeline" },
+            processEvents.map((event) =>
+              el("li", {}, [
+                el("span", { class: "phase" }, event.kind || "process"),
+                el("span", {}, processDetail(event)),
+              ]),
+            ),
+          )
+        : run && events.length === 0
+          ? el(
+              "p",
+              { class: "empty" },
+              "This run has no recorded engine events.",
+            )
+          : null,
+      events.length
+        ? button("Replay recorded timeline", () => replayTimeline(), {
+            class: "primary",
+          })
+        : null,
+      embedded
+        ? null
+        : nextStep(
+            events.length
+              ? "Next: open Findings and read the sentences that name an Evidence id."
+              : "Next: start from the front door. This screen stays empty until the engine writes a line.",
+          ),
+    ],
+  );
+}
+
+function pathScreen() {
+  return el("div", { class: "path-screen" }, [
+    doorPanel({ embedded: true }),
+    theaterPanel({ embedded: true }),
+    findingsVisual(),
+    buildVisual(),
+  ]);
+}
+
+function findingsVisual() {
+  const run = latestRun();
+  const statements = run?.narrative?.statements ?? [];
+  const holder = el("div", { id: "graph-holder", class: "theater-graph" });
+  if (state.graph) mountGraph(holder, state.graph, selectEdge);
+  return el("section", { class: "path-block", id: "path-findings" }, [
+    el("p", { class: "step-kicker" }, "3 · Findings"),
+    el("h2", {}, "Findings"),
     el(
       "p",
-      {},
-      "Each line is an engine progress event or a fact read from written Evidence. Process lines are start, the first output chunk, and exit.",
+      { class: "note" },
+      "Each card is a saved sentence. The graph shows stored relationships only.",
     ),
-    !state.project
+    !run
       ? emptyState(
-          "Nothing to watch yet",
-          "Drop a file on the front door. A line appears only when the engine emits it.",
-          "Go to the front door",
-          () => {
-            state.view = "door";
-            draw();
-          },
+          "No findings yet",
+          "A card appears only after Evidence is saved.",
+          null,
+          null,
         )
       : null,
-    state.project && !run
-      ? emptyState(
-          "No analysis has started",
-          "Authorize the target on the front door, then press Analyze.",
-          "Go to the front door",
-          () => {
-            state.view = "door";
-            draw();
-          },
-        )
-      : null,
-    el("div", { class: "stats" }, [
-      stat("Provider", stats.provider),
-      stat("Elapsed", elapsedLabel(events)),
-      stat(
-        "Files parsed",
-        stats.fileTotal
-          ? `${stats.files}/${stats.fileTotal}`
-          : String(stats.files),
-      ),
-      stat("Modules", String(stats.modules)),
-      stat("Functions", String(stats.functions)),
-      stat("Imports", String(stats.edges)),
-      stat("Calls", String(stats.calls)),
-      stat("Strings", String(stats.strings)),
-      stat("Behaviors", String(stats.behaviors)),
-      stat(
-        "Evidence",
-        stats.evidence ? stats.evidence.slice(0, 12) + "…" : "not yet",
-      ),
-    ]),
-    stageRow(),
-    recordedPhaseRow(events),
-    holder,
-    factCard(),
-    events.length > 0 && !events.some((event) => event.phase === "hypothesis")
+    statements.length
       ? el(
-          "p",
-          { class: "note" },
-          "No hypothesis decision was recorded for this run.",
-        )
-      : null,
-    events.length
-      ? el(
-          "ol",
-          { class: "timeline" },
-          events.map((event) =>
-            el("li", {}, [
-              el("span", { class: "phase" }, event.phase),
-              button(
-                event.message,
-                () => {
-                  state.selectedFact = event;
-                  draw();
-                },
-                { class: "quiet" },
+          "div",
+          { class: "finding-grid" },
+          statements.map((statement) =>
+            el("article", { class: "card finding" }, [
+              el("p", { class: "finding-text" }, statement.text),
+              el(
+                "p",
+                { class: "note" },
+                [statement.evidence_id, statement.path]
+                  .filter(Boolean)
+                  .join(" · "),
               ),
+              el("div", { class: "card-actions" }, [
+                button("Explain this", () =>
+                  showExplain({
+                    kind: "finding",
+                    text: statement.text,
+                    evidence_id: statement.evidence_id,
+                    path: statement.path,
+                    unknowns: run.narrative?.unknowns ?? [],
+                  }),
+                ),
+                button("Show evidence", () => {
+                  state.selectedFact = factForStatement(statement);
+                  state.view = "findings";
+                  draw();
+                }),
+              ]),
             ]),
           ),
         )
@@ -1187,29 +1396,269 @@ function theaterPanel() {
         ? el(
             "p",
             { class: "empty" },
-            "This run has no recorded engine progress lines.",
+            "This run saved Evidence and no finding sentences.",
           )
         : null,
-    processEvents.length
-      ? el(
-          "ol",
-          { class: "timeline" },
-          processEvents.map((event) => el("li", {}, processFact(event))),
-        )
-      : run && events.length === 0
-        ? el("p", { class: "empty" }, "This run has no recorded engine events.")
-        : null,
-    events.length
-      ? button("Replay recorded timeline", () => replayTimeline(), {
-          class: "primary",
-        })
+    (run?.narrative?.unknowns ?? []).length
+      ? el("div", { class: "chip-row" }, [
+          el("span", { class: "note" }, "Unknowns"),
+          ...run.narrative.unknowns.map((item) =>
+            el("span", { class: "status-pill" }, item),
+          ),
+        ])
       : null,
-    nextStep(
-      events.length
-        ? "Next: open Findings and read the sentences that name an Evidence id."
-        : "Next: start from the front door. This screen stays empty until the engine writes a line.",
-    ),
+    holder,
+    factCard(),
+    run
+      ? button("Build from this", () => buildFromThis(), { class: "primary" })
+      : null,
   ]);
+}
+
+function buildVisual() {
+  const name = el("input", {
+    id: "build-name",
+    placeholder: "New product name",
+    value: state.buildName,
+    oninput: (event) => {
+      state.buildName = event.target.value;
+    },
+  });
+  const scout = state.board?.scout ?? [];
+  const specs = state.board?.specs ?? [];
+  const picks = state.board?.picks ?? [];
+  return el("section", { class: "path-block", id: "path-build" }, [
+    el("p", { class: "step-kicker" }, "4 · What to build"),
+    el("h2", {}, "What to build"),
+    el(
+      "p",
+      { class: "note" },
+      "Features come from this investigation. Scores and picks are the integers already stored on the board. Nothing here is invented, and a behavior spec has no market score.",
+    ),
+    state.draftLoading
+      ? el("p", { class: "note" }, "Reading the spec draft from Evidence.")
+      : null,
+    state.draftError ? el("p", { class: "empty" }, state.draftError) : null,
+    latestRun()
+      ? null
+      : el(
+          "p",
+          { class: "empty" },
+          "Finish an analysis before building. A rebuild is offered only when saved Evidence yields features.",
+        ),
+    draftCard(),
+    el("h3", {}, "Scores"),
+    scout.length === 0
+      ? el(
+          "p",
+          { class: "note" },
+          "No scout score is stored. Scores are not invented.",
+        )
+      : el(
+          "div",
+          { class: "score-row" },
+          scout.map((item) =>
+            el("article", { class: "card score" }, [
+              el("h3", {}, item.target_name || "Scout target"),
+              el("div", { class: "metrics" }, [
+                metric(
+                  "Score",
+                  item.listing?.scores?.total === undefined ||
+                    item.listing?.scores?.total === null
+                    ? "unrecorded"
+                    : `${item.listing.scores.total}/25`,
+                ),
+                metric(
+                  "Confidence",
+                  item.listing?.confidence === undefined ||
+                    item.listing?.confidence === null
+                    ? "unrecorded"
+                    : item.listing.confidence,
+                ),
+              ]),
+              item.listing?.note
+                ? el("p", { class: "note" }, item.listing.note)
+                : null,
+              agentVerdicts(item),
+            ]),
+          ),
+        ),
+    el("h3", {}, "Spec coverage"),
+    specs.length === 0
+      ? el(
+          "p",
+          { class: "note" },
+          "No behavior spec is on the board. A spec has no market score.",
+        )
+      : el(
+          "div",
+          { class: "score-row" },
+          specs.map((item) =>
+            el("article", { class: "card score" }, [
+              el("h3", {}, item.target_name || "Behavior spec"),
+              metric(
+                "Features",
+                item.listing?.coverage?.features === undefined ||
+                  item.listing?.coverage?.features === null
+                  ? "unrecorded"
+                  : item.listing.coverage.features,
+              ),
+              el("p", { class: "note" }, "No market score."),
+              item.listing?.note
+                ? el("p", { class: "note" }, item.listing.note)
+                : null,
+              agentVerdicts(item),
+            ]),
+          ),
+        ),
+    el("h3", {}, "Picks"),
+    picks.length === 0
+      ? el(
+          "p",
+          { class: "note" },
+          "No picks yet. A pick is a pipeline feature whose route test passed.",
+        )
+      : el(
+          "ul",
+          { id: "board-picks" },
+          picks.map((pick) => el("li", {}, pickLabel(pick))),
+        ),
+    field("Product name", name),
+    el(
+      "p",
+      { class: "note" },
+      "Spec JSON stays under Advanced. Quotes are not copied. Launch stays a dry run.",
+    ),
+    liveCard(state.liveBuild),
+  ]);
+}
+
+function studioFooter() {
+  return el("footer", { class: "studio-footer" }, [
+    el("div", {}, [
+      el("p", {}, "REE is built on morluto's REA engine (MIT)."),
+      state.about
+        ? el(
+            "p",
+            { class: "note" },
+            "The studio is the REE product layer. Analysis, Evidence, and providers come from the inherited REA engine. This checkout is MIT, copyright (c) 2026 morluto.",
+          )
+        : null,
+    ]),
+    button(state.about ? "Hide about" : "About", () => {
+      state.about = !state.about;
+      draw();
+    }),
+  ]);
+}
+
+let pathObserver = null;
+
+function watchPath() {
+  if (pathObserver) {
+    pathObserver.disconnect();
+    pathObserver = null;
+  }
+  if (!simplePath()) return;
+  const blocks = ["door", "analyze", "findings", "build"]
+    .map((id) => document.getElementById(`path-${id}`))
+    .filter(Boolean);
+  if (blocks.length === 0) return;
+  pathObserver = new IntersectionObserver(
+    (entries) => {
+      const hit = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort(
+          (left, right) => right.intersectionRatio - left.intersectionRatio,
+        )[0];
+      if (!hit) return;
+      const id = hit.target.id.slice("path-".length);
+      if (!id || state.view === id) return;
+      state.view = id;
+      for (const node of document.querySelectorAll("[data-path-id]")) {
+        const on = node.dataset.pathId === id;
+        node.classList.toggle("current", on);
+        if (node.classList.contains("nav"))
+          node.setAttribute("aria-current", on ? "page" : "false");
+      }
+    },
+    { threshold: [0.35, 0.6] },
+  );
+  for (const block of blocks) pathObserver.observe(block);
+}
+
+function primePath() {
+  if (!simplePath()) return;
+  const run = latestRun();
+  if (
+    run &&
+    state.project &&
+    state.draftFor !== run.id &&
+    !state.draftLoading
+  ) {
+    state.draftLoading = true;
+    const projectId = state.project.id;
+    const runId = run.id;
+    api(`/api/projects/${projectId}/runs/${runId}/spec-draft`, {
+      method: "POST",
+      body: {},
+    })
+      .then((draft) => {
+        state.draftLoading = false;
+        if (state.project?.id !== projectId || latestRun()?.id !== runId)
+          return;
+        state.draft = draft;
+        state.draftFor = runId;
+        state.draftError = "";
+        state.draftChecks = Object.fromEntries(
+          (draft.features ?? []).map((feature) => [feature.id, true]),
+        );
+        if (!state.buildName) state.buildName = "REE Product";
+        draw();
+      })
+      .catch((error) => {
+        state.draftLoading = false;
+        state.draftFor = runId;
+        state.draftError =
+          error instanceof Error ? error.message : String(error);
+        draw();
+      });
+  }
+  if (
+    run &&
+    state.project &&
+    state.graphFor !== run.id &&
+    !state.graphLoading
+  ) {
+    state.graphLoading = true;
+    const projectId = state.project.id;
+    const runId = run.id;
+    api(`/api/projects/${projectId}/runs/${runId}/graph?limit=40`)
+      .then((graph) => {
+        state.graphLoading = false;
+        if (state.project?.id !== projectId) return;
+        state.graphFor = runId;
+        state.graph = graph;
+        draw();
+      })
+      .catch(() => {
+        state.graphLoading = false;
+        state.graphFor = runId;
+      });
+  }
+  if (state.board === null && !state.boardLoading) {
+    state.boardLoading = true;
+    api("/api/board")
+      .then((board) => {
+        state.board = board;
+        state.boardLoading = false;
+        draw();
+      })
+      .catch(() => {
+        state.boardLoading = false;
+        state.board = { scout: [], specs: [], picks: [] };
+      });
+  }
 }
 
 function stat(label, value) {
@@ -2712,6 +3161,7 @@ async function analyze(question) {
   });
   state.notice = "Static analysis started.";
   state.view = "analyze";
+  state.scrollTo = "analyze";
   state.replayTo = null;
   draw();
   await refreshProject();
@@ -2846,11 +3296,20 @@ async function saveReport() {
 
 function draw() {
   try {
+    const keep = state.scrollTo ? 0 : window.scrollY;
     shell();
+    if (state.scrollTo) {
+      document.getElementById(`path-${state.scrollTo}`)?.scrollIntoView({
+        block: "start",
+      });
+      state.scrollTo = "";
+    } else if (keep > 0) window.scrollTo(0, keep);
     if (state.view === "analyze") {
       for (const list of document.querySelectorAll("#main .timeline"))
         list.scrollTop = list.scrollHeight;
     }
+    watchPath();
+    primePath();
   } catch (error) {
     document.querySelector("#app").textContent = error.message;
   }
