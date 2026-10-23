@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -56,35 +56,34 @@ function generatedTables(projectDir) {
   }
 }
 
-/**
- * Run the product tests.
- * pass means an HTTP route test passed.
- * unimplemented means the feature was not built.
- * fail means a test failed.
- */
-export function verifyRebuild(projectDir, execPath = process.execPath) {
-  const spec = JSON.parse(
-    readFileSync(join(projectDir, "behavior-spec.json"), "utf8"),
-  );
-  const { behaviors, routes } = generatedTables(projectDir);
+function testEnv() {
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
     if (key.startsWith("NODE_TEST") || key === "NODE_CHANNEL_FD")
       delete env[key];
   }
-  const child = spawnSync(
-    execPath,
-    ["--test", "--test-reporter=tap", "test/product.test.mjs"],
-    { cwd: projectDir, encoding: "utf8", env },
+  return env;
+}
+
+function tapName(line) {
+  const ok = /^ok \d+ - (.*)$/u.exec(line.trim());
+  const notOk = /^not ok \d+ - (.*)$/u.exec(line.trim());
+  if (ok) return { match: "pass", name: ok[1].replace(/ # .*$/u, "") };
+  if (notOk) return { match: "fail", name: notOk[1].replace(/ # .*$/u, "") };
+  return null;
+}
+
+function classifyOutput(projectDir, output, status, signal, stdout, stderr) {
+  const spec = JSON.parse(
+    readFileSync(join(projectDir, "behavior-spec.json"), "utf8"),
   );
+  const { behaviors, routes } = generatedTables(projectDir);
   const passed = new Set();
   const failed = new Set();
-  const output = `${child.stdout ?? ""}\n${child.stderr ?? ""}`;
   for (const line of output.split("\n")) {
-    const ok = /^ok \d+ - (.*)$/u.exec(line.trim());
-    const notOk = /^not ok \d+ - (.*)$/u.exec(line.trim());
-    if (ok) passed.add(ok[1].replace(/ # .*$/u, ""));
-    if (notOk) failed.add(notOk[1].replace(/ # .*$/u, ""));
+    const tap = tapName(line);
+    if (tap?.match === "pass") passed.add(tap.name);
+    if (tap?.match === "fail") failed.add(tap.name);
   }
   const features = spec.features.map((feature) => {
     const running = `feature ${feature.id}`;
@@ -126,8 +125,8 @@ export function verifyRebuild(projectDir, execPath = process.execPath) {
   ).length;
   return {
     schema_version: VERIFY_SCHEMA,
-    exit_code: child.status,
-    signal: child.signal,
+    exit_code: status,
+    signal,
     features,
     implemented,
     unimplemented,
@@ -136,8 +135,88 @@ export function verifyRebuild(projectDir, execPath = process.execPath) {
     total: features.length,
     ratio: features.length === 0 ? null : implemented / features.length,
     quote_test_passed:
-      child.status === 0 && passed.has("source does not contain spec quotes"),
-    stdout: child.stdout ?? "",
-    stderr: child.stderr ?? "",
+      status === 0 && passed.has("source does not contain spec quotes"),
+    stdout: stdout ?? "",
+    stderr: stderr ?? "",
   };
+}
+
+/**
+ * Run the product tests.
+ * pass means an HTTP route test passed.
+ * unimplemented means the feature was not built.
+ * fail means a test failed.
+ */
+export function verifyRebuild(projectDir, execPath = process.execPath) {
+  const child = spawnSync(
+    execPath,
+    ["--test", "--test-reporter=tap", "test/product.test.mjs"],
+    { cwd: projectDir, encoding: "utf8", env: testEnv() },
+  );
+  return classifyOutput(
+    projectDir,
+    `${child.stdout ?? ""}\n${child.stderr ?? ""}`,
+    child.status,
+    child.signal,
+    child.stdout,
+    child.stderr,
+  );
+}
+
+/**
+ * Same verdict as verifyRebuild. Each TAP ok / not ok line is reported as it arrives.
+ */
+export function verifyRebuildLive(
+  projectDir,
+  { onEvent, execPath = process.execPath } = {},
+) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      execPath,
+      ["--test", "--test-reporter=tap", "test/product.test.mjs"],
+      { cwd: projectDir, env: testEnv() },
+    );
+    let stdout = "";
+    let stderr = "";
+    const pending = { stdout: "", stderr: "" };
+    const take = (chunk, into) => {
+      const text = chunk.toString("utf8");
+      if (into === "stdout") stdout += text;
+      else stderr += text;
+      pending[into] += text;
+      let newline = pending[into].indexOf("\n");
+      while (newline >= 0) {
+        const line = pending[into].slice(0, newline);
+        pending[into] = pending[into].slice(newline + 1);
+        newline = pending[into].indexOf("\n");
+        const tap = tapName(line);
+        if (!tap || typeof onEvent !== "function") continue;
+        onEvent({
+          source: "verify",
+          phase: "test",
+          match: tap.match,
+          test_name: tap.name,
+          message:
+            tap.match === "pass"
+              ? `Test passed: ${tap.name}`
+              : `Test failed: ${tap.name}`,
+        });
+      }
+    };
+    child.stdout.on("data", (chunk) => take(chunk, "stdout"));
+    child.stderr.on("data", (chunk) => take(chunk, "stderr"));
+    child.on("error", reject);
+    child.on("close", (status, signal) => {
+      resolve(
+        classifyOutput(
+          projectDir,
+          `${stdout}\n${stderr}`,
+          status,
+          signal,
+          stdout,
+          stderr,
+        ),
+      );
+    });
+  });
 }

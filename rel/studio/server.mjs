@@ -496,6 +496,35 @@ async function handleApi(context) {
     const { startOwnedPipeline } = await import("./product-flow.mjs");
     return startOwnedPipeline(store.root, body);
   }
+  if (method === "POST" && pathname === "/api/live-builds") {
+    const { startLiveBuild } = await import("./product-flow.mjs");
+    if (typeof body?.run_id === "string") {
+      if (typeof body.project_id !== "string")
+        throw studioError("A project id is required with a run id.", 400);
+      const run = requireRun(store.read(body.project_id), body.run_id);
+      return startLiveBuild(store.root, {
+        product_name: body.product_name,
+        feature_ids: body.feature_ids,
+        record: evidenceRecord(run),
+        evidence_path: join(run.output_dir, "evidence.json"),
+      });
+    }
+    return startLiveBuild(store.root, body);
+  }
+  const livePackage = pathname.match(
+    /^\/api\/live-builds\/(live_[a-f0-9]{16})\/package$/u,
+  );
+  const liveMatch = pathname.match(
+    /^\/api\/live-builds\/(live_[a-f0-9]{16})$/u,
+  );
+  if (liveMatch && method === "GET") {
+    const { readLiveBuild } = await import("./product-flow.mjs");
+    return readLiveBuild(store.root, liveMatch[1]);
+  }
+  if ((livePackage || liveMatch) && method === "POST") {
+    const { packageLiveBuild } = await import("./product-flow.mjs");
+    return packageLiveBuild(store.root, (livePackage ?? liveMatch)[1]);
+  }
   const pipelineMatch = pathname.match(
     /^\/api\/pipeline\/(run_[a-f0-9]{16})$/u,
   );
@@ -642,6 +671,14 @@ async function handleApi(context) {
     if (!cancelStaticAnalysis(store.root, cancelRun[1]))
       throw studioError("That analysis is not running.", 409);
     return store.read(projectId);
+  }
+  const specDraft = rest.match(/^\/runs\/(run_[a-f0-9]{16})\/spec-draft$/u);
+  if (method === "POST" && specDraft) {
+    const run = requireRun(store.read(projectId), specDraft[1]);
+    const { draftSpecFromEvidence } = await import("./from-findings.mjs");
+    return draftSpecFromEvidence(evidenceRecord(run), {
+      evidencePath: join(run.output_dir, "evidence.json"),
+    });
   }
   const timeline = rest.match(/^\/runs\/(run_[a-f0-9]{16})\/timeline$/u);
   if (method === "GET" && timeline) {

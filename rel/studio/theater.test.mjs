@@ -13,6 +13,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { startStudio } from "./server.mjs";
 import {
+  evidenceFacts,
   evidenceTimeline,
   parseProgressLine,
   readTimeline,
@@ -72,6 +73,116 @@ test("statistics do not call bundler registrations source modules", () => {
   assert.match(stats.message, /2 source modules/);
   assert.match(stats.message, /Bundler registrations: 0/);
   assert.doesNotMatch(stats.message, /\b0 modules\b/);
+});
+
+function semanticRecord() {
+  const record = sampleRecord();
+  const contextId = `jsrg_evidence_${"b".repeat(64)}`;
+  record.normalized_result.semantic_graph = {
+    evidence_contexts: [
+      {
+        context_id: contextId,
+        state: "inferred",
+        authority: "static-relationship-inference",
+        confidence: "high",
+        limitations: ["static syntax is not an execution"],
+      },
+    ],
+    nodes: [
+      {
+        node_id: "fn",
+        kind: "function",
+        identity: { module_path: "search.mjs" },
+        properties: { name: "rank" },
+        evidence: {
+          context_id: contextId,
+          location: { start: { line: 2, column: 0 } },
+        },
+      },
+      {
+        node_id: "lit",
+        kind: "literal",
+        identity: { module_path: "search.mjs" },
+        properties: { value: "hello-from-evidence" },
+        evidence: {
+          context_id: contextId,
+          location: { start: { line: 3, column: 1 } },
+        },
+      },
+      {
+        node_id: "beh",
+        kind: "expression",
+        function_node_id: "fn",
+        properties: { behavior: "network", detail: "GET" },
+        evidence: {
+          context_id: contextId,
+          location: { start: { line: 4, column: 1 } },
+        },
+      },
+      {
+        node_id: "site",
+        kind: "call-site",
+        function_node_id: "fn",
+        evidence: { location: { start: { line: 5, column: 2 } } },
+      },
+      {
+        node_id: "callee",
+        kind: "function",
+        identity: { module_path: "cli.mjs" },
+        properties: { name: "main" },
+        evidence: {
+          context_id: contextId,
+          location: { start: { line: 1, column: 0 } },
+        },
+      },
+    ],
+    relations: [
+      {
+        relation: "calls",
+        resolution: "resolved",
+        relation_id: "rel-1",
+        source_node_id: "site",
+        target_node_id: "callee",
+      },
+    ],
+  };
+  return record;
+}
+
+test("evidence facts stay inferred and do not invent hypotheses or endpoints", () => {
+  const record = semanticRecord();
+  const facts = evidenceFacts(record);
+  assert.equal(facts.functions.length, 2);
+  assert.equal(facts.calls.length, 1);
+  assert.equal(facts.strings[0].preview, "hello-from-evidence");
+  assert.equal(facts.behaviors[0].state, "inferred");
+  assert.equal(facts.endpoints.length, 0);
+  assert.equal(facts.hypotheses.length, 0);
+  const events = evidenceTimeline(record);
+  const behavior = events.find((event) => event.phase === "behavior");
+  assert.equal(behavior.state, "inferred");
+  assert.match(behavior.message, /No request path was stored/);
+  assert.equal(
+    events.some((event) => event.phase === "hypothesis"),
+    false,
+  );
+  assert.equal(
+    events.some((event) => event.phase === "endpoint"),
+    false,
+  );
+  assert.equal(behavior.produced_by.phase, null);
+  assert.match(behavior.produced_by.note, /No progress line names this fact/);
+  const cited = evidenceTimeline(record, [
+    {
+      source: "engine-progress",
+      phase: "build_javascript_semantic_graph",
+      message: "Binding and validating static semantic relationships",
+    },
+  ]).find((event) => event.phase === "function");
+  assert.equal(cited.produced_by.phase, "build_javascript_semantic_graph");
+  assert.equal(cited.state, "inferred");
+  const stats = events.find((event) => event.phase === "statistics");
+  assert.match(stats.message, /2 source modules/);
 });
 
 test("progress lines keep the engine phase and parsed file", () => {
@@ -270,6 +381,32 @@ test(
         ),
       );
       assert.ok(timeline.events.some((event) => event.phase === "evidence"));
+      const fn = timeline.events.find((event) => event.phase === "function");
+      assert.ok(fn, "a function fact should be read from Evidence");
+      assert.equal(fn.source, "evidence");
+      assert.ok(
+        ["observed", "inferred", "derived", "unrecorded"].includes(fn.state),
+      );
+      if (
+        timeline.events.some(
+          (event) =>
+            event.source === "engine-progress" &&
+            event.phase === "build_javascript_semantic_graph",
+        )
+      )
+        assert.equal(fn.produced_by.phase, "build_javascript_semantic_graph");
+      assert.equal(
+        timeline.events.some((event) => event.phase === "hypothesis"),
+        false,
+      );
+      const draft = await api(
+        `/api/projects/${project.id}/runs/${run.id}/spec-draft`,
+        { method: "POST", body: {} },
+      );
+      assert.equal(draft.spec.api.endpoints.length, 0);
+      assert.ok(draft.features.length > 0);
+      assert.match(draft.note, /None were invented/);
+      assert.ok(draft.features.every((feature) => !feature.name.includes("/")));
       const output = join(root, "rebuild");
       const preview = await api(
         `/api/projects/${project.id}/runs/${run.id}/rebuild/preview`,

@@ -390,6 +390,18 @@ dd {
   fill: none;
 }
 
+.edge-call {
+  stroke: var(--accent);
+}
+
+button.quiet {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
 .edge-derived {
   stroke: var(--accent);
 }
