@@ -18,7 +18,14 @@ export function createApp() {
         send(response, 400, { error: "payload" });
         return;
       }
-      const bodyParams = new URLSearchParams(body);
+      const jsonFields = jsonObject(request, body);
+      if (jsonFields === false) {
+        send(response, 400, { error: "payload" });
+        return;
+      }
+      const bodyParams = jsonFields
+        ? new URLSearchParams()
+        : new URLSearchParams(body);
       if (
         request.method === "GET" &&
         url.pathname === "/" &&
@@ -30,21 +37,36 @@ export function createApp() {
         response.end(page());
         return;
       }
-      const route = routes.find(
-        (item) => item.method === request.method && item.path === url.pathname,
-      );
-      if (!route) {
-        const known = routes.some((item) => item.path === url.pathname);
-        send(response, known ? 405 : 404, {
-          error: known ? "method" : "not-found",
+      const located = locate(request.method, url.pathname);
+      if (located.bad) {
+        send(response, 400, { error: "bad-url" });
+        return;
+      }
+      if (!located.route) {
+        send(response, located.known ? 405 : 404, {
+          error: located.known ? "method" : "not-found",
         });
         return;
       }
-      const store = bucket(stores, route.path);
+      const route = located.route;
+      const store = bucket(stores, route.resource || route.path);
+      const recordId = located.pathId || url.searchParams.get("id");
+      if (route.action === "read") {
+        if (!recordId) {
+          send(response, 404, { error: "not-found" });
+          return;
+        }
+        const found = store.items.find((item) => item.id === recordId);
+        if (!found) {
+          send(response, 404, { error: "not-found" });
+          return;
+        }
+        send(response, route.success_status, found);
+        return;
+      }
       if (route.action === "list") {
-        const id = url.searchParams.get("id");
-        if (id) {
-          const found = store.items.find((item) => item.id === id);
+        if (recordId) {
+          const found = store.items.find((item) => item.id === recordId);
           if (!found) {
             send(response, 404, { error: "not-found" });
             return;
@@ -60,9 +82,8 @@ export function createApp() {
         return;
       }
       if (route.action === "remove") {
-        const id = url.searchParams.get("id");
-        if (id) {
-          const index = store.items.findIndex((item) => item.id === id);
+        if (recordId) {
+          const index = store.items.findIndex((item) => item.id === recordId);
           if (index < 0) {
             send(response, 404, { error: "not-found" });
             return;
@@ -75,8 +96,8 @@ export function createApp() {
         send(response, route.success_status, { deleted: true });
         return;
       }
-      const fields = fieldsFrom(route, url, bodyParams);
-      const id = url.searchParams.get("id");
+      const fields = fieldsFrom(route, url, bodyParams, jsonFields);
+      const id = recordId;
       if ((route.action === "replace" || route.action === "merge") && id) {
         const found = store.items.find((item) => item.id === id);
         if (!found) {
@@ -108,6 +129,60 @@ export function createApp() {
   });
 }
 
+function jsonObject(request, body) {
+  const type = String(request.headers["content-type"] ?? "");
+  if (!type.toLowerCase().includes("application/json")) return null;
+  if (!String(body).trim()) return null;
+  try {
+    const value = JSON.parse(body);
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      return false;
+    return value;
+  } catch {
+    return false;
+  }
+}
+
+function locate(method, pathname) {
+  const exact = routes.find(
+    (item) => item.method === method && item.path === pathname,
+  );
+  if (exact) return { route: exact, pathId: null, known: true };
+  for (const item of routes) {
+    if (item.method !== method || !item.path_param) continue;
+    const matched = matchTemplate(item, pathname);
+    if (matched.bad) return { route: null, bad: true, known: true };
+    if (matched.value !== null)
+      return { route: item, pathId: matched.value, known: true };
+  }
+  const known = routes.some(
+    (item) =>
+      item.path === pathname ||
+      (item.path_param && matchTemplate(item, pathname).value !== null),
+  );
+  return { route: null, pathId: null, known };
+}
+
+function matchTemplate(route, pathname) {
+  const token = "{" + route.path_param + "}";
+  const pieces = route.path.split(token);
+  if (pieces.length !== 2) return { value: null };
+  if (!pathname.startsWith(pieces[0])) return { value: null };
+  const rest = pathname.slice(pieces[0].length);
+  const tail = pieces[1];
+  let raw = rest;
+  if (tail) {
+    if (!rest.endsWith(tail)) return { value: null };
+    raw = rest.slice(0, rest.length - tail.length);
+  }
+  if (!raw || raw.includes("/")) return { value: null };
+  try {
+    return { value: decodeURIComponent(raw) };
+  } catch {
+    return { bad: true, value: null };
+  }
+}
+
 function bucket(stores, path) {
   const current = stores.get(path);
   if (current) return current;
@@ -116,10 +191,18 @@ function bucket(stores, path) {
   return created;
 }
 
-function fieldsFrom(route, url, bodyParams) {
+function fieldsFrom(route, url, bodyParams, jsonFields) {
   const fields = {};
   for (const name of route.parameters) {
-    if (url.searchParams.has(name)) fields[name] = url.searchParams.get(name);
+    if (
+      jsonFields &&
+      Object.prototype.hasOwnProperty.call(jsonFields, name)
+    ) {
+      const value = jsonFields[name];
+      fields[name] =
+        value === null || value === undefined ? null : String(value);
+    } else if (url.searchParams.has(name))
+      fields[name] = url.searchParams.get(name);
     else if (bodyParams.has(name)) fields[name] = bodyParams.get(name);
     else fields[name] = null;
   }
@@ -172,13 +255,32 @@ function send(response, status, body) {
 }
 
 function page() {
-  const paths = [];
+  const groups = [];
   for (const route of routes) {
-    if (!paths.includes(route.path)) paths.push(route.path);
+    const key = route.resource || route.path;
+    let group = null;
+    for (let index = 0; index < groups.length; index += 1) {
+      if (groups[index].key === key) group = groups[index];
+    }
+    if (!group) {
+      group = { key, routes: [] };
+      groups.push(group);
+    }
+    group.routes.push(route);
   }
-  const sections = paths.map((path) => {
-    const group = routes.filter((item) => item.path === path);
-    const sample = group[0];
+  const sections = groups.map((group) => {
+    let sample = group.routes[0];
+    let collection = null;
+    let item = null;
+    for (const route of group.routes) {
+      if (route.path_param) {
+        if (!item) item = route;
+      } else if (!collection) {
+        collection = route.path;
+        sample = route;
+      }
+    }
+    if (!collection) collection = item ? item.collection : sample.path;
     const fields = (sample.model ?? []).filter((name) => name !== "id");
     const rules = (sample.rules ?? []).join(", ") || "none";
     const inputs = fields
@@ -191,28 +293,41 @@ function page() {
           '" data-field="1"></label>',
       )
       .join(" ");
+    const itemAttr = item
+      ? '" data-item="' +
+        escapeHtml(item.path) +
+        '" data-param="' +
+        escapeHtml(item.path_param)
+      : "";
+    const open = item
+      ? '<button type="button" data-method="GET" data-item="1">Open</button> '
+      : "";
+    const itemLine = item
+      ? "<p>One record: <code>" + escapeHtml(item.path) + "</code></p>"
+      : "";
     return (
       '<section data-path="' +
-      escapeHtml(path) +
+      escapeHtml(collection) +
+      itemAttr +
       '"><h2><code>' +
-      escapeHtml(path) +
-      "</code></h2><p>Model: " +
+      escapeHtml(collection) +
+      "</code></h2>" +
+      itemLine +
+      "<p>Model: " +
       escapeHtml((sample.model ?? []).join(", ")) +
       ". Rules: " +
       escapeHtml(rules) +
-      '.</p><form method="get" action="' +
-      escapeHtml(path) +
-      '"><button>List</button></form><form method="post" action="' +
-      escapeHtml(path) +
-      '">' +
+      ".</p><p>" +
       inputs +
-      '<button>Create</button></form><p><label>id <input name="id"></label></p><p><button type="button" data-method="PUT">Update</button> <button type="button" data-method="PATCH">Patch</button> <button type="button" data-method="DELETE">Delete</button></p><pre></pre></section>'
+      '</p><p><button type="button" data-method="GET">List</button> <button type="button" data-method="POST">Create</button></p><p><label>id <input name="id"></label></p><p>' +
+      open +
+      '<button type="button" data-method="PUT">Update</button> <button type="button" data-method="PATCH">Patch</button> <button type="button" data-method="DELETE">Delete</button></p><pre></pre></section>'
     );
   });
   return (
     '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Product</title><style>body{font:16px/1.45 sans-serif;margin:2rem;max-width:40rem}section{border:1px solid #ccc;padding:1rem;margin:1rem 0}code{font-family:ui-monospace,monospace}pre{white-space:pre-wrap}</style></head><body><h1>Product</h1><p>In-memory records. Write rules are enforced.</p>' +
     sections.join("") +
-    "<script>document.addEventListener('click', function (event) { var button = event.target.closest('button[data-method]'); if (!button) return; var section = button.closest('section'); var url = new URL(section.getAttribute('data-path'), location.origin); var id = section.querySelector('input[name=id]'); if (id && id.value) url.searchParams.set('id', id.value); var inputs = section.querySelectorAll('input[data-field]'); for (var index = 0; index < inputs.length; index += 1) { var input = inputs[index]; if (input.value) url.searchParams.set(input.name, input.value); } fetch(url, { method: button.getAttribute('data-method') }).then(function (response) { return response.text().then(function (text) { section.querySelector('pre').textContent = String(response.status) + ' ' + text; }); }); });</script></body></html>"
+    "<script>document.addEventListener('click', function (event) { var button = event.target.closest('button[data-method]'); if (!button) return; var section = button.closest('section'); var method = button.getAttribute('data-method'); var idInput = section.querySelector('input[name=id]'); var id = idInput && idInput.value ? idInput.value : ''; var path = section.getAttribute('data-path'); var template = section.getAttribute('data-item'); var param = section.getAttribute('data-param'); var useItem = button.getAttribute('data-item') === '1'; if (useItem && template && param && id) path = template.split('{' + param + '}').join(encodeURIComponent(id)); var url = new URL(path, location.origin); if (!useItem && id && method !== 'POST' && method !== 'GET') url.searchParams.set('id', id); var options = { method: method }; if (method !== 'GET') { var payload = {}; var inputs = section.querySelectorAll('input[data-field]'); for (var index = 0; index < inputs.length; index += 1) payload[inputs[index].name] = inputs[index].value; options.headers = { 'content-type': 'application/json' }; options.body = JSON.stringify(payload); } fetch(url, options).then(function (response) { return response.text().then(function (text) { section.querySelector('pre').textContent = String(response.status) + ' ' + text; }); }); });</script></body></html>"
   );
 }
 
@@ -258,12 +373,28 @@ const spec = JSON.parse(
 );
 
 async function call(base, route, value, id) {
-  const url = new URL(base + route.path);
-  if (id) url.searchParams.set("id", id);
-  if (value !== null) {
+  let path = route.path;
+  if (route.path_param && id)
+    path = path.replace(
+      "{" + route.path_param + "}",
+      encodeURIComponent(id),
+    );
+  const url = new URL(base + path);
+  if (id && !route.path_param) url.searchParams.set("id", id);
+  const headers = {};
+  let payload;
+  if (value !== null && route.body === "json") {
+    payload = {};
+    for (const name of route.parameters) payload[name] = value;
+    headers["content-type"] = "application/json";
+  } else if (value !== null) {
     for (const name of route.parameters) url.searchParams.set(name, value);
   }
-  return fetch(url, { method: route.method });
+  return fetch(url, {
+    method: route.method,
+    headers,
+    body: payload ? JSON.stringify(payload) : undefined,
+  });
 }
 
 for (const behavior of behaviors) {
@@ -286,11 +417,11 @@ for (const behavior of behaviors) {
           "text/html; charset=utf-8",
         );
         const html = await page.text();
-        assert.equal(
-          html.includes('data-path="' + primary.path + '"'),
-          true,
-          primary.path,
-        );
+        const marker = primary.path_param
+          ? 'data-item="' + primary.path + '"'
+          : 'data-path="' + primary.path + '"';
+        assert.equal(html.includes(marker), true, primary.path);
+        assert.equal(html.includes("application/json"), true);
         const created = await call(base, create, "sample");
         assert.equal(created.status, create.success_status);
         const body = await created.json();
@@ -304,6 +435,14 @@ for (const behavior of behaviors) {
           assert.ok(Array.isArray(payload.items));
           assert.ok(Array.isArray(payload.model));
           assert.ok(payload.items.some((item) => item.id === body.id));
+        }
+        const read = owned.find((item) => item.action === "read");
+        if (read) {
+          const opened = await call(base, read, null, body.id);
+          assert.equal(opened.status, read.success_status);
+          assert.equal((await opened.json()).id, body.id);
+          const missing = await call(base, read, null, "missing-id");
+          assert.equal(missing.status, 404);
         }
         if (create.rules.includes("unique")) {
           const again = await call(base, create, "sample");

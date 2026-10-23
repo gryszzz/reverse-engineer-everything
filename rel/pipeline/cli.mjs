@@ -32,6 +32,8 @@ const HELP = [
   "An owned fixture is a directory with request.json and manifest.json. No",
   "network request is made. A directory with no request.json needs --authorized",
   "and is static analysis only. It does not become a product spec.",
+  "An http or https URL needs --authorized. The run then requests that public",
+  "page. A URL with a username or password stops before any request.",
   "The default product name is REE Product. It must differ from the spec target.",
   "Launch and sell flags record approval. They do not call Guard, notify Blast,",
   "notify Scale, or copy into Vault. dry_run stays true.",

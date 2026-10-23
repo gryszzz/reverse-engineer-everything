@@ -229,7 +229,7 @@ export function emitHandoff({
   const quotes = customerQuotes(spec);
   const forbidden = [spec.target.name, scoutFacts.target_name].filter(Boolean);
   const summary =
-    "Clean-room HTTP product. Each feature gets a data model, write rules, and CRUD routes. A feature that only matches a path template or a method outside GET, POST, PUT, PATCH, and DELETE is left out, with a reason. Market scores appear only when a Scout record supplied them.";
+    "Clean-room HTTP product. Each feature gets a data model, write rules, and CRUD routes. A path with one {name} segment is one route on the parent collection. Any other path template, or a method outside GET, POST, PUT, PATCH, and DELETE, is left out, with a reason. Market scores appear only when a Scout record supplied them.";
   for (const name of forbidden) {
     if (summary.includes(name) || provenance.product_name.includes(name))
       throw new Error("Customer-facing fields include a competitor name.");

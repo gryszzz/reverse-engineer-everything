@@ -98,9 +98,21 @@ function buildable(endpoint) {
   const path = endpoint?.path;
   if (!HTTP_METHODS.has(method))
     return { ok: false, reason: "method is not built" };
-  if (typeof path !== "string" || !path.startsWith("/") || path.includes("{"))
+  if (typeof path !== "string" || !path.startsWith("/"))
     return { ok: false, reason: "path template is not expanded" };
-  return { ok: true, method, path };
+  if (!path.includes("{")) return { ok: true, method, path, item: null };
+  const match = /^(\/.*)?\/\{([A-Za-z_][A-Za-z0-9_]*)\}$/u.exec(path);
+  if (!match || path.split("{").length !== 2)
+    return { ok: false, reason: "path template is not expanded" };
+  const collection = match[1] || "";
+  if (!collection.startsWith("/") || collection.includes("{"))
+    return { ok: false, reason: "path template is not expanded" };
+  return {
+    ok: true,
+    method,
+    path,
+    item: { param: match[2], collection },
+  };
 }
 
 function nameEquals(feature, endpoint) {
@@ -145,7 +157,8 @@ function parametersOf(endpoint) {
  * A feature whose name equals an endpoint summary or operation id uses that
  * concrete path. A feature with no such endpoint gets its own collection.
  * Declared GET, POST, PUT, PATCH, and DELETE endpoints are built even when
- * no feature name matches them. Path templates and other methods stay out.
+ * no feature name matches them. A path with one {name} segment is one
+ * route on the parent collection. Other path templates stay out.
  */
 export function planProduct(spec) {
   const quotes = quotesIn(spec);
@@ -175,12 +188,27 @@ export function planProduct(spec) {
 
   function resourceFor(path, parameters, rules) {
     const found = resources.find((item) => item.path === path);
-    if (found) return found;
+    if (found) {
+      let added = false;
+      for (const name of parameters) {
+        if (!found.parameters.includes(name)) {
+          found.parameters.push(name);
+          added = true;
+        }
+        if (!found.model.includes(name)) found.model.push(name);
+      }
+      if (added && found.rules.length === 0) {
+        for (const rule of rules) {
+          if (!found.rules.includes(rule)) found.rules.push(rule);
+        }
+      }
+      return found;
+    }
     const resource = {
       id: "c" + resources.length,
       path,
-      parameters,
-      rules,
+      parameters: [...parameters],
+      rules: [...rules],
       model: ["id", ...parameters],
     };
     resources.push(resource);
@@ -201,7 +229,7 @@ export function planProduct(spec) {
   function crudFor(resource) {
     const declared = endpoints.filter((endpoint) => {
       const built = buildable(endpoint);
-      return built.ok && built.path === resource.path;
+      return built.ok && !built.item && built.path === resource.path;
     });
     const made = [];
     for (const method of CRUD) {
@@ -224,6 +252,7 @@ export function planProduct(spec) {
           : method === "POST"
             ? 201
             : 200,
+        body: endpoint?.body === "json" ? "json" : null,
         resource: resource.id,
         action: actionFor(method),
         model: resource.model,
@@ -253,6 +282,48 @@ export function planProduct(spec) {
     return path;
   }
 
+  function parentResource(collection) {
+    const onPath = endpoints.filter((endpoint) => {
+      const built = buildable(endpoint);
+      return built.ok && !built.item && built.path === collection;
+    });
+    const parameters = unionParameters(onPath);
+    return resourceFor(
+      collection,
+      parameters,
+      parameters.length > 0 ? ["required"] : [],
+    );
+  }
+
+  function itemRoute(endpoint, built, resource) {
+    return storeRoute({
+      method: built.method,
+      path: built.path,
+      path_param: built.item.param,
+      collection: built.item.collection,
+      operation_id: endpoint.operation_id ?? null,
+      parameters: [],
+      success_status: successStatus(built.method, endpoint.response_codes),
+      body: endpoint.body === "json" ? "json" : null,
+      resource: resource.id,
+      action: built.method === "GET" ? "read" : actionFor(built.method),
+      model: resource.model,
+      rules: resource.rules,
+    });
+  }
+
+  function ensureItem(endpoint) {
+    const built = buildable(endpoint);
+    if (!built.item) return null;
+    const existing = routes.find(
+      (route) => route.method === built.method && route.path === built.path,
+    );
+    if (existing) return existing;
+    const resource = parentResource(built.item.collection);
+    if (!crudFor(resource)) return null;
+    return itemRoute(endpoint, built, resource);
+  }
+
   for (const feature of spec.features ?? []) {
     if (leaks(feature.id, quotes)) {
       omitted.push(feature.id);
@@ -270,14 +341,39 @@ export function planProduct(spec) {
       continue;
     }
     if (buildableHits.length > 0) {
+      const concrete = buildableHits.filter(
+        (endpoint) => !buildable(endpoint).item,
+      );
+      const items = buildableHits.filter(
+        (endpoint) => buildable(endpoint).item,
+      );
+      if (concrete.length === 0) {
+        const stored = ensureItem(
+          items.find(
+            (endpoint) => String(endpoint.method).toUpperCase() === "GET",
+          ) ?? items[0],
+        );
+        for (const endpoint of items) ensureItem(endpoint);
+        if (!stored) {
+          leave(feature, "structural fields repeated a spec quote");
+          continue;
+        }
+        behaviors.push({
+          id: feature.id,
+          status: "implemented",
+          handler: stored.key,
+        });
+        continue;
+      }
       const preferred =
-        buildableHits.find(
+        concrete.find(
           (endpoint) => String(endpoint.method).toUpperCase() === "POST",
-        ) ?? buildableHits[0];
+        ) ?? concrete[0];
+      for (const endpoint of items) ensureItem(endpoint);
       const path = buildable(preferred).path;
       const onPath = endpoints.filter((endpoint) => {
         const built = buildable(endpoint);
-        return built.ok && built.path === path;
+        return built.ok && !built.item && built.path === path;
       });
       const parameters = unionParameters(onPath);
       const resource = resourceFor(
@@ -333,6 +429,17 @@ export function planProduct(spec) {
   for (const endpoint of endpoints) {
     const built = buildable(endpoint);
     if (!built.ok) continue;
+    if (built.item) {
+      if (!ensureItem(endpoint)) {
+        skipped.push({
+          method: built.method,
+          path: built.path,
+          operation_id: endpoint.operation_id ?? null,
+          reason: "structural fields repeated a spec quote",
+        });
+      }
+      continue;
+    }
     if (routes.some((route) => route.path === built.path)) continue;
     const onPath = endpoints.filter((item) => {
       const itemBuilt = buildable(item);
@@ -365,12 +472,16 @@ export function planProduct(spec) {
 
 function routeLine(route) {
   const params = route.parameters.length
-    ? ` Query parameters: ${route.parameters.join(", ")}.`
+    ? ` Fields: ${route.parameters.join(", ")}.`
+    : "";
+  const body = route.body === "json" ? " JSON body accepted." : "";
+  const item = route.path_param
+    ? ` Path parameter ${route.path_param} uses the parent collection.`
     : "";
   const operation = route.operation_id
     ? ` Operation id: ${route.operation_id}.`
     : "";
-  return `- ${route.method} ${route.path} returns ${route.success_status}.${params}${operation}`;
+  return `- ${route.method} ${route.path} returns ${route.success_status}.${params}${body}${item}${operation}`;
 }
 
 function endpointLine(endpoint) {
@@ -449,9 +560,9 @@ function readmeText(productName, spec, plan) {
       "The store is in memory and starts empty.",
       "Each built feature has a data model, write rules, and CRUD routes.",
       'GET returns `{ "items": [] }` with the model and rules.',
-      "POST creates a record with an id and the query parameters.",
-      "PUT and PATCH update that record when `id` is set, and append one when it is not.",
-      "DELETE with `id` removes that record. DELETE without `id` clears the path.",
+      "POST creates a record with an id and the field values. A query string, a form body, or a JSON object is accepted.",
+      "PUT and PATCH update that record when `id` is set in the query string or in a single `{name}` path, and append one when it is not.",
+      "DELETE with `id` removes that record. DELETE without `id` clears the collection.",
       'Both return `{ "deleted": true }`.',
       "A missing required field, a duplicate unique field, or a value longer than 80 characters returns 400.",
       "The success status is 200 or 201 when the spec lists that code. Otherwise POST uses 201 and the other methods use 200.",
@@ -481,8 +592,8 @@ function readmeText(productName, spec, plan) {
     "## Not implemented",
     "",
     "GraphQL, workflows, a pricing checkout, integrations, authentication, and rate limits are not built.",
-    "A feature that only matches a path template, or a method other than GET, POST, PUT, PATCH, and DELETE, is left out.",
-    "Path templates that contain `{` are not expanded.",
+    "A path with one {name} segment is one route on the parent collection. GET reads one record and answers 404 when that id is missing.",
+    "Any other path template, or a method other than GET, POST, PUT, PATCH, and DELETE, is left out.",
     "",
     "See FEATURE_REPORT.md for the same implemented and left-out lists.",
     "See PRICING.md. Prices are not invented.",
@@ -678,8 +789,8 @@ export function scaffoldRebuild({
       "A feature whose name equals an endpoint summary or operation id uses that concrete path.",
       "A feature with no matching endpoint gets its own collection.",
       "Declared GET, POST, PUT, PATCH, and DELETE endpoints are built even when no feature name matches.",
-      "The store is in memory. GET / is the minimal UI.",
-      "Path templates containing { are not expanded.",
+      "The store is in memory. GET / is the minimal UI. JSON field objects are accepted.",
+      "A path with one {name} segment is one route on the parent collection. Other path templates are not expanded.",
       "GraphQL, workflows, pricing checkout, integrations, authentication, and rate limits are not built.",
     ],
   };
@@ -759,7 +870,7 @@ export function scaffoldRebuild({
     "src/routes.mjs",
     [
       "// Generated by REE rebuild.",
-      "// Method, path, operation id, parameter names, and status only.",
+      "// Method, path, operation id, parameter names, body kind, and status only.",
       "export const routes = " + JSON.stringify(plan.routes, null, 2) + ";",
       "",
     ].join("\n"),

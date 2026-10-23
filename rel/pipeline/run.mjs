@@ -251,7 +251,43 @@ function publish(ctx) {
   return run;
 }
 
+function isOutsideIn(mode) {
+  return (
+    mode === "outside-in-fixture" ||
+    mode === "outside-in-live" ||
+    mode === "outside-in-url"
+  );
+}
+
+function httpTarget(value) {
+  const text = String(value ?? "").trim();
+  if (!/^https?:\/\//iu.test(text)) return null;
+  let url;
+  try {
+    url = new URL(text);
+  } catch {
+    throw new Error("pipeline TARGET must be a directory or an http(s) URL.");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  if (url.username || url.password)
+    throw new Error("Use a URL without embedded credentials.");
+  return url;
+}
+
 async function stageScope(ctx) {
+  if (ctx.url) {
+    ctx.mode = "outside-in-url";
+    return {
+      message: `Authorized URL. Investigate will request ${ctx.url}.`,
+      outputs: [],
+      provenance: {
+        mode: "outside-in-url",
+        authorization: "authorized",
+        network: true,
+        url: ctx.url,
+      },
+    };
+  }
   const requestPath = join(ctx.fixture, "request.json");
   const manifestPath = join(ctx.fixture, "manifest.json");
   const hasRequest = existsSync(requestPath);
@@ -297,6 +333,35 @@ async function stageScope(ctx) {
 }
 
 async function stageInvestigate(ctx) {
+  if (ctx.mode === "outside-in-url") {
+    const analysisDir = join(ctx.outDir, "analysis");
+    const result = await analyzeOutsideIn({
+      target: { name: new URL(ctx.url).hostname, urls: [ctx.url] },
+      fetchImpl: ctx.fetchImpl ?? undefined,
+      outDir: analysisDir,
+      now: () => ctx.now,
+      sleep: ctx.sleep ?? undefined,
+      minIntervalMs: ctx.minIntervalMs ?? undefined,
+    });
+    ctx.spec = result.spec;
+    ctx.analysisDir = analysisDir;
+    if (result.exitCode !== 0)
+      throw new Error(
+        `Outside-in status is ${result.spec.status}. Pipeline did not rebuild a product from a refused spec.`,
+      );
+    return {
+      message: "Outside-in wrote a behavior spec from the public page.",
+      outputs: ["analysis/behavior-spec.json", "analysis/OUTSIDE_IN_REPORT.md"],
+      provenance: {
+        mode: "outside-in-url",
+        tool: "analyzeOutsideIn",
+        spec_status: result.spec.status,
+        spec_path: "analysis/behavior-spec.json",
+        network: true,
+        url: ctx.url,
+      },
+    };
+  }
   if (ctx.mode === "outside-in-fixture" || ctx.mode === "outside-in-live") {
     const request = readJson(join(ctx.fixture, "request.json"));
     const analysisDir = join(ctx.outDir, "analysis");
@@ -347,7 +412,7 @@ async function stageInvestigate(ctx) {
 }
 
 async function stageFindings(ctx) {
-  if (ctx.mode === "outside-in-fixture" || ctx.mode === "outside-in-live") {
+  if (isOutsideIn(ctx.mode)) {
     const spec =
       ctx.spec ?? readJson(join(ctx.outDir, "analysis/behavior-spec.json"));
     ctx.spec = spec;
@@ -407,8 +472,7 @@ async function stageFindings(ctx) {
 }
 
 async function stageSpec(ctx) {
-  if (ctx.mode !== "outside-in-fixture" && ctx.mode !== "outside-in-live")
-    throw new Error(NOT_A_SPEC);
+  if (!isOutsideIn(ctx.mode)) throw new Error(NOT_A_SPEC);
   const spec =
     ctx.spec ?? readJson(join(ctx.outDir, "analysis/behavior-spec.json"));
   ctx.spec = spec;
@@ -623,9 +687,9 @@ function loadRun(outDir, fixture, productName, approvals, resume, runId) {
     const run = readJson(runPath);
     if (run.schema_version !== RUN_SCHEMA)
       throw new Error("run.json is not a pipeline run.");
-    if (resolve(run.target) !== fixture)
+    if (run.target !== fixture)
       throw new Error(
-        "This pipeline run was started for a different target. Choose a new directory.",
+        "This pipeline run was started for a different target. Choose a new output directory.",
       );
     if (productName) run.product_name = productName;
     const previous = approvalsOf(run.approvals);
@@ -672,12 +736,27 @@ export async function runProductPipeline({
   runId = null,
   onStage = null,
   pace = null,
+  fetchImpl = null,
+  sleep = null,
+  minIntervalMs = null,
 }) {
   if (!target || !outDir)
     throw new Error("Use pipeline TARGET --out DIR [--name NAME].");
-  const fixture = resolve(target);
-  if (!existsSync(fixture) || !statSync(fixture).isDirectory())
-    throw new Error("pipeline TARGET must be a directory.");
+  const parsedUrl = httpTarget(target);
+  if (parsedUrl && authorized !== true)
+    throw new Error(
+      "A URL needs --authorized. This run stopped before any request.",
+    );
+  let fixture;
+  let url = null;
+  if (parsedUrl) {
+    fixture = parsedUrl.href;
+    url = parsedUrl.href;
+  } else {
+    fixture = resolve(target);
+    if (!existsSync(fixture) || !statSync(fixture).isDirectory())
+      throw new Error("pipeline TARGET must be a directory.");
+  }
   const id = runId ?? "run_" + randomBytes(8).toString("hex");
   if (!/^run_[a-f0-9]{16}$/u.test(id))
     throw new Error("run id must look like run_ and 16 hex characters.");
@@ -689,6 +768,10 @@ export async function runProductPipeline({
     outDir,
     now,
     fixture,
+    url,
+    fetchImpl,
+    sleep,
+    minIntervalMs,
     authorized: authorized === true,
     mode: null,
     spec: null,

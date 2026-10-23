@@ -933,14 +933,14 @@ function buildPanel() {
     el(
       "p",
       {},
-      "Writes a clean-room HTTP product from a behavior spec. Each feature gets a data model, write rules, and CRUD routes. A path template is left out, with a reason. Quotes are not copied. The handoff is a dry run: Blast is not notified, Guard is not called, Scale is not called, and Vault is not copied.",
+      "Writes a clean-room HTTP product from a behavior spec. Each feature gets a data model, write rules, and CRUD routes. A path with one {name} segment is built on the parent collection. Any other path template is left out, with a reason. Quotes are not copied. The handoff is a dry run: Blast is not notified, Guard is not called, Scale is not called, and Vault is not copied.",
     ),
     draftCard(),
     liveCard(live),
     !result
       ? emptyState(
           "No build yet",
-          "Paste a spec and a product name that is not the spec target. Each feature gets CRUD routes and a behavior test. A path template is left out. Pipeline picks are on Board, under Advanced.",
+          "Paste a spec and a product name that is not the spec target. Each feature gets CRUD routes and a behavior test. A path with one {name} segment is built on the parent collection. Any other path template is left out. Pipeline picks are on Board, under Advanced.",
           null,
           null,
         )
