@@ -165,9 +165,9 @@ function accuracyReport(spec, verify) {
   }
   return {
     schema_version: ACCURACY_SCHEMA,
-    kind: "endpoint-name-rule",
+    kind: "feature-plan",
     not_the_corpus_bench: true,
-    note: "This is not node ree.mjs bench. The route tests are the execution check. The oracle is the endpoint-name rule.",
+    note: "This is not node ree.mjs bench. The route tests are the execution check. The oracle is the rebuild plan: a feature is expected when it was given a data model, rules, and CRUD routes.",
     expected_implemented_ids: expected,
     observed_pass_ids: observed,
     false_claims: falseClaims,
@@ -467,7 +467,7 @@ async function stageVerify(ctx) {
     problems.push("the quote exclusion test did not pass");
   if (accuracy.false_claims.length > 0 || accuracy.missed.length > 0)
     problems.push(
-      "the endpoint-name accuracy check found a false claim or a missed route",
+      "the feature-plan accuracy check found a false claim or a missed route",
     );
   if (problems.length > 0)
     throw new Error(
@@ -475,7 +475,7 @@ async function stageVerify(ctx) {
     );
   return {
     message:
-      "Route tests passed and the endpoint-name accuracy check matched. This is not the corpus bench.",
+      "Route tests passed and the feature-plan accuracy check matched. This is not the corpus bench.",
     outputs: ["verify.json", "accuracy.json"],
     provenance: {
       implemented: verify.implemented,

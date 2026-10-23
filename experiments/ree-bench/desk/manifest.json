@@ -1,0 +1,24 @@
+{
+  "responses": {
+    "https://desk.test/robots.txt": {
+      "status": 200,
+      "headers": { "content-type": "text/plain; charset=utf-8" },
+      "file": "robots.txt"
+    },
+    "https://desk.test/": {
+      "status": 200,
+      "headers": { "content-type": "text/html; charset=utf-8" },
+      "file": "home.html"
+    },
+    "https://desk.test/openapi.yaml": {
+      "status": 200,
+      "headers": { "content-type": "application/yaml; charset=utf-8" },
+      "file": "openapi.yaml"
+    },
+    "https://desk.test/sdk/README.md": {
+      "status": 200,
+      "headers": { "content-type": "text/markdown; charset=utf-8" },
+      "file": "sdk-readme.md"
+    }
+  }
+}

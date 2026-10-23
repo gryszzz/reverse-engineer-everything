@@ -34,7 +34,7 @@ const HELP = [
   "See docs/pipeline-contracts.md.",
   "ingest accepts a Scout target or a ree.outside-in.behavior-spec.v1 document.",
   "rebuild writes a new folder. It does not copy original code.",
-  "verify runs the product tests. pass means the route ran. unimplemented means it was not built.",
+  "verify runs the product tests. pass means the behavior test ran. unimplemented means it was not built.",
   "handoff writes handoff.json, README.md, a Guard submission, a Scale manifest,",
   "and a Vault manifest. It does not notify Blast, call Guard, call Scale, or",
   "copy into Vault.",

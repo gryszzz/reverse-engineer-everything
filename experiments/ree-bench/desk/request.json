@@ -1,0 +1,10 @@
+{
+  "target": {
+    "name": "Desk Ledger",
+    "urls": ["https://desk.test/"]
+  },
+  "docs": [
+    { "url": "https://desk.test/openapi.yaml", "kind": "openapi" },
+    { "url": "https://desk.test/sdk/README.md", "kind": "sdk-readme" }
+  ]
+}

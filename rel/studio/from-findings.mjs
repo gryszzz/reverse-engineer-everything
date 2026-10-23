@@ -198,7 +198,7 @@ export function draftSpecFromEvidence(
     note:
       features.length === 0
         ? "This Evidence record has no named function or behavior to put in a spec. No features were invented."
-        : `${endpointNote} Checked features stay in the spec. Rebuild implements a feature only when its name equals an endpoint summary or operation id. The collector field is the schema value public-http-get; this draft did not fetch a document.`,
+        : `${endpointNote} Checked features stay in the spec. Rebuild gives each feature a data model, write rules, and CRUD routes. A path template is left out. The collector field is the schema value public-http-get; this draft did not fetch a document.`,
   };
 }
 

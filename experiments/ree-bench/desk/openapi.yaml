@@ -1,0 +1,30 @@
+openapi: 3.0.3
+info:
+  title: Desk Ledger
+  version: "1"
+paths:
+  /boards:
+    get:
+      operationId: listBoards
+      summary: List boards
+      responses:
+        "200":
+          description: ok
+    post:
+      operationId: createBoard
+      summary: Create a board
+      parameters:
+        - name: boardName
+          in: query
+          schema:
+            type: string
+      responses:
+        "201":
+          description: created
+  /boards/{id}:
+    get:
+      operationId: openBoard
+      summary: Open a board
+      responses:
+        "200":
+          description: ok
