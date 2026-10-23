@@ -40,6 +40,8 @@ const help = [
   "node ree.mjs agents <step> --json               Headless analyze through board post. See docs/agents.md",
   "node ree.mjs ingest-docs <url-or-dir> --out DIR [--name NAME] [--json]",
   "                                                OpenAPI, HTML, or a docs folder into that spec",
+  "node ree.mjs read INPUT --out DIR [--name NAME] [--authorized] [--json]",
+  "                                                Public URL, API file, npm, GitHub, or a local folder",
   "node ree.mjs pipeline TARGET --out DIR [--name NAME] [--resume] [--authorized]",
   "                                                Directory, or a public URL that is its own scope",
   "node ree.mjs opportunities ingest FILE --out DIR",
@@ -174,6 +176,9 @@ try {
   } else if (args[0] === "ingest-docs") {
     const { runIngestDocsCommand } = await import("./rel/ingest/cli.mjs");
     process.exitCode = await runIngestDocsCommand(args.slice(1));
+  } else if (args[0] === "read") {
+    const { runReadCommand } = await import("./rel/read/cli.mjs");
+    process.exitCode = await runReadCommand(args.slice(1));
   } else if (args[0] === "outside-in") {
     const { runOutsideInCommand } = await import("./rel/outside-in/cli.mjs");
     process.exitCode = await runOutsideInCommand(args.slice(1));
