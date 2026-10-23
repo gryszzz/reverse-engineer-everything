@@ -15,17 +15,17 @@ The studio button `Run owned web pipeline` posts `{ "fixture": "web", "product_n
 
 The stages run in this order. Each one writes `checkpoints/<stage>.json`. A failed stage writes `status: "failed"`, sets `stopped_at`, and does not run later stages. The process exits 1 and the stderr line is `pipeline stopped at <stage>. <why>`. Usage errors (missing `--out`, a target that is not a directory, an output directory that already has `run.json` without `--resume`) exit 2.
 
-| Stage       | What is real                                                                                                                          | What stays a file                                                                                                              |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| scope       | Classifies the target. An owned fixture has `request.json` and `manifest.json` and makes no network request.                          |                                                                                                                                |
-| investigate | Owned fixture: outside-in reads the fixture. `--authorized` artifact: static JavaScript or ASAR analysis.                             | A non-JavaScript target stops with the analyzer's message. No findings are invented.                                           |
-| findings    | Outside-in: features and endpoints with citations. A feature with no citation is kept and marked.                                     | Artifact evidence is linked. Product features are not invented from it.                                                        |
-| spec        | The clean-room spec is the outside-in behavior spec. No endpoints are added.                                                          | Static analysis is not a behavior spec. Rebuild does not invent features.                                                      |
-| rebuild     | Each feature gets a data model, write rules, CRUD routes, a minimal page, and a behavior test. Declared HTTP endpoints are built too. | Path templates and non-HTTP methods are left out, with a reason. Original code is not copied.                                  |
-| verify      | `npm test` behavior tests, plus `accuracy.json`.                                                                                      | `accuracy.json` checks the rebuild plan. It is not `node ree.mjs bench`. The desk fixture fails CI under 80% feature coverage. |
-| package     | Checks README, PRICING.md, LICENSE, NOTICE, LANDING.md, and `product.tgz`. Customer copy must not contain the spec target name.       |                                                                                                                                |
-| guard       | Writes `guard/submission.json`.                                                                                                       | Guard is not called. `sign_off` stays `not-submitted`.                                                                         |
-| handoff     | Writes the Blast, Scale, and Vault files and ingests the spec onto a board.                                                           | Blast is not notified. Scale is not called. Vault is not copied.                                                               |
+| Stage       | What is real                                                                                                                           | What stays a file                                                                                                              |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| scope       | Classifies the target. An owned fixture has `request.json` and `manifest.json` and makes no network request.                           |                                                                                                                                |
+| investigate | Owned fixture: outside-in reads the fixture. `--authorized` artifact: static JavaScript or ASAR analysis.                              | A non-JavaScript target stops with the analyzer's message. No findings are invented.                                           |
+| findings    | Outside-in: features and endpoints with citations. A feature with no citation is kept and marked.                                      | Artifact evidence is linked. Product features are not invented from it.                                                        |
+| spec        | The clean-room spec is the outside-in behavior spec. No endpoints are added.                                                           | Static analysis is not a behavior spec. Rebuild does not invent features.                                                      |
+| rebuild     | Each feature gets a data model, write rules, CRUD routes, a minimal page, and a behavior test. Declared HTTP endpoints are built too.  | Path templates and non-HTTP methods are left out, with a reason. Original code is not copied.                                  |
+| verify      | `npm test` behavior tests, plus `accuracy.json`.                                                                                       | `accuracy.json` checks the rebuild plan. It is not `node ree.mjs bench`. The desk fixture fails CI under 80% feature coverage. |
+| package     | Checks README, PRICING.md, LICENSE, NOTICE, LANDING.md, and `product.tgz`. Customer copy must not contain the spec target name.        |                                                                                                                                |
+| guard       | Writes `guard/submission.json`.                                                                                                        | Guard is not called. `sign_off` stays `not-submitted`.                                                                         |
+| handoff     | Writes the Blast, Scale, and Vault files, posts finding and pick files on the board, and writes Guard, Blast, and Scale request files. | Blast is not notified. Scale is not called. Vault is not copied. Guard is not called.                                          |
 
 ## Resume
 
@@ -59,6 +59,15 @@ Handoff files, under `handoff/<build_id>/`:
 - `ree.guard.submission.v1` in `guard/submission.json` (also copied to `out/guard/submission.json`)
 - `ree.scale.handoff.v1` in `scale/manifest.json`
 - `ree.vault.manifest.v1` in `vault/manifest.json`
+- `ree.handoff.request.v1` in `requests/guard.json`, `requests/blast.json`, and `requests/scale.json`. `called` stays false.
+
+Board files, under `board/`:
+
+- `board.json` is the opportunity list.
+- `findings/<id>.json` is `ree.board.finding.v1`, one file per spec feature or endpoint.
+- `picks/<id>.json` is `ree.board.pick.v1`. A pick is a feature whose route test passed. A feature left out is a finding and is not a pick. The finding records the reason.
+
+`node ree.mjs board picks --data DIR` lists the pick files. `node ree.mjs board export --data DIR --out DIR` copies findings, picks, and the request files. Export does not call Guard, Blast, or Scale. The studio Board screen lists the picks from pipeline runs in its data directory.
 
 Scale's `approved` field mirrors `--approve-scale`. `notified_scale` stays false. `package` is `product.tgz`.
 

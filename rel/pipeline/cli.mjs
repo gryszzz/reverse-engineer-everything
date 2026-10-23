@@ -1,9 +1,11 @@
 import { readFileSync } from "node:fs";
 import { emitHandoff } from "../handoff/emit.mjs";
 import {
+  exportBoard,
   ingestScout,
   ingestSpec,
   listOpportunities,
+  listPicks,
 } from "../opportunities/board.mjs";
 import { scaffoldRebuild } from "../rebuild/scaffold.mjs";
 import { verifyRebuild } from "../rebuild/verify.mjs";
@@ -18,6 +20,8 @@ const HELP = [
   "  [--approve-scale] [--approve-vault]",
   "node ree.mjs opportunities ingest FILE --out DIR [--json]",
   "node ree.mjs opportunities list --data DIR [--json]",
+  "node ree.mjs board picks --data DIR [--json]",
+  "node ree.mjs board export --data DIR --out DIR [--json]",
   "node ree.mjs rebuild --spec FILE --name NAME --out DIR [--json]",
   "node ree.mjs verify --project DIR [--json]",
   "node ree.mjs handoff --project DIR --blast-dir DIR [--scout FILE] [--json]",
@@ -36,8 +40,12 @@ const HELP = [
   "rebuild writes a new folder. It does not copy original code.",
   "verify runs the product tests. pass means the behavior test ran. unimplemented means it was not built.",
   "handoff writes handoff.json, README.md, a Guard submission, a Scale manifest,",
-  "and a Vault manifest. It does not notify Blast, call Guard, call Scale, or",
+  "a Vault manifest, and requests/guard.json, requests/blast.json, and",
+  "requests/scale.json. It does not notify Blast, call Guard, call Scale, or",
   "copy into Vault.",
+  "board picks lists pick files. board export copies findings, picks, and those",
+  "request files. A pick is a feature whose route test passed. Neither command",
+  "calls Guard, Blast, or Scale.",
   "On a machine with /home/box/shared, omit --blast-dir to use",
   "/home/box/shared/ree-to-blast/<build_id>/.",
 ].join("\n");
@@ -53,6 +61,47 @@ function flag(argv, name) {
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function printHonesty() {
+  console.log(
+    "Guard was not called. Blast was not notified. Scale was not called.",
+  );
+}
+
+function runBoardCommand(argv, json) {
+  const data = flag(argv, "--data");
+  if (!data)
+    throw new Error(
+      "Use board picks --data DIR or board export --data DIR --out DIR.",
+    );
+  if (argv[1] === "picks") {
+    const picks = listPicks(data);
+    if (json) console.log(JSON.stringify(picks, null, 2));
+    else {
+      console.log(`Picks: ${picks.length}`);
+      for (const pick of picks) {
+        const route = pick.route
+          ? `${pick.route.method} ${pick.route.path}`
+          : "no route";
+        console.log(`${pick.name} ${route} ${pick.id}`);
+      }
+      printHonesty();
+    }
+    return 0;
+  }
+  const out = flag(argv, "--out");
+  if (!out) throw new Error("Use board export --data DIR --out DIR.");
+  const exported = exportBoard({ dataDir: data, outDir: out });
+  if (json) console.log(JSON.stringify(exported, null, 2));
+  else {
+    console.log("Exported " + out);
+    console.log(
+      `Findings ${exported.findings.length}. Picks ${exported.picks.length}.`,
+    );
+    printHonesty();
+  }
+  return 0;
 }
 
 export async function runPipelineCommand(argv) {
@@ -97,6 +146,8 @@ export async function runPipelineCommand(argv) {
       }
       return 0;
     }
+    if (command === "board" && (argv[1] === "picks" || argv[1] === "export"))
+      return runBoardCommand(argv, json);
     if (command === "pipeline") {
       const target = argv[1];
       const out = flag(argv, "--out");
@@ -220,6 +271,10 @@ export async function runPipelineCommand(argv) {
       }
       return verify.exit_code === 0 ? 0 : 1;
     }
+    if (command === "board")
+      throw new Error(
+        "Use board picks --data DIR or board export --data DIR --out DIR.",
+      );
     throw new Error("Unknown pipeline command.");
   } catch (error) {
     console.error("REE: " + error.message);

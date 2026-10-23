@@ -241,6 +241,14 @@ test("onboarding, board ingest, and a dry-run build are live studio routes", asy
   );
   assert.equal(shared.match, "pass");
   assert.equal(shared.route.path, "/shared-boards");
+  const board = await api("/api/board");
+  assert.equal(board.status, 200, JSON.stringify(board.body));
+  const sharedPick = board.body.picks.find(
+    (pick) => pick.name === "Shared boards",
+  );
+  assert.equal(sharedPick.match, "pass");
+  assert.equal(sharedPick.route.path, "/shared-boards");
+  assert.ok(board.body.picks.some((pick) => pick.name === "Create a board"));
 });
 
 test("a live build shows files and tests, then packages on request", async () => {

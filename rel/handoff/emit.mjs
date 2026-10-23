@@ -166,6 +166,47 @@ export function buildGuardSubmission({
  * Blast is not notified. Scale is not called. Vault is not copied. Guard is not called.
  * Approval flags record intent. dry_run stays true.
  */
+export const REQUEST_SCHEMA = "ree.handoff.request.v1";
+
+function publicPicks(picks, verify) {
+  const source = Array.isArray(picks)
+    ? picks
+    : (verify.features ?? []).filter((feature) => feature.match === "pass");
+  return source
+    .filter((pick) => pick.match === undefined || pick.match === "pass")
+    .map((pick) => ({
+      id:
+        typeof pick.id === "string" && pick.id.startsWith("pick_")
+          ? pick.id
+          : null,
+      finding_id: pick.finding_id ?? null,
+      feature_id: pick.feature_id ?? pick.id ?? null,
+      name: pick.name ?? null,
+      route: pick.route ?? null,
+    }));
+}
+
+function requestDocument({
+  to,
+  buildId,
+  productName,
+  picks,
+  approvalRequested,
+  note,
+}) {
+  return {
+    schema_version: REQUEST_SCHEMA,
+    to,
+    called: false,
+    dry_run: true,
+    build_id: buildId,
+    product_name: productName,
+    approval_requested: approvalRequested === true,
+    picks,
+    note,
+  };
+}
+
 export function emitHandoff({
   projectDir,
   verify,
@@ -174,8 +215,10 @@ export function emitHandoff({
   repo = {},
   now = new Date(),
   approvals = {},
+  picks = null,
 }) {
   const asked = approvalFlags(approvals);
+  const pickRows = publicPicks(picks, verify);
   const provenance = readJson(join(projectDir, "provenance.json"));
   const spec = readJson(join(projectDir, "behavior-spec.json"));
   const directory = blastDirectory({
@@ -198,6 +241,7 @@ export function emitHandoff({
     now,
     approvalRequested: asked.guard,
   });
+  guard.picks = pickRows;
   const handoff = {
     schema_version: BLAST_SCHEMA,
     build_id: provenance.build_id,
@@ -277,6 +321,7 @@ export function emitHandoff({
       "Guard has not returned PASS, CONDITIONAL PASS, or FAIL.",
     ],
     customer_facing_names_omitted: true,
+    picks: pickRows,
   };
   const vault = {
     schema_version: VAULT_SCHEMA,
@@ -307,6 +352,33 @@ export function emitHandoff({
     product_name: provenance.product_name,
     package: "product.tgz",
     note: "Scale was not called. This file is the handoff only.",
+    picks: pickRows,
+  };
+  const requests = {
+    guard: requestDocument({
+      to: "guard",
+      buildId: provenance.build_id,
+      productName: provenance.product_name,
+      picks: pickRows,
+      approvalRequested: asked.guard,
+      note: "Guard was not called. This file is the request a person can send.",
+    }),
+    blast: requestDocument({
+      to: "blast",
+      buildId: provenance.build_id,
+      productName: provenance.product_name,
+      picks: pickRows,
+      approvalRequested: asked.blast,
+      note: "Blast was not notified. This file is the request a person can send.",
+    }),
+    scale: requestDocument({
+      to: "scale",
+      buildId: provenance.build_id,
+      productName: provenance.product_name,
+      picks: pickRows,
+      approvalRequested: asked.scale,
+      note: "Scale was not called. This file is the request a person can send.",
+    }),
   };
   const readme = [
     `# ${provenance.product_name}`,
@@ -335,6 +407,8 @@ export function emitHandoff({
     "Guard sign-off: not submitted. Guard was not called.",
     "Scale was not called.",
     "Vault was not copied.",
+    "requests/guard.json, requests/blast.json, and requests/scale.json are the requests. Those systems were not called.",
+    `Picks included with this handoff: ${pickRows.length}.`,
     asked.launch
       ? "Launch approval was recorded. This is still a dry run."
       : "Launch approval was not recorded.",
@@ -348,6 +422,7 @@ export function emitHandoff({
   mkdirSync(join(directory, "guard"), { recursive: true });
   mkdirSync(join(directory, "vault"), { recursive: true });
   mkdirSync(join(directory, "scale"), { recursive: true });
+  mkdirSync(join(directory, "requests"), { recursive: true });
   writeFileSync(
     join(directory, "handoff.json"),
     JSON.stringify(handoff, null, 2) + "\n",
@@ -365,5 +440,11 @@ export function emitHandoff({
     join(directory, "scale/manifest.json"),
     JSON.stringify(scale, null, 2) + "\n",
   );
-  return { directory, handoff, guard, vault, scale };
+  for (const [name, document] of Object.entries(requests)) {
+    writeFileSync(
+      join(directory, "requests", name + ".json"),
+      JSON.stringify(document, null, 2) + "\n",
+    );
+  }
+  return { directory, handoff, guard, vault, scale, requests };
 }

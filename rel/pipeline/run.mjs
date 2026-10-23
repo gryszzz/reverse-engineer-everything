@@ -15,7 +15,7 @@ import {
   buildGuardSubmission,
   emitHandoff,
 } from "../handoff/emit.mjs";
-import { ingestSpec } from "../opportunities/board.mjs";
+import { ingestSpec, postPipelineBoard } from "../opportunities/board.mjs";
 import { analyzeOutsideIn } from "../outside-in/analyze.mjs";
 import { planProduct, scaffoldRebuild } from "../rebuild/scaffold.mjs";
 import { verifyRebuild } from "../rebuild/verify.mjs";
@@ -536,35 +536,58 @@ async function stageGuard(ctx) {
 }
 
 async function stageHandoff(ctx) {
-  ingestSpec(join(ctx.outDir, "board"), ctx.spec, ctx.now);
+  const boardDir = join(ctx.outDir, "board");
+  ingestSpec(boardDir, ctx.spec, ctx.now);
+  const findingsPath = join(ctx.outDir, "findings.json");
+  const findings = existsSync(findingsPath)
+    ? readJson(findingsPath)
+    : { features: [], endpoints: [] };
+  const coveragePath = join(ctx.productDir, "coverage.json");
+  const leftOut = existsSync(coveragePath)
+    ? (readJson(coveragePath).left_out ?? [])
+    : [];
+  const posted = postPipelineBoard({
+    directory: boardDir,
+    runId: ctx.run.run_id,
+    findings,
+    verify: ctx.verify,
+    leftOut,
+    now: ctx.now,
+  });
   const emitted = emitHandoff({
     projectDir: ctx.productDir,
     verify: ctx.verify,
     blastDir: join(ctx.outDir, "handoff"),
     now: ctx.now,
     approvals: ctx.run.approvals,
+    picks: posted.picks,
   });
   ctx.handoffDir = emitted.directory;
   ctx.run.box_copied = false;
   let message =
-    "Handoff files were written. Blast was not notified. Scale was not called. Vault was not copied. Guard was not called.";
+    "Handoff files were written. Findings and picks were posted on the board. Blast was not notified. Scale was not called. Vault was not copied. Guard was not called.";
   if (ctx.run.approvals.launch === true && existsSync(BOX_SHARED)) {
     const dest = blastDirectory({ buildId: ctx.buildId });
     cpSync(emitted.directory, dest, { recursive: true });
     ctx.run.box_copied = true;
     message =
-      "Handoff files were copied under /home/box/shared. Blast was not notified. Scale was not called. Vault was not copied.";
+      "Handoff files were copied under /home/box/shared. Blast was not notified. Scale was not called. Vault was not copied. Guard was not called.";
   }
   const buildDir = relative(ctx.outDir, emitted.directory);
   return {
     message,
     outputs: [
       "board/board.json",
+      ...posted.findings.map((item) => `board/findings/${item.id}.json`),
+      ...posted.picks.map((item) => `board/picks/${item.id}.json`),
       `${buildDir}/handoff.json`,
       `${buildDir}/README.md`,
       `${buildDir}/guard/submission.json`,
       `${buildDir}/vault/manifest.json`,
       `${buildDir}/scale/manifest.json`,
+      `${buildDir}/requests/guard.json`,
+      `${buildDir}/requests/blast.json`,
+      `${buildDir}/requests/scale.json`,
     ],
     provenance: {
       approvals: ctx.run.approvals,
