@@ -133,6 +133,8 @@ test("the owned desk fixture stays at or above 80 percent", async () => {
       const page = await fetch(`http://127.0.0.1:${port}/`);
       assert.match(page.headers.get("content-type") ?? "", /^text\/html/);
       const html = await page.text();
+      assert.match(html, /data-records/);
+      assert.equal(html.includes("Model:"), false);
       assert.match(html, /data-path="\/boards"/);
       assert.match(html, /data-item="\/boards\/\{id\}"/);
       assert.match(html, /application\/json/);

@@ -1,3 +1,107 @@
+const PAGE_CLIENT = `
+document.addEventListener("click", function (event) {
+  var button = event.target.closest("button[data-method]");
+  if (!button) return;
+  var section = button.closest("section");
+  var method = button.getAttribute("data-method");
+  var idInput = section.querySelector("input[name=id]");
+  var id = idInput && idInput.value ? idInput.value : "";
+  var path = section.getAttribute("data-path");
+  var template = section.getAttribute("data-item");
+  var param = section.getAttribute("data-param");
+  var useItem = button.getAttribute("data-item") === "1";
+  if (useItem && template && param && id)
+    path = template.split("{" + param + "}").join(encodeURIComponent(id));
+  var url = new URL(path, location.origin);
+  if (!useItem && id && method !== "POST" && method !== "GET")
+    url.searchParams.set("id", id);
+  var options = { method: method };
+  if (method !== "GET") {
+    var payload = {};
+    var inputs = section.querySelectorAll("input[data-field]");
+    for (var index = 0; index < inputs.length; index += 1)
+      payload[inputs[index].name] = inputs[index].value;
+    options.headers = { "content-type": "application/json" };
+    options.body = JSON.stringify(payload);
+  }
+  fetch(url, options).then(function (response) {
+    return response.text().then(function (text) {
+      showResult(section, response.status, text);
+    });
+  });
+});
+function showResult(section, status, text) {
+  var node = section.querySelector("[data-status]");
+  var records = section.querySelector("[data-records]");
+  var body = null;
+  try { body = JSON.parse(text); } catch (error) { body = null; }
+  if (!body || typeof body !== "object") {
+    node.className = "status bad";
+    node.textContent = String(status) + " The response was not a record.";
+    records.textContent = "";
+    return;
+  }
+  if (body.error === "rule") {
+    node.className = "status bad";
+    node.textContent = (body.field || "A field") + " failed the " + (body.rule || "write") + " rule.";
+    return;
+  }
+  if (body.error) {
+    node.className = "status bad";
+    node.textContent = String(status) + " " + body.error;
+    records.textContent = "";
+    return;
+  }
+  if (body.deleted === true) {
+    node.className = "status ok";
+    node.textContent = "Deleted.";
+    records.textContent = "";
+    return;
+  }
+  var items = Array.isArray(body.items) ? body.items : body.id ? [body] : null;
+  if (!items) {
+    node.className = "status ok";
+    node.textContent = String(status) + " Saved.";
+    records.textContent = "";
+    return;
+  }
+  if (body.id) {
+    var idInput = section.querySelector("input[name=id]");
+    if (idInput) idInput.value = body.id;
+  }
+  node.className = "status ok";
+  node.textContent = items.length
+    ? String(items.length) + (items.length === 1 ? " record." : " records.")
+    : "No records yet.";
+  records.innerHTML = renderTable(items);
+}
+function renderTable(items) {
+  if (!items.length) return '<p class="empty">No records yet.</p>';
+  var keys = [];
+  for (var i = 0; i < items.length; i += 1) {
+    var names = Object.keys(items[i]);
+    for (var j = 0; j < names.length; j += 1)
+      if (keys.indexOf(names[j]) < 0) keys.push(names[j]);
+  }
+  var html = "<table><thead><tr>";
+  for (var c = 0; c < keys.length; c += 1)
+    html += "<th>" + escapeText(keys[c]) + "</th>";
+  html += "</tr></thead><tbody>";
+  for (var r = 0; r < items.length; r += 1) {
+    html += "<tr>";
+    for (var k = 0; k < keys.length; k += 1) {
+      var value = items[r][keys[k]];
+      html += "<td>" + escapeText(value == null ? "" : String(value)) + "</td>";
+    }
+    html += "</tr>";
+  }
+  return html + "</tbody></table>";
+}
+function escapeText(value) {
+  return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+`;
+
 export const SERVER_SOURCE = `import { createServer } from "node:http";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -297,6 +401,46 @@ function send(response, status, body) {
   response.end(JSON.stringify(body));
 }
 
+function titleFrom(path) {
+  const parts = String(path).split("/").filter(Boolean);
+  const last = (parts[parts.length - 1] || "Records").replace(/[{}]/g, "");
+  return last.charAt(0).toUpperCase() + last.slice(1);
+}
+
+function ruleText(rules) {
+  const labels = (rules ?? []).map((rule) => {
+    if (rule === "max-length") return "80 characters at most";
+    return rule;
+  });
+  return labels.join(", ") || "none";
+}
+
+const PAGE_STYLE = [
+  ":root{color-scheme:dark;--bg:#101114;--surface:#17181c;--line:rgba(255,255,255,.08);--text:#f3f4f6;--muted:#9aa1ab;--accent:#7aa2ff;--ink:#0d1118;--ok:#6fbf96;--bad:#e08580}",
+  "*{box-sizing:border-box}",
+  "body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}",
+  ".top{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:16px 28px;border-bottom:1px solid var(--line);background:var(--surface)}",
+  ".brand{display:flex;gap:12px;align-items:center}",
+  ".mark{margin:0;width:36px;height:36px;display:grid;place-items:center;border-radius:9px;background:var(--accent);color:var(--ink);font-size:12px;font-weight:700}",
+  "h1{font-size:16px;margin:0}h2{font-size:20px;margin:0}",
+  ".quiet{color:var(--muted);margin:0;font-size:13px}",
+  "main{max-width:880px;margin:0 auto;padding:28px 20px 48px;display:grid;gap:16px}",
+  "section{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px}",
+  ".head{display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:14px}",
+  ".fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}",
+  "label{display:grid;gap:6px;font-size:13px;color:var(--muted)}",
+  "input{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px}",
+  ".actions{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}",
+  "button{font:inherit;color:var(--text);background:transparent;border:1px solid var(--line);border-radius:8px;padding:8px 12px;cursor:pointer}",
+  "button.primary{background:var(--accent);color:var(--ink);border-color:transparent;font-weight:650}",
+  ".status{min-height:1.2em;margin:0 0 8px}.status.bad{color:var(--bad)}.status.ok{color:var(--ok)}",
+  "table{width:100%;border-collapse:collapse}",
+  "th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);font-size:14px}",
+  "th{color:var(--muted);font-size:12px;font-weight:600}",
+  ".empty{color:var(--muted)}",
+  "code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}",
+].join("");
+
 function page() {
   const groups = [];
   for (const route of routes) {
@@ -325,7 +469,7 @@ function page() {
     }
     if (!collection) collection = item ? item.collection : sample.path;
     const fields = (sample.model ?? []).filter((name) => name !== "id");
-    const rules = (sample.rules ?? []).join(", ") || "none";
+    const rules = ruleText(sample.rules);
     const inputs = fields
       .map(
         (name) =>
@@ -333,9 +477,9 @@ function page() {
           escapeHtml(name) +
           ' <input name="' +
           escapeHtml(name) +
-          '" data-field="1"></label>',
+          '" data-field="1" autocomplete="off"></label>',
       )
-      .join(" ");
+      .join("");
     const itemAttr = item
       ? '" data-item="' +
         escapeHtml(item.path) +
@@ -343,36 +487,44 @@ function page() {
         escapeHtml(item.path_param)
       : "";
     const open = item
-      ? '<button type="button" data-method="GET" data-item="1">Open</button> '
+      ? '<button type="button" data-method="GET" data-item="1">Open</button>'
       : "";
     const itemLine = item
-      ? "<p>One record: <code>" + escapeHtml(item.path) + "</code></p>"
+      ? '<p class="quiet">One record <code>' +
+        escapeHtml(item.path) +
+        "</code></p>"
       : "";
     return (
       '<section data-path="' +
       escapeHtml(collection) +
       itemAttr +
-      '"><h2><code>' +
+      '"><div class="head"><div><h2>' +
+      escapeHtml(titleFrom(collection)) +
+      '</h2><p class="quiet"><code>' +
       escapeHtml(collection) +
-      "</code></h2>" +
+      "</code></p></div>" +
       itemLine +
-      "<p>Model: " +
-      escapeHtml((sample.model ?? []).join(", ")) +
-      ". Rules: " +
-      escapeHtml(rules) +
-      ".</p><p>" +
+      '</div><div class="fields">' +
       inputs +
-      '</p><p><button type="button" data-method="GET">List</button> <button type="button" data-method="POST">Create</button></p><p><label>id <input name="id"></label></p><p>' +
+      '<label>id <input name="id" autocomplete="off"></label></div><p class="quiet">Rules: ' +
+      escapeHtml(rules) +
+      '.</p><div class="actions"><button type="button" class="primary" data-method="GET">List</button><button type="button" class="primary" data-method="POST">Create</button>' +
       open +
-      '<button type="button" data-method="PUT">Update</button> <button type="button" data-method="PATCH">Patch</button> <button type="button" data-method="DELETE">Delete</button></p><pre></pre></section>'
+      '<button type="button" data-method="PUT">Update</button><button type="button" data-method="PATCH">Patch</button><button type="button" data-method="DELETE">Delete</button></div><p class="status" data-status role="status"></p><div class="records" data-records></div></section>'
     );
   });
   return (
-    '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Product</title><style>body{font:16px/1.45 sans-serif;margin:2rem;max-width:40rem}section{border:1px solid #ccc;padding:1rem;margin:1rem 0}code{font-family:ui-monospace,monospace}pre{white-space:pre-wrap}</style></head><body><h1>Product</h1><p>Records are stored in data/store.json. Write rules are enforced.</p>' +
+    '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Records</title><style>' +
+    PAGE_STYLE +
+    '</style></head><body><header class="top"><div class="brand"><p class="mark">Rec</p><div><h1>Records</h1><p class="quiet">Saved on this machine.</p></div></div><p class="quiet">data/store.json. Write rules are enforced.</p></header><main>' +
     sections.join("") +
-    "<script>document.addEventListener('click', function (event) { var button = event.target.closest('button[data-method]'); if (!button) return; var section = button.closest('section'); var method = button.getAttribute('data-method'); var idInput = section.querySelector('input[name=id]'); var id = idInput && idInput.value ? idInput.value : ''; var path = section.getAttribute('data-path'); var template = section.getAttribute('data-item'); var param = section.getAttribute('data-param'); var useItem = button.getAttribute('data-item') === '1'; if (useItem && template && param && id) path = template.split('{' + param + '}').join(encodeURIComponent(id)); var url = new URL(path, location.origin); if (!useItem && id && method !== 'POST' && method !== 'GET') url.searchParams.set('id', id); var options = { method: method }; if (method !== 'GET') { var payload = {}; var inputs = section.querySelectorAll('input[data-field]'); for (var index = 0; index < inputs.length; index += 1) payload[inputs[index].name] = inputs[index].value; options.headers = { 'content-type': 'application/json' }; options.body = JSON.stringify(payload); } fetch(url, options).then(function (response) { return response.text().then(function (text) { section.querySelector('pre').textContent = String(response.status) + ' ' + text; }); }); });</script></body></html>"
+    "</main><script>" +
+    PAGE_SCRIPT +
+    "</script></body></html>"
   );
 }
+
+const PAGE_SCRIPT = ${JSON.stringify(PAGE_CLIENT)};
 
 function escapeHtml(value) {
   return String(value)

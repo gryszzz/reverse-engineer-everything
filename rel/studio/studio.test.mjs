@@ -278,6 +278,45 @@ test("analysis without authorization is refused and a missing runtime is recorde
   assert.equal((await api(`/api/projects/${project.id}`)).runs.length, 0);
 });
 
+test("a fetched single JavaScript file is analyzed as a one-file directory", async () => {
+  const runtime = fileURLToPath(
+    new URL("../../dist/cli-runtime/cli.js", import.meta.url),
+  );
+  if (!existsSync(runtime)) return;
+  const project = await api("/api/projects", {
+    method: "POST",
+    body: { name: "One file", question: "What does this file export?" },
+  });
+  const response = await fetch(
+    `${origin}/api/projects/${project.id}/artifacts/bytes`,
+    {
+      method: "POST",
+      headers: {
+        "x-ree-studio-token": studio.token,
+        "content-type": "application/octet-stream",
+        "x-ree-artifact-name": "main.mjs",
+        "x-ree-classify": "true",
+      },
+      body: "export function run(items) {\n  return items;\n}\n",
+    },
+  );
+  const dropped = await response.json();
+  assert.equal(response.status, 201, dropped.error);
+  assert.equal(dropped.project.artifacts[0].intake.kind, "javascript");
+  await api(`/api/projects/${project.id}/runs`, {
+    method: "POST",
+    body: {
+      artifact_id: dropped.project.artifacts[0].id,
+      authorized: true,
+      route_id: "javascript-static",
+    },
+  });
+  const finished = await settle(project.id);
+  const run = finished.runs.at(-1);
+  assert.equal(run.status, "completed", run.error);
+  assert.match(run.evidence_id, /^ev_[a-f0-9]{64}$/u);
+});
+
 test("model research without an env key does not call a provider", async () => {
   if (process.env.REE_MODEL_API_KEY) return;
   await api("/api/research", { method: "PUT", body: { enabled: true } });

@@ -734,3 +734,82 @@ button.quiet {
     animation: none;
   }
 }
+
+.plan-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+}
+
+.plan-list dt {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.plan-list dd {
+  margin: 4px 0 0;
+  display: grid;
+  gap: 4px;
+}
+
+.plan-list code {
+  display: block;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: var(--space-3) 0;
+}
+
+.metric {
+  min-width: 120px;
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: grid;
+}
+
+.metric-value {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+}
+
+.metric-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.status-pill {
+  justify-self: start;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.spec-json {
+  margin: var(--space-3) 0;
+}
+
+.spec-json summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.feature span {
+  display: grid;
+  gap: 2px;
+}

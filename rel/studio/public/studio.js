@@ -479,15 +479,23 @@ function capabilitiesPanel(artifact) {
 }
 
 function linkPlanCard(plan) {
-  return el("article", { class: "card" }, [
+  return el("article", { class: "card plan" }, [
     el("h3", {}, "This is what will be fetched"),
     el("p", {}, plan.note),
-    ...plan.requests.map((request) =>
-      el(
-        "p",
-        { class: "mono" },
-        `${request.purpose}: ${request.url} · limit ${request.limit_bytes} bytes · ${request.timeout_ms} ms${request.exact ? "" : " · the exact URL is constrained by this rule"}`,
-      ),
+    el(
+      "dl",
+      { class: "plan-list" },
+      plan.requests.flatMap((request) => [
+        el("dt", {}, request.purpose),
+        el("dd", {}, [
+          el("code", {}, request.url),
+          el(
+            "span",
+            { class: "note" },
+            `${request.limit_bytes} bytes · ${request.timeout_ms} ms${request.exact ? "" : " · the exact URL is constrained by this rule"}`,
+          ),
+        ]),
+      ]),
     ),
     plan.git ? el("pre", { class: "mono" }, plan.git.argv.join(" ")) : null,
     el("p", { class: "note" }, `Destination: ${plan.destination}.`),
@@ -844,7 +852,7 @@ function draftCard() {
           "div",
           { class: "stack" },
           features.map((feature) =>
-            el("label", { class: "check" }, [
+            el("label", { class: "check feature" }, [
               el("input", {
                 type: "checkbox",
                 checked: state.draftChecks[feature.id] ? "checked" : false,
@@ -852,7 +860,12 @@ function draftCard() {
                   state.draftChecks[feature.id] = event.target.checked;
                 },
               }),
-              `${feature.name}. ${feature.detail}`,
+              el("span", {}, [
+                el("strong", {}, feature.name),
+                feature.detail
+                  ? el("span", { class: "note" }, feature.detail)
+                  : null,
+              ]),
             ]),
           ),
         ),
@@ -913,7 +926,10 @@ function liveCard(live) {
                         : "recorded",
                 ),
               },
-              `${event.phase} ${event.message}`,
+              [
+                el("span", { class: "phase" }, event.phase || "step"),
+                el("span", {}, event.message || ""),
+              ],
             ),
           ),
         )
@@ -977,7 +993,7 @@ function buildPanel() {
     el(
       "p",
       {},
-      "Writes a clean-room HTTP product from a behavior spec. Each feature gets a data model, write rules, and CRUD routes. A path with one {name} segment is built on the parent collection. Any other path template is left out, with a reason. Quotes are not copied. The handoff is a dry run: Blast is not notified, Guard is not called, Scale is not called, and Vault is not copied.",
+      "A clean-room HTTP product from this spec. Quotes are not copied. Launch stays a dry run.",
     ),
     draftCard(),
     liveCard(live),
@@ -990,11 +1006,11 @@ function buildPanel() {
         )
       : el("article", { class: "card" }, [
           el("p", {}, `Build ${result.build_id}`),
-          el(
-            "p",
-            {},
-            `Implemented ${result.verify.implemented}. Unimplemented ${result.verify.unimplemented}. Failed ${result.verify.failed}.`,
-          ),
+          el("div", { class: "metrics" }, [
+            metric("Implemented", result.verify.implemented),
+            metric("Unimplemented", result.verify.unimplemented),
+            metric("Failed", result.verify.failed),
+          ]),
           el(
             "p",
             {},
@@ -1009,7 +1025,10 @@ function buildPanel() {
           ),
         ]),
     field("Product name", name),
-    spec,
+    el("details", { class: "spec-json" }, [
+      el("summary", {}, "Spec JSON"),
+      spec,
+    ]),
     button("Build and verify", async () => {
       state.buildName = name.value;
       state.buildSpec = spec.value;
@@ -1041,7 +1060,10 @@ function buildPanel() {
                         : stage.status,
                   ),
                 },
-                `${stage.id} ${stage.status}`,
+                [
+                  el("span", { class: "phase" }, stage.id),
+                  el("span", { class: "status-pill" }, stage.status),
+                ],
               ),
             ),
           )
@@ -1086,14 +1108,21 @@ function watchedRun() {
   );
 }
 
-function processFact(event) {
-  const parts = [event.at, event.kind];
+function metric(label, value) {
+  return el("div", { class: "metric" }, [
+    el("span", { class: "metric-value" }, String(value ?? 0)),
+    el("span", { class: "metric-label" }, label),
+  ]);
+}
+
+function processDetail(event) {
+  const parts = [];
   if (event.route_id) parts.push(event.route_id);
   if (event.bytes) parts.push(`${event.bytes} bytes`);
   if (event.evidence_id) parts.push(event.evidence_id);
   if (event.code !== undefined && event.code !== null)
     parts.push(`exit ${event.code}`);
-  return parts.filter((part) => part !== undefined && part !== "").join(" ");
+  return parts.join(" ") || event.at || "";
 }
 
 function theaterPanel() {
@@ -1194,7 +1223,12 @@ function theaterPanel() {
       ? el(
           "ol",
           { class: "timeline" },
-          processEvents.map((event) => el("li", {}, processFact(event))),
+          processEvents.map((event) =>
+            el("li", {}, [
+              el("span", { class: "phase" }, event.kind || "process"),
+              el("span", {}, processDetail(event)),
+            ]),
+          ),
         )
       : run && events.length === 0
         ? el("p", { class: "empty" }, "This run has no recorded engine events.")
