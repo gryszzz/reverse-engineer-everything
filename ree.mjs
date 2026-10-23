@@ -37,6 +37,8 @@ const help = [
   "                                                Static JavaScript/Electron folder or ASAR",
   "node ree.mjs outside-in --name NAME --url URL --out DIR [--json]",
   "                                                Public-docs behavior spec; no target source",
+  "node ree.mjs ingest-docs <url-or-dir> --out DIR [--name NAME] [--json]",
+  "                                                OpenAPI, HTML, or a docs folder into that spec",
   "node ree.mjs pipeline TARGET --out DIR [--name NAME] [--resume] [--authorized]",
   "                                                Directory, or an http(s) URL that needs --authorized",
   "node ree.mjs opportunities ingest FILE --out DIR",
@@ -168,6 +170,9 @@ try {
   if (args[0] === "bench") {
     const { runBenchCommand } = await import("./rel/bench/cli.mjs");
     process.exitCode = await runBenchCommand(args.slice(1));
+  } else if (args[0] === "ingest-docs") {
+    const { runIngestDocsCommand } = await import("./rel/ingest/cli.mjs");
+    process.exitCode = await runIngestDocsCommand(args.slice(1));
   } else if (args[0] === "outside-in") {
     const { runOutsideInCommand } = await import("./rel/outside-in/cli.mjs");
     process.exitCode = await runOutsideInCommand(args.slice(1));

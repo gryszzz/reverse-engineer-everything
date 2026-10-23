@@ -49,6 +49,7 @@ The public beginner commands are implemented in [`ree.mjs`](../ree.mjs):
 | `demo --run --out DIR`                | `experiments/rel-first-lab/run-real-analysis.mjs` | Runs static analysis on the repository's own lesson fixture.                  |
 | `analyze PATH --authorized --out DIR` | `rel/analyze-static.mjs`                          | Runs static JavaScript/Electron analysis on an admitted directory or ASAR.    |
 | `outside-in`                          | `rel/outside-in/`                                 | Opt-in public-document behavior spec. No target source, login, or model call. |
+| `ingest-docs <url-or-dir>`            | `rel/ingest/`                                     | Public URL or docs folder into that spec. A URL is not crawled. No login.     |
 
 `inspect` is an intake heuristic: for directories it looks only at directly
 visible entries such as `package.json` or source files; it does not recursively

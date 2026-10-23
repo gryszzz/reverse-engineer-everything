@@ -21,6 +21,8 @@ import {
 } from "../handoff/shared-publish.mjs";
 import { ingestSpec, postPipelineBoard } from "../opportunities/board.mjs";
 import { analyzeOutsideIn } from "../outside-in/analyze.mjs";
+import { SCHEMA_VERSION } from "../outside-in/constants.mjs";
+import { assertValidBehaviorSpec } from "../outside-in/validate.mjs";
 import { planProduct, scaffoldRebuild } from "../rebuild/scaffold.mjs";
 import { verifyRebuild } from "../rebuild/verify.mjs";
 
@@ -41,7 +43,7 @@ const STAGES = [
 ];
 
 const ARTIFACT_SCOPE =
-  "Artifact investigation needs --authorized. This directory has no request.json, so pipeline did not invent a product spec.";
+  "Artifact investigation needs --authorized. This directory has no request.json and no behavior spec, so pipeline did not invent a product spec.";
 const LIVE_SCOPE =
   "Live document fetch needs --authorized. This run stopped before any request.";
 const NOT_A_SPEC =
@@ -265,7 +267,8 @@ function isOutsideIn(mode) {
   return (
     mode === "outside-in-fixture" ||
     mode === "outside-in-live" ||
-    mode === "outside-in-url"
+    mode === "outside-in-url" ||
+    mode === "ingested-spec"
   );
 }
 
@@ -282,6 +285,54 @@ function httpTarget(value) {
   if (url.username || url.password)
     throw new Error("Use a URL without embedded credentials.");
   return url;
+}
+
+function readIngestedSpec(dir) {
+  const specPath = join(dir, "behavior-spec.json");
+  let spec;
+  try {
+    spec = readJson(specPath);
+  } catch {
+    throw new Error("behavior-spec.json could not be read.");
+  }
+  if (spec?.schema_version !== SCHEMA_VERSION)
+    throw new Error(
+      "behavior-spec.json is not a ree.outside-in.behavior-spec.v1 document.",
+    );
+  return spec;
+}
+
+function investigateIngested(ctx) {
+  const spec = assertValidBehaviorSpec(
+    ctx.spec ?? readIngestedSpec(ctx.fixture),
+  );
+  ctx.spec = spec;
+  const analysisDir = join(ctx.outDir, "analysis");
+  mkdirSync(analysisDir, { recursive: true });
+  writeJson(join(analysisDir, "behavior-spec.json"), spec);
+  const reportSrc = join(ctx.fixture, "OUTSIDE_IN_REPORT.md");
+  const fallback = [
+    "# Ingested behavior spec",
+    "",
+    "This run copied a completed behavior spec. No network request was made.",
+    "",
+  ].join("\n");
+  writeFileSync(
+    join(analysisDir, "OUTSIDE_IN_REPORT.md"),
+    existsSync(reportSrc) ? readFileSync(reportSrc, "utf8") : fallback,
+  );
+  ctx.analysisDir = analysisDir;
+  return {
+    message: "Copied the ingested behavior spec. No network request was made.",
+    outputs: ["analysis/behavior-spec.json", "analysis/OUTSIDE_IN_REPORT.md"],
+    provenance: {
+      mode: "ingested-spec",
+      tool: "ingested-spec",
+      spec_status: spec.status,
+      spec_path: "analysis/behavior-spec.json",
+      network: false,
+    },
+  };
 }
 
 async function stageScope(ctx) {
@@ -310,6 +361,19 @@ async function stageScope(ctx) {
       provenance: {
         mode: "outside-in-fixture",
         authorization: "owned-fixture",
+        network: false,
+      },
+    };
+  }
+  if (!hasRequest && existsSync(join(ctx.fixture, "behavior-spec.json"))) {
+    ctx.mode = "ingested-spec";
+    ctx.spec = readIngestedSpec(ctx.fixture);
+    return {
+      message: "Ingested behavior spec. No network request is made.",
+      outputs: [],
+      provenance: {
+        mode: "ingested-spec",
+        authorization: "ingested-spec",
         network: false,
       },
     };
@@ -372,6 +436,7 @@ async function stageInvestigate(ctx) {
       },
     };
   }
+  if (ctx.mode === "ingested-spec") return investigateIngested(ctx);
   if (ctx.mode === "outside-in-fixture" || ctx.mode === "outside-in-live") {
     const request = readJson(join(ctx.fixture, "request.json"));
     const analysisDir = join(ctx.outDir, "analysis");

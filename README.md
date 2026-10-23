@@ -248,6 +248,13 @@ node ree.mjs outside-in \
 
 `--out` must sit outside this repository. `--json` prints the spec on stdout. `--fixture rel/outside-in/fixtures/product` reads a local fixture and does not open a network connection.
 
+`ingest-docs` writes the same kind of spec from one public URL, or from a folder of OpenAPI, Swagger, HTML, and Markdown. A folder is read locally. A URL is fetched under the same robots, rate-limit, and no-login rules, and it is not crawled. `ingest.json` lists the endpoint paths as resources, the features, and any pricing tiers. `pipeline` accepts that output directory and does not fetch it again.
+
+```sh
+node ree.mjs ingest-docs experiments/ree-bench/docs --name "Field Ledger Docs" --out /tmp/field-spec
+node ree.mjs pipeline /tmp/field-spec --out /tmp/field-run --name "Ledger Kit"
+```
+
 The collector fetches only the https URLs you list, plus `robots.txt` for those origins. It obeys `robots.txt` and fails closed when robots cannot be read. It sends no cookies and no `Authorization` header. It does not follow redirects, does not log in, and does not solve a captcha. Loopback and private hosts are refused. Source and binary filenames are not fetched. Quotes in the spec are at most 160 characters, and a similarity guard redacts longer unmarked verbatim runs. `--summarizer remote` is refused. The spec does not create Evidence ids.
 
 Boundaries, the exit codes, and the schema are in [rel/outside-in/README.md](rel/outside-in/README.md).
@@ -358,6 +365,7 @@ Beginner REE commands:
 | `node ree.mjs app build`                                  | Build unsigned `REE.app` on macOS                                             |
 | `node ree.mjs app install`                                | Copy it to `~/Applications` and alias the Desktop                             |
 | `node ree.mjs outside-in --name NAME --url URL --out DIR` | Public-docs behavior spec. No target source                                   |
+| `node ree.mjs ingest-docs <url-or-dir> --out DIR`         | OpenAPI, HTML, or a docs folder into that spec. No login                      |
 | `node ree.mjs pipeline TARGET --out DIR --name NAME`      | Scope through dry-run sell files. Owned fixture or `--authorized`. Resumable. |
 | `node ree.mjs bench`                                      | Score owned fixtures against handwritten ground truth                         |
 | `node ree.mjs lab`                                        | Visual lesson, separate from the studio                                       |

@@ -197,6 +197,44 @@
       }
     },
     {
+      "id": "docs",
+      "kind": "ingest-docs",
+      "docs": "experiments/ree-bench/docs",
+      "name": "Field Ledger Docs",
+      "expected": {
+        "endpoint": [
+          "GET /notes listNotes",
+          "POST /notes recordNote noteText",
+          "GET /notes/{noteId} readNote noteId"
+        ],
+        "resource": ["/notes", "/notes/{noteId}"],
+        "string": [
+          "Short notes kept on this machine.",
+          "People record one short field note.",
+          "People list the notes they recorded.",
+          "People export one note as plain text.",
+          "List field notes",
+          "Record a field note",
+          "noteText",
+          "Read one field note",
+          "noteId",
+          "Free",
+          "$12 per month"
+        ],
+        "behavior": [
+          "Short notes kept on this machine.",
+          "Record a field note",
+          "People record one short field note.",
+          "List field notes",
+          "People list the notes they recorded.",
+          "Export a note",
+          "People export one note as plain text.",
+          "Field",
+          "Survey"
+        ]
+      }
+    },
+    {
       "id": "go-elf",
       "kind": "go",
       "format": "elf",

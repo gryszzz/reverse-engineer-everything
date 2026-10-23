@@ -1,0 +1,41 @@
+openapi: 3.0.3
+info:
+  title: Field notes
+  version: "1"
+paths:
+  /notes:
+    get:
+      operationId: listNotes
+      summary: List field notes
+      responses:
+        "200":
+          description: ok
+    post:
+      operationId: recordNote
+      summary: Record a field note
+      x-rate-limit: 30/minute
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                noteText:
+                  type: string
+      responses:
+        "201":
+          description: created
+  /notes/{noteId}:
+    get:
+      operationId: readNote
+      summary: Read one field note
+      parameters:
+        - name: noteId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok

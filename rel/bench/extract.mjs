@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { ownedDocsBodies } from "../ingest/docs.mjs";
 import { evidenceTimeline } from "../studio/theater.mjs";
 
 const EVIDENCE_ID = /^ev_[a-f0-9]{64}$/u;
@@ -262,8 +263,8 @@ function textInBody(bodies, url, text) {
 }
 
 /** Findings from an outside-in behavior spec, checked against the fixture bytes. */
-export function outsideInFindings(spec, fixtureDir) {
-  const bodies = sourceBodies(fixtureDir);
+export function outsideInFindings(spec, fixtureDir, options = {}) {
+  const bodies = options.bodies ?? sourceBodies(fixtureDir);
   const findings = {
     module: [],
     function: [],
@@ -272,6 +273,7 @@ export function outsideInFindings(spec, fixtureDir) {
     endpoint: [],
     string: [],
     behavior: [],
+    resource: [],
   };
   const provenance = [];
   const seen = new Set();
@@ -323,8 +325,34 @@ export function outsideInFindings(spec, fixtureDir) {
         problems.push(`parameter ${parameter} is not in the cited document`);
       add("string", parameter, problems);
     }
+    if (options.resources && endpoint.path)
+      add("resource", endpoint.path, problems);
   }
+  if (options.pricing) addPlanFindings(spec, bodies, add);
   return { findings, provenance, notes: [] };
+}
+
+function addPlanFindings(spec, bodies, add) {
+  for (const plan of spec?.pricing?.plans ?? []) {
+    const citation = plan.citations?.[0];
+    const problems = cited(spec, citation, bodies);
+    if (plan.name && !textInBody(bodies, citation?.url, plan.name))
+      problems.push("pricing tier name is not in the cited document");
+    add("behavior", plan.name, problems);
+    const price = plan.price?.display;
+    if (price && !textInBody(bodies, citation?.url, price))
+      problems.push("pricing tier price is not in the cited document");
+    if (price) add("string", price, problems);
+  }
+}
+
+/** Docs-directory ingest, checked against the owned files those URLs name. */
+export function ingestDocsFindings(spec, docsDir) {
+  return outsideInFindings(spec, docsDir, {
+    bodies: ownedDocsBodies(docsDir),
+    resources: true,
+    pricing: true,
+  });
 }
 
 function isFunctionSymbol(type) {
