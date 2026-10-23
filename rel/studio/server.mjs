@@ -21,12 +21,6 @@ import { approveSetup } from "./setup-offers.mjs";
 import { engineChildEnv } from "./tool-env.mjs";
 import { writeUpload } from "./uploads.mjs";
 import { approveLink, performLink, planLink } from "./links.mjs";
-import {
-  draftOutsideInRun,
-  planStudioOutsideIn,
-  readOutsideInSpec,
-  runStudioOutsideIn,
-} from "./outside-in-run.mjs";
 import { fileURLToPath } from "node:url";
 import { classifyTarget } from "../intake.mjs";
 import {
@@ -522,6 +516,7 @@ async function handleApi(context) {
               "This page does not support a rebuild. No feature was recovered, and none was invented.",
             400,
           );
+        const { readOutsideInSpec } = await import("./outside-in-run.mjs");
         return startLiveBuild(store.root, {
           product_name: body.product_name,
           feature_ids: body.feature_ids,
@@ -629,10 +624,14 @@ async function handleApi(context) {
       return project;
     });
   }
-  if (method === "POST" && rest === "/outside-in/plan")
+  if (method === "POST" && rest === "/outside-in/plan") {
+    const { planStudioOutsideIn } = await import("./outside-in-run.mjs");
     return planStudioOutsideIn(body.input);
-  if (method === "POST" && rest === "/outside-in")
+  }
+  if (method === "POST" && rest === "/outside-in") {
+    const { runStudioOutsideIn } = await import("./outside-in-run.mjs");
     return runStudioOutsideIn({ store, projectId, body });
+  }
   if (method === "POST" && rest === "/links/plan") return planLink(body.input);
   if (method === "POST" && rest === "/links") {
     const plan = approveLink({
@@ -707,7 +706,10 @@ async function handleApi(context) {
   const specDraft = rest.match(/^\/runs\/(run_[a-f0-9]{16})\/spec-draft$/u);
   if (method === "POST" && specDraft) {
     const run = requireFinishedRun(store.read(projectId), specDraft[1]);
-    if (run.kind === "outside-in") return draftOutsideInRun(run);
+    if (run.kind === "outside-in") {
+      const { draftOutsideInRun } = await import("./outside-in-run.mjs");
+      return draftOutsideInRun(run);
+    }
     if (!run.evidence_id)
       throw studioError("That run has no retained Evidence.", 409);
     const { draftSpecFromEvidence } = await import("./from-findings.mjs");
