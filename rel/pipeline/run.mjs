@@ -596,6 +596,17 @@ async function stageSpec(ctx) {
   };
 }
 
+function improvementTarget(spec) {
+  const target = spec?.target;
+  if (!target || typeof target.name !== "string" || !target.name.trim())
+    return null;
+  return {
+    name: target.name,
+    urls: Array.isArray(target.urls) ? target.urls : [],
+    category: typeof target.category === "string" ? target.category : null,
+  };
+}
+
 function improveBoardPath(ctx) {
   if (ctx.improveBoard === null) return null;
   if (typeof ctx.improveBoard === "string") return ctx.improveBoard;
@@ -610,6 +621,7 @@ async function stageImprove(ctx) {
     boxBoard: board,
     noImprove: ctx.noImprove === true,
     now: ctx.now,
+    target: improvementTarget(ctx.spec),
   });
   ctx.improvements = improvements;
   writeJson(join(ctx.outDir, "improvements.json"), improvements);

@@ -117,6 +117,8 @@ export function addApi(bundle, api, citation) {
       citations: [citation],
     };
     if (endpoint.body === "json") record.body = "json";
+    if (Array.isArray(endpoint.fields) && endpoint.fields.length > 0)
+      record.fields = endpoint.fields;
     if (endpoint.summary) record.summary = endpoint.summary;
     bundle.api.endpoints.push(record);
   }
@@ -254,7 +256,7 @@ function coverage(request, documents, refusals, bundle) {
   if (!request.changelogUrl) unknowns.push("No changelog URL was supplied.");
   if (request.reviewUrls.length === 0)
     unknowns.push("No review URLs were supplied.");
-  if (request.docs.length === 0)
+  if (request.docs.length === 0 && bundle.api.endpoints.length === 0)
     unknowns.push(
       "No documentation URL was supplied. The API surface is unknown.",
     );

@@ -206,7 +206,9 @@ export function createApp(dataDir) {
           send(response, 404, { error: "not-found" });
           return;
         }
-        const found = store.items.find((item) => item.id === recordId);
+        const found = store.items.find((item) =>
+          sameRecord(item, recordId, route.path_param),
+        );
         if (!found || !visible(found, session.user)) {
           send(response, 404, { error: "not-found" });
           return;
@@ -216,7 +218,9 @@ export function createApp(dataDir) {
       }
       if (route.action === "list") {
         if (recordId) {
-          const found = store.items.find((item) => item.id === recordId);
+          const found = store.items.find((item) =>
+            sameRecord(item, recordId, route.path_param),
+          );
           if (!found || !visible(found, session.user)) {
             send(response, 404, { error: "not-found" });
             return;
@@ -233,7 +237,9 @@ export function createApp(dataDir) {
       }
       if (route.action === "remove") {
         if (recordId) {
-          const index = store.items.findIndex((item) => item.id === recordId);
+          const index = store.items.findIndex((item) =>
+            sameRecord(item, recordId, route.path_param),
+          );
           if (index < 0 || !visible(store.items[index], session.user)) {
             send(response, 404, { error: "not-found" });
             return;
@@ -259,17 +265,23 @@ export function createApp(dataDir) {
       }
       const id = recordId;
       if ((route.action === "replace" || route.action === "merge") && id) {
-        const found = store.items.find((item) => item.id === id);
+        const found = store.items.find((item) =>
+          sameRecord(item, id, route.path_param),
+        );
         if (!found || !visible(found, session.user)) {
           send(response, 404, { error: "not-found" });
           return;
         }
-        const problem = checkRules(route, fields, store.items, id);
+        const problem = checkRules(route, fields, store.items, found.id);
         if (problem) {
           send(response, 400, problem);
           return;
         }
-        for (const name of route.parameters) found[name] = fields[name];
+        for (const name of writeNames(route)) {
+          if (name === "id") continue;
+          if (Object.prototype.hasOwnProperty.call(fields, name))
+            found[name] = fields[name];
+        }
         commit(response, route.success_status, found);
         return;
       }
@@ -278,10 +290,21 @@ export function createApp(dataDir) {
         send(response, 400, problem);
         return;
       }
-      const record = { id: String(store.next) };
+      let key = String(store.next);
+      if (
+        Object.prototype.hasOwnProperty.call(fields, "id") &&
+        fields.id !== null &&
+        String(fields.id).trim() !== ""
+      )
+        key = String(fields.id);
+      const record = { id: key };
       store.next += 1;
       if (capabilities.auth) record.owner = session.user.id;
-      for (const name of route.parameters) record[name] = fields[name];
+      for (const name of writeNames(route)) {
+        if (name === "id") continue;
+        if (Object.prototype.hasOwnProperty.call(fields, name))
+          record[name] = fields[name];
+      }
       store.items.push(record);
       commit(response, route.success_status, record);
     }).catch(() => {
@@ -745,7 +768,42 @@ function bucket(stores, path) {
   return created;
 }
 
+function sameRecord(item, recordId, param) {
+  if (!recordId) return false;
+  if (item.id === recordId) return true;
+  if (
+    param &&
+    param !== "id" &&
+    Object.prototype.hasOwnProperty.call(item, param) &&
+    String(item[param]) === recordId
+  )
+    return true;
+  return false;
+}
+
+function writeNames(route) {
+  if (Array.isArray(route.fields) && route.fields.length)
+    return route.fields.map((field) => field.name);
+  return route.parameters;
+}
+
 function fieldsFrom(route, url, bodyParams, jsonFields) {
+  if (Array.isArray(route.fields) && route.fields.length) {
+    const fields = {};
+    for (const field of route.fields) {
+      const name = field.name;
+      if (
+        jsonFields &&
+        Object.prototype.hasOwnProperty.call(jsonFields, name)
+      )
+        fields[name] = jsonFields[name];
+      else if (url.searchParams.has(name))
+        fields[name] = coerceQuery(field, url.searchParams.get(name));
+      else if (bodyParams.has(name))
+        fields[name] = coerceQuery(field, bodyParams.get(name));
+    }
+    return fields;
+  }
   const fields = {};
   for (const name of route.parameters) {
     if (
@@ -763,7 +821,22 @@ function fieldsFrom(route, url, bodyParams, jsonFields) {
   return fields;
 }
 
+function coerceQuery(field, raw) {
+  if (raw === null) return null;
+  if (field.type === "integer" || field.type === "number") {
+    const number = Number(raw);
+    return Number.isFinite(number) ? number : raw;
+  }
+  if (field.type === "boolean") {
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+  }
+  return raw;
+}
+
 function checkRules(route, fields, items, ignoreId) {
+  if (Array.isArray(route.fields) && route.fields.length)
+    return checkSchema(route, fields, items, ignoreId);
   for (const name of route.parameters) {
     const value = fields[name];
     const blank = value === null || String(value).trim() === "";
@@ -784,6 +857,45 @@ function checkRules(route, fields, items, ignoreId) {
       return { error: "rule", rule: "unique", field: name };
   }
   return null;
+}
+
+function checkSchema(route, fields, items, ignoreId) {
+  for (const field of route.fields) {
+    const present = Object.prototype.hasOwnProperty.call(fields, field.name);
+    const value = present ? fields[field.name] : undefined;
+    const blank =
+      !present ||
+      value === null ||
+      (typeof value === "string" && value.trim() === "");
+    if (field.required && blank)
+      return { error: "rule", rule: "required", field: field.name };
+    if (!present || blank) continue;
+    if (
+      Array.isArray(field.enum) &&
+      field.enum.length > 0 &&
+      !field.enum.includes(value)
+    )
+      return { error: "rule", rule: "enum", field: field.name };
+    if (!typeOk(field.type, value))
+      return { error: "rule", rule: "type", field: field.name };
+    if (
+      route.rules.includes("unique") &&
+      items.some((item) => item.id !== ignoreId && item[field.name] === value)
+    )
+      return { error: "rule", rule: "unique", field: field.name };
+  }
+  return null;
+}
+
+function typeOk(type, value) {
+  if (type === "string") return typeof value === "string";
+  if (type === "integer") return Number.isInteger(value);
+  if (type === "number") return typeof value === "number" && Number.isFinite(value);
+  if (type === "boolean") return typeof value === "boolean";
+  if (type === "array") return Array.isArray(value);
+  if (type === "object")
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  return true;
 }
 
 function readBody(request) {
@@ -1031,6 +1143,23 @@ const spec = JSON.parse(
   readFileSync(new URL("../behavior-spec.json", import.meta.url), "utf8"),
 );
 
+function sampleFor(field) {
+  if (Array.isArray(field.enum) && field.enum.length > 0) return field.enum[0];
+  if (field.type === "integer") return 1;
+  if (field.type === "number") return 1.5;
+  if (field.type === "boolean") return true;
+  if (field.type === "array") return ["sample"];
+  if (field.type === "object") return { sample: true };
+  return "sample";
+}
+
+function expectedValue(route, name, overrides, fallback) {
+  if (Object.prototype.hasOwnProperty.call(overrides, name)) return overrides[name];
+  const field = (route.fields || []).find((item) => item.name === name);
+  if (field) return sampleFor(field);
+  return fallback;
+}
+
 async function call(base, route, value, id, headers = {}, overrides = {}) {
   let path = route.path;
   if (route.path_param && id)
@@ -1044,16 +1173,15 @@ async function call(base, route, value, id, headers = {}, overrides = {}) {
   let payload;
   if (value !== null && route.body === "json") {
     payload = {};
-    for (const name of route.parameters)
-      payload[name] = Object.prototype.hasOwnProperty.call(overrides, name)
-        ? overrides[name]
-        : value;
+    for (const name of route.parameters) {
+      if (name === "id") continue;
+      payload[name] = expectedValue(route, name, overrides, value);
+    }
     extra["content-type"] = "application/json";
   } else if (value !== null) {
     for (const name of route.parameters) {
-      const chosen = Object.prototype.hasOwnProperty.call(overrides, name)
-        ? overrides[name]
-        : value;
+      if (name === "id") continue;
+      const chosen = expectedValue(route, name, overrides, value);
       url.searchParams.set(name, chosen);
     }
   }
@@ -1106,7 +1234,14 @@ async function parentOverrides(base, route, headers) {
     assert.ok(parent, relation.field);
     const made = await call(base, parent, "sample", null, headers, {});
     assert.equal(made.status, parent.success_status, relation.field);
-    overrides[relation.field] = (await made.json()).id;
+    const madeBody = await made.json();
+    const field = (route.fields || []).find((item) => item.name === relation.field);
+    const numeric = Number(madeBody.id);
+    const numericField =
+      field &&
+      (field.type === "integer" || field.type === "number") &&
+      Number.isFinite(numeric);
+    overrides[relation.field] = numericField ? numeric : madeBody.id;
   }
   return overrides;
 }
@@ -1159,8 +1294,13 @@ for (const behavior of behaviors) {
         assert.equal(created.status, create.success_status);
         const body = await created.json();
         assert.equal(typeof body.id, "string");
-        for (const name of create.parameters)
-          assert.equal(body[name], overrides[name] ?? "sample");
+        for (const name of create.parameters) {
+          if (name === "id") continue;
+          assert.deepEqual(
+            body[name],
+            expectedValue(create, name, overrides, "sample"),
+          );
+        }
         if (list) {
           const listed = await call(base, list, null, null, headers);
           assert.equal(listed.status, list.success_status);
@@ -1223,8 +1363,13 @@ for (const behavior of behaviors) {
           assert.equal(next.status, update.success_status);
           const updated = await next.json();
           assert.equal(updated.id, body.id);
-          for (const name of update.parameters)
-            assert.equal(updated[name], overrides[name] ?? "edited");
+          for (const name of update.parameters) {
+            if (name === "id") continue;
+            assert.deepEqual(
+              updated[name],
+              expectedValue(update, name, overrides, "edited"),
+            );
+          }
         }
         if (merge) {
           const next = await call(base, merge, "merged", body.id, headers, overrides);
@@ -1258,6 +1403,106 @@ for (const behavior of behaviors) {
       );
     });
   }
+}
+
+function recordKey(route, created) {
+  if (!created) return null;
+  if (
+    route.path_param &&
+    route.path_param !== "id" &&
+    created[route.path_param] != null &&
+    String(created[route.path_param]) !== ""
+  )
+    return String(created[route.path_param]);
+  return created.id;
+}
+
+for (const route of routes) {
+  if (!route.declared) continue;
+  test("endpoint " + route.method + " " + route.path, async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "ree-endpoint-"));
+    const server = await listen(0, "127.0.0.1", dataDir);
+    try {
+      const base = "http://127.0.0.1:" + server.address().port;
+      const headers = await authHeaders(base);
+      const create = routes.find(
+        (item) => item.resource === route.resource && item.action === "create",
+      );
+      let created = null;
+      if (create && route.action !== "create") {
+        const overrides = await parentOverrides(base, create, headers);
+        const response = await call(base, create, "sample", null, headers, overrides);
+        assert.equal(response.status, create.success_status, route.path);
+        created = await response.json();
+      }
+      if (route.action === "create") {
+        const overrides = await parentOverrides(base, route, headers);
+        const response = await call(base, route, "sample", null, headers, overrides);
+        assert.equal(response.status, route.success_status, route.path);
+        const body = await response.json();
+        assert.equal(typeof body.id, "string");
+        for (const name of route.parameters) {
+          if (name === "id") continue;
+          assert.deepEqual(body[name], expectedValue(route, name, overrides, "sample"));
+        }
+        if ((route.fields || []).some((field) => field.required)) {
+          const bare = await fetch(base + route.path, {
+            method: "POST",
+            headers: { ...headers, "content-type": "application/json" },
+            body: "{}",
+          });
+          assert.equal(bare.status, 400);
+          assert.equal((await bare.json()).rule, "required");
+        }
+        const stringField = (route.fields || []).find(
+          (field) => field.type === "string" && field.name !== "id",
+        );
+        if (stringField && route.body === "json") {
+          const invalid = await call(base, route, "sample", null, headers, {
+            ...overrides,
+            [stringField.name]: 1,
+          });
+          assert.equal(invalid.status, 400);
+          assert.equal((await invalid.json()).rule, "type");
+        }
+        return;
+      }
+      if (route.action === "list") {
+        const listed = await call(base, route, null, null, headers);
+        assert.equal(listed.status, route.success_status, route.path);
+        return;
+      }
+      const key = recordKey(route, created);
+      if (route.action === "read") {
+        const opened = await call(base, route, null, key, headers);
+        assert.equal(opened.status, route.success_status, route.path);
+        assert.equal((await opened.json()).id, created.id);
+        return;
+      }
+      if (route.action === "replace" || route.action === "merge") {
+        const field = (route.fields || []).find(
+          (item) => item.type === "string" && item.name !== "id",
+        );
+        const overrides = {};
+        if (field)
+          overrides[field.name] =
+            Array.isArray(field.enum) && field.enum.length > 1
+              ? field.enum[1]
+              : "edited-value";
+        const next = await call(base, route, "edited", key, headers, overrides);
+        assert.equal(next.status, route.success_status, route.path);
+        if (field) assert.equal((await next.json())[field.name], overrides[field.name]);
+        return;
+      }
+      if (route.action === "remove") {
+        const gone = await call(base, route, null, key, headers);
+        assert.equal(gone.status, route.success_status, route.path);
+        assert.equal((await gone.json()).deleted, true);
+      }
+    } finally {
+      await new Promise((resolveClose) => server.close(resolveClose));
+    }
+  });
 }
 
 test("source does not contain spec quotes", () => {

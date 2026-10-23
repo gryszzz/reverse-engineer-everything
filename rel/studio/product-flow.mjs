@@ -11,7 +11,11 @@ import {
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectGaps } from "../gaps/report.mjs";
-import { emptyBuildImprovements } from "../improve/collect.mjs";
+import {
+  collectImprovements,
+  publicImprovements,
+  specWithImprovements,
+} from "../improve/collect.mjs";
 import { emitHandoff } from "../handoff/emit.mjs";
 import { runProductPipeline } from "../pipeline/run.mjs";
 import {
@@ -123,9 +127,15 @@ export function createBuild(root, body) {
   if (!spec || typeof spec !== "object")
     throw studioError("Build requires a behavior spec object.", 400);
   const outDir = join(root, "builds", slug(productName));
+  const improvements = improvementsFor(spec, body?.improve_board);
   let built;
   try {
-    built = scaffoldRebuild({ spec, productName, outDir });
+    built = scaffoldRebuild({
+      spec: specWithImprovements(spec, improvements),
+      productName,
+      outDir,
+      improvements,
+    });
   } catch (error) {
     throw studioError(
       error instanceof Error ? error.message : "Rebuild failed.",
@@ -171,8 +181,27 @@ export function createBuild(root, body) {
       projectDir: outDir,
       forbidden: [spec?.target?.name].filter(Boolean),
     }),
-    improvements: emptyBuildImprovements(),
+    improvements: publicImprovements(
+      improvements,
+      [spec?.target?.name].filter(Boolean),
+    ),
   };
+}
+
+function improvementsFor(spec, improveBoard) {
+  const target = spec?.target;
+  return collectImprovements({
+    boxBoard: improveBoard === undefined ? undefined : improveBoard,
+    target:
+      target && typeof target.name === "string"
+        ? {
+            name: target.name,
+            urls: Array.isArray(target.urls) ? target.urls : [],
+            category:
+              typeof target.category === "string" ? target.category : null,
+          }
+        : null,
+  });
 }
 
 /** Start the owned web fixture pipeline and return before the stages finish. */
@@ -319,12 +348,15 @@ export function startLiveBuild(root, body) {
   setImmediate(() => {
     void (async () => {
       try {
+        const improvements = improvementsFor(spec, body?.improve_board);
+        const merged = specWithImprovements(spec, improvements);
         const built = scaffoldRebuild({
-          spec,
+          spec: merged,
           productName,
           outDir,
           pack: false,
           onEvent: push,
+          improvements,
         });
         status.build_id = built.build_id;
         writeLiveStatus(directory, status);
@@ -334,7 +366,10 @@ export function startLiveBuild(root, body) {
           projectDir: outDir,
           forbidden: [spec?.target?.name].filter(Boolean),
         });
-        status.improvements = emptyBuildImprovements();
+        status.improvements = publicImprovements(
+          improvements,
+          [spec?.target?.name].filter(Boolean),
+        );
         status.finished = true;
         status.package_ready = verify.exit_code === 0 && verify.failed === 0;
         status.status = status.package_ready ? "verified" : "failed";

@@ -20,6 +20,18 @@ const CONTAINERS = new Set([
   "getting started",
   "get started",
   "how it works",
+  "in their words",
+  "frequently asked questions",
+  "faq",
+  "testimonials",
+  "customers",
+  "customer stories",
+  "quotes",
+  "about",
+  "about us",
+  "footer",
+  "navigation",
+  "nav",
 ]);
 
 export function extractHtml(html, quoteMax) {
@@ -142,7 +154,9 @@ function blockKind(block) {
 }
 
 function isContainer(heading) {
-  return CONTAINERS.has(heading.trim().toLowerCase());
+  const text = heading.trim().toLowerCase();
+  if (CONTAINERS.has(text)) return true;
+  return /frequently asked|in their words|testimonial|customer stor/.test(text);
 }
 
 function featureFromBlock(block, quoteMax) {

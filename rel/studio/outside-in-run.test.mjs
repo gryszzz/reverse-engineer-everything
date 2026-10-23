@@ -36,6 +36,59 @@ test("a pasted fixture URL runs outside-in and reaches build", async () => {
       res.end("<!doctype html><title>Empty</title><p>Hello.</p>");
       return;
     }
+    if (req.url.startsWith("/openapi.json")) {
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          openapi: "3.0.3",
+          info: { title: "Pets", version: "1" },
+          paths: {
+            "/pet": {
+              post: {
+                operationId: "addPet",
+                requestBody: {
+                  required: true,
+                  content: {
+                    "application/json": {
+                      schema: {
+                        type: "object",
+                        required: ["name"],
+                        properties: {
+                          name: { type: "string" },
+                          status: { type: "string" },
+                        },
+                      },
+                    },
+                  },
+                },
+                responses: { 200: { description: "ok" } },
+              },
+            },
+            "/user/login": {
+              get: {
+                operationId: "loginUser",
+                responses: { 200: { description: "ok" } },
+              },
+            },
+            "/user/{username}": {
+              get: {
+                operationId: "getUserByName",
+                parameters: [
+                  {
+                    name: "username",
+                    in: "path",
+                    required: true,
+                    schema: { type: "string" },
+                  },
+                ],
+                responses: { 200: { description: "ok" } },
+              },
+            },
+          },
+        }),
+      );
+      return;
+    }
     res.setHeader("content-type", "text/html; charset=utf-8");
     res.end(PAGE);
   });
@@ -141,6 +194,42 @@ test("a pasted fixture URL runs outside-in and reaches build", async () => {
         }),
       /does not support a rebuild/,
     );
+
+    const apiPlan = await api(`/api/projects/${project.id}/outside-in/plan`, {
+      input: `http://127.0.0.1:${port}/openapi.json`,
+    });
+    const apiRun = await api(`/api/projects/${project.id}/outside-in`, {
+      input: apiPlan.input,
+      approved: true,
+      plan_digest: apiPlan.plan_digest,
+      authorized: true,
+    });
+    assert.match(apiRun.note, /Endpoints were recovered/);
+    assert.doesNotMatch(apiRun.note, /does not support a rebuild/);
+    assert.doesNotMatch(apiRun.note, /No documentation URL was supplied/);
+    const apiRecord = apiRun.project.runs.at(-1);
+    assert.equal(apiRecord.outside_in.rebuild, true);
+    assert.ok(apiRecord.outside_in.endpoint_count > 0);
+    assert.equal(
+      apiRecord.narrative.unknowns.some((item) =>
+        item.includes("No documentation URL was supplied"),
+      ),
+      false,
+    );
+    const apiDraft = await api(
+      `/api/projects/${project.id}/runs/${apiRecord.id}/spec-draft`,
+      {},
+    );
+    assert.ok(apiDraft.endpoints.length > 0);
+    const apiLive = await api("/api/live-builds", {
+      product_name: "Counter Kit",
+      project_id: project.id,
+      run_id: apiRecord.id,
+      feature_ids: [],
+    });
+    const apiFinished = await settle(api, apiLive.live_id);
+    assert.equal(apiFinished.error, null, apiFinished.error);
+    assert.equal(apiFinished.status, "verified");
   } finally {
     studio.server.close();
     fixture.close();

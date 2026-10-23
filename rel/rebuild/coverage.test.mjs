@@ -1,13 +1,19 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
+import {
+  CLEAN_ROOM_STATEMENT,
+  SCHEMA_VERSION,
+  USER_AGENT,
+} from "../outside-in/constants.mjs";
 import { extractOpenApi } from "../outside-in/extract-openapi.mjs";
 import { coverageDecision } from "./coverage.mjs";
 import { measureDeskCoverage } from "./coverage-gate.mjs";
-import { planProduct } from "./scaffold.mjs";
+import { planProduct, scaffoldRebuild } from "./scaffold.mjs";
 import { savedRecords } from "./saved-records.mjs";
 
 function row(id, name, match) {
@@ -265,6 +271,11 @@ paths:
   /notes:
     post:
       operationId: createNote
+      parameters:
+        - name: title
+          in: query
+          required: true
+          schema: { type: string }
       requestBody:
         content:
           application/json:
@@ -286,8 +297,360 @@ paths:
   const refs = parsed.endpoints.find((item) => item.path === "/refs");
   assert.equal(notes.body, "json");
   assert.deepEqual(notes.parameters, ["title", "note"]);
+  assert.equal(notes.fields[0].name, "title");
+  assert.equal(notes.fields[0].required, true);
+  assert.equal(notes.fields[0].type, "string");
   assert.equal(notes.unresolvedBody, 0);
   assert.equal(refs.body, null);
   assert.equal(refs.unresolvedBody, 1);
   assert.deepEqual(refs.parameters, []);
 });
+
+test("a local schema ref becomes fields and a missing ref stays unknown", () => {
+  const parsed = extractOpenApi(`
+openapi: 3.0.3
+info: { title: Pets, version: "1" }
+paths:
+  /pet:
+    post:
+      operationId: addPet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Pet"
+      responses:
+        "200":
+          description: ok
+components:
+  schemas:
+    Pet:
+      type: object
+      required: [name, photoUrls]
+      properties:
+        name: { type: string }
+        status:
+          type: string
+          enum: [available, pending, sold]
+        photoUrls:
+          type: array
+          items: { type: string }
+`);
+  const pet = parsed.endpoints.find((item) => item.path === "/pet");
+  assert.equal(pet.body, "json");
+  assert.equal(pet.unresolvedBody, 0);
+  assert.deepEqual(
+    pet.fields.map((field) => [field.name, field.required, field.type]),
+    [
+      ["name", true, "string"],
+      ["status", false, "string"],
+      ["photoUrls", true, "array"],
+    ],
+  );
+  assert.deepEqual(pet.fields[1].enum, ["available", "pending", "sold"]);
+});
+
+test("record routes keep schema fields, key by username, and skip action endpoints", async () => {
+  const citation = {
+    url: "https://pets.example/openapi.json",
+    fetched_at: "2026-10-22T00:00:00.000Z",
+    role: "docs",
+  };
+  const endpoint = (method, path, operationId, extra = {}) => ({
+    method,
+    path,
+    operation_id: operationId,
+    parameters: extra.parameters ?? [],
+    response_codes: extra.codes ?? ["200"],
+    citations: [citation],
+    ...(extra.fields
+      ? { body: extra.body ?? "json", fields: extra.fields }
+      : {}),
+  });
+  const petFields = [
+    { name: "name", required: true, type: "string" },
+    {
+      name: "status",
+      required: false,
+      type: "string",
+      enum: ["available", "pending", "sold"],
+    },
+    { name: "photoUrls", required: true, type: "array" },
+  ];
+  const spec = {
+    schema_version: SCHEMA_VERSION,
+    clean_room: true,
+    clean_room_statement: CLEAN_ROOM_STATEMENT,
+    mode: "outside-in",
+    status: "completed",
+    generated_at: "2026-10-22T00:00:00.000Z",
+    target: { name: "Ledger", urls: ["https://pets.example/openapi.json"] },
+    collector: {
+      name: "ree-outside-in",
+      version: "1",
+      user_agent: USER_AGENT,
+      platform: "test",
+      headless_browser: false,
+      authentication: "none",
+      source_acquisition: "public-http-get",
+    },
+    llm: {
+      used: false,
+      provider: null,
+      ree_remote_calls: "not-performed",
+      transport: "none",
+      summary: null,
+      error: null,
+    },
+    sources: [
+      {
+        url: citation.url,
+        role: "docs",
+        status: 200,
+        content_type: "application/json",
+        fetched_at: citation.fetched_at,
+        sha256: "ab".repeat(32),
+        bytes: 4,
+        robots: { allowed: true, rule: null },
+        cache: { hit: false },
+      },
+    ],
+    refusals: [],
+    features: [],
+    workflows: [],
+    api: {
+      style: "openapi",
+      servers: [],
+      auth: [],
+      rate_limits: [],
+      unknowns: [],
+      endpoints: [
+        endpoint("POST", "/pet", "addPet", {
+          parameters: ["name", "status", "photoUrls"],
+          fields: petFields,
+        }),
+        endpoint("PUT", "/pet", "updatePet", {
+          parameters: ["name", "status", "photoUrls"],
+          fields: petFields,
+        }),
+        endpoint("GET", "/pet/{petId}", "getPetById", {
+          parameters: ["petId"],
+        }),
+        endpoint("POST", "/pet/{petId}", "updatePetWithForm", {
+          parameters: ["name", "status"],
+        }),
+        endpoint("DELETE", "/pet/{petId}", "deletePet", {
+          parameters: ["petId"],
+        }),
+        endpoint("GET", "/pet/findByStatus", "findPetsByStatus", {
+          parameters: ["status"],
+        }),
+        endpoint("POST", "/pet/{petId}/uploadImage", "uploadFile", {
+          parameters: ["petId"],
+        }),
+        endpoint("GET", "/store/inventory", "getInventory"),
+        endpoint("POST", "/user", "createUser", {
+          parameters: ["username", "email"],
+          fields: [
+            { name: "username", required: false, type: "string" },
+            { name: "email", required: false, type: "string" },
+          ],
+        }),
+        endpoint("GET", "/user/login", "loginUser"),
+        endpoint("GET", "/user/logout", "logoutUser"),
+        endpoint("GET", "/user/{username}", "getUserByName", {
+          parameters: ["username"],
+        }),
+        endpoint("PUT", "/user/{username}", "updateUser", {
+          parameters: ["username", "email"],
+          fields: [
+            { name: "username", required: false, type: "string" },
+            { name: "email", required: false, type: "string" },
+          ],
+        }),
+        endpoint("DELETE", "/user/{username}", "deleteUser", {
+          parameters: ["username"],
+        }),
+      ],
+    },
+    pricing: { plans: [], unknowns: [] },
+    integrations: [],
+    limitations: [],
+    changes: [],
+    omitted: [],
+    similarity: { threshold: 80, quote_max: 160, flagged: false, findings: [] },
+    coverage: { examined_urls: [citation.url], unknowns: [] },
+  };
+  const plan = planProduct(spec);
+  const skipped = new Map(
+    plan.skipped.map((item) => [`${item.method} ${item.path}`, item.reason]),
+  );
+  assert.equal(
+    skipped.get("GET /user/login"),
+    "action endpoint is not a record collection",
+  );
+  assert.equal(
+    skipped.get("GET /user/logout"),
+    "action endpoint is not a record collection",
+  );
+  assert.equal(
+    skipped.get("GET /store/inventory"),
+    "action endpoint is not a record collection",
+  );
+  assert.equal(
+    skipped.get("GET /pet/findByStatus"),
+    "action endpoint is not a record collection",
+  );
+  assert.equal(
+    skipped.get("POST /pet/{petId}/uploadImage"),
+    "path template is not expanded",
+  );
+  const userRead = plan.routes.find(
+    (route) => route.method === "GET" && route.path === "/user/{username}",
+  );
+  assert.equal(userRead.path_param, "username");
+  assert.equal(
+    plan.routes.some((route) => route.path === "/user/login"),
+    false,
+  );
+  const out = mkdtempSync(join(tmpdir(), "ree-pet-model-"));
+  const dataDir = mkdtempSync(join(tmpdir(), "ree-pet-data-"));
+  try {
+    scaffoldRebuild({
+      spec,
+      productName: "Harbor Kit",
+      outDir: out,
+      pack: false,
+    });
+    const report = readFileSync(join(out, "FEATURE_REPORT.md"), "utf8");
+    assert.match(report, /POST \/pet\/\{petId\}\/uploadImage/);
+    assert.match(report, /Not built:/);
+    const ran = await runGenerated(out);
+    assert.equal(ran.status, 0, ran.stderr || ran.stdout);
+    assert.match(ran.stdout, /endpoint POST \/pet/);
+    const { listen } = await import(
+      pathToFileURL(join(out, "src/server.mjs")).href
+    );
+    const server = await listen(0, "127.0.0.1", dataDir);
+    try {
+      const base = `http://127.0.0.1:${server.address().port}`;
+      const created = await fetch(base + "/pet", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "fido",
+          status: "available",
+          photoUrls: ["https://pets.example/fido.png"],
+        }),
+      });
+      assert.equal(created.status, 200, await created.clone().text());
+      const pet = await created.json();
+      assert.equal(pet.name, "fido");
+      assert.equal(pet.status, "available");
+      assert.deepEqual(pet.photoUrls, ["https://pets.example/fido.png"]);
+      const empty = await fetch(base + "/pet", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      assert.equal(empty.status, 400);
+      assert.equal((await empty.json()).rule, "required");
+      const partial = await fetch(base + "/pet", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "fido", status: "available" }),
+      });
+      assert.equal(partial.status, 400);
+      assert.equal((await partial.json()).field, "photoUrls");
+      const replaced = await fetch(base + "/pet?id=" + pet.id, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "fido",
+          status: "sold",
+          photoUrls: ["https://pets.example/fido.png"],
+        }),
+      });
+      assert.equal(replaced.status, 200, await replaced.clone().text());
+      const updated = await replaced.json();
+      assert.equal(updated.id, pet.id);
+      assert.equal(updated.name, "fido");
+      assert.equal(updated.status, "sold");
+      assert.deepEqual(updated.photoUrls, ["https://pets.example/fido.png"]);
+      const opened = await fetch(base + "/pet/" + pet.id);
+      assert.equal(opened.status, 200);
+      assert.equal((await opened.json()).status, "sold");
+      const removed = await fetch(base + "/pet/" + pet.id, {
+        method: "DELETE",
+      });
+      assert.equal(removed.status, 200);
+      assert.equal((await removed.json()).deleted, true);
+      const user = await fetch(base + "/user", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: "ada" }),
+      });
+      assert.equal(user.status, 200, await user.clone().text());
+      const account = await user.json();
+      assert.equal(account.username, "ada");
+      const byName = await fetch(base + "/user/ada");
+      assert.equal(byName.status, 200);
+      assert.equal((await byName.json()).id, account.id);
+      const renamed = await fetch(base + "/user/ada", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "ada@example.com" }),
+      });
+      assert.equal(renamed.status, 200, await renamed.clone().text());
+      const accountUpdated = await renamed.json();
+      assert.equal(accountUpdated.username, "ada");
+      assert.equal(accountUpdated.email, "ada@example.com");
+      assert.equal(
+        (await (await fetch(base + "/user/ada")).json()).email,
+        "ada@example.com",
+      );
+      const blankUser = await fetch(base + "/user", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      assert.equal(blankUser.status, 200);
+      const upload = await fetch(base + "/pet/" + pet.id + "/uploadImage", {
+        method: "POST",
+      });
+      assert.equal(upload.status, 404);
+      const login = await fetch(base + "/user/login");
+      assert.equal(login.status, 404);
+    } finally {
+      await new Promise((resolveClose) => server.close(resolveClose));
+    }
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+function runGenerated(dir) {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("NODE_TEST") || key === "NODE_CHANNEL_FD")
+      delete env[key];
+  }
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["--test", "test/product.test.mjs"], {
+      cwd: dir,
+      env,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+  });
+}

@@ -89,9 +89,15 @@ export async function runStudioOutsideIn({ store, projectId, body }) {
   }
   const spec = result.spec;
   const features = Array.isArray(spec.features) ? spec.features : [];
-  const rebuild = features.length > 0 && spec.status !== "refused";
+  const endpoints = Array.isArray(spec.api?.endpoints)
+    ? spec.api.endpoints
+    : [];
+  const rebuild =
+    (features.length > 0 || endpoints.length > 0) && spec.status !== "refused";
   const note = rebuild
-    ? "Features were recovered from the public document. Review them, then rebuild. Quotes are not copied."
+    ? features.length > 0
+      ? "Features were recovered from the public document. Review them, then rebuild. Quotes are not copied."
+      : "Endpoints were recovered from the public document. Review them, then rebuild. Quotes are not copied."
     : refusalNote(spec);
   const statements = findingStatements(spec, url.href);
   const unknowns = [
@@ -102,7 +108,7 @@ export async function runStudioOutsideIn({ store, projectId, body }) {
   ]
     .filter((item) => typeof item === "string" && item.length > 0)
     .slice(0, 8);
-  writeTimeline(outDir, url, features);
+  writeTimeline(outDir, url, features, endpoints);
   const run = {
     id: newId("run_"),
     kind: "outside-in",
@@ -116,6 +122,7 @@ export async function runStudioOutsideIn({ store, projectId, body }) {
       status: spec.status,
       input: plan.input,
       feature_count: features.length,
+      endpoint_count: endpoints.length,
       refusal_count: Array.isArray(spec.refusals) ? spec.refusals.length : 0,
       rebuild,
       note,
@@ -137,11 +144,14 @@ export function draftOutsideInRun(run) {
     detail: typeof feature.detail === "string" ? feature.detail : "",
     checked: true,
   }));
+  const endpoints = spec.api?.endpoints ?? [];
   const note =
-    features.length === 0
+    features.length === 0 && endpoints.length === 0
       ? (run.outside_in?.note ?? UNSUPPORTED)
       : (run.outside_in?.note ??
-        "Features were recovered from the public document. Review them, then rebuild.");
+        (features.length > 0
+          ? "Features were recovered from the public document. Review them, then rebuild."
+          : "Endpoints were recovered from the public document. Review them, then rebuild."));
   return {
     spec,
     features,
@@ -207,6 +217,15 @@ function findingStatements(spec, pageUrl) {
       evidence_id: null,
       path: feature.citations?.[0]?.url ?? pageUrl,
     }));
+  const endpoints = Array.isArray(spec.api?.endpoints)
+    ? spec.api.endpoints
+    : [];
+  if (endpoints.length > 0)
+    return endpoints.slice(0, 24).map((endpoint) => ({
+      text: `${endpoint.method} ${endpoint.path}`.slice(0, 400),
+      evidence_id: null,
+      path: endpoint.citations?.[0]?.url ?? pageUrl,
+    }));
   return (spec.refusals ?? []).slice(0, 8).map((item) => ({
     text: item.detail || item.reason || UNSUPPORTED,
     evidence_id: null,
@@ -214,7 +233,7 @@ function findingStatements(spec, pageUrl) {
   }));
 }
 
-function writeTimeline(outDir, url, features) {
+function writeTimeline(outDir, url, features, endpoints = []) {
   appendTimeline(outDir, {
     source: "outside-in",
     phase: "robots",
@@ -233,5 +252,15 @@ function writeTimeline(outDir, url, features) {
       message: String(feature.name ?? "Feature"),
       file: String(feature.name ?? "Feature").slice(0, 80),
     });
+  }
+  if (features.length === 0) {
+    for (const endpoint of endpoints.slice(0, 12)) {
+      appendTimeline(outDir, {
+        source: "outside-in",
+        phase: "endpoint",
+        message: `${endpoint.method} ${endpoint.path}`,
+        file: String(endpoint.path ?? "").slice(0, 80),
+      });
+    }
   }
 }

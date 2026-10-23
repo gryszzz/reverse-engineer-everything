@@ -213,113 +213,120 @@ function shell() {
   root.replaceChildren();
   const advanced = mode() === "advanced";
   root.append(
-    el("header", { class: "top" }, [
-      el("div", { class: "brand" }, [
-        el("p", { class: "mark" }, "REE"),
-        el("div", {}, [
-          el("h1", {}, "Studio"),
-          el("p", { class: "tag" }, "On this machine. Nothing is uploaded."),
+    ...[
+      el("header", { class: "top" }, [
+        el("div", { class: "brand" }, [
+          el("p", { class: "mark" }, "REE"),
+          el("div", {}, [
+            el("h1", {}, "Studio"),
+            el("p", { class: "tag" }, "On this machine. Nothing is uploaded."),
+          ]),
+        ]),
+        el("div", { class: "top-actions" }, [
+          el("span", { class: "pill" }, "127.0.0.1"),
+          button(
+            document.documentElement.dataset.theme === "light"
+              ? "Dark"
+              : "Light",
+            () => {
+              const next =
+                document.documentElement.dataset.theme === "light"
+                  ? "dark"
+                  : "light";
+              document.documentElement.dataset.theme = next;
+              try {
+                localStorage.setItem("ree-studio-theme", next);
+              } catch {
+                /* the toggle still applies for this page */
+              }
+              draw();
+            },
+          ),
+          button("Commands", () => {
+            state.palette = true;
+            state.paletteQuery = "";
+            draw();
+          }),
+          button("Shortcuts", () => {
+            state.shortcuts = true;
+            draw();
+          }),
+          button(advanced ? "Advanced" : "Simple", async () => {
+            if (!state.project) return;
+            state.project = await api(`/api/projects/${state.project.id}`, {
+              method: "PATCH",
+              body: { mode: advanced ? "simple" : "advanced" },
+            });
+            draw();
+          }),
         ]),
       ]),
-      el("div", { class: "top-actions" }, [
-        el("span", { class: "pill" }, "127.0.0.1"),
-        button(
-          document.documentElement.dataset.theme === "light" ? "Dark" : "Light",
-          () => {
-            const next =
-              document.documentElement.dataset.theme === "light"
-                ? "dark"
-                : "light";
-            document.documentElement.dataset.theme = next;
-            try {
-              localStorage.setItem("ree-studio-theme", next);
-            } catch {
-              /* the toggle still applies for this page */
-            }
-            draw();
-          },
-        ),
-        button("Commands", () => {
-          state.palette = true;
-          state.paletteQuery = "";
-          draw();
-        }),
-        button("Shortcuts", () => {
-          state.shortcuts = true;
-          draw();
-        }),
-        button(advanced ? "Advanced" : "Simple", async () => {
-          if (!state.project) return;
-          state.project = await api(`/api/projects/${state.project.id}`, {
-            method: "PATCH",
-            body: { mode: advanced ? "simple" : "advanced" },
-          });
-          draw();
-        }),
-      ]),
-    ]),
-    el("div", { class: "layout" }, [
-      el("nav", { class: "rail", "aria-label": "Studio" }, [
-        el("p", { class: "rail-label" }, "Path"),
-        ...primaryFlow.map(([id, label]) =>
-          button(label, () => openView(id), {
-            class: state.view === id ? "nav current" : "nav",
-            "aria-current": state.view === id ? "page" : "false",
-            dataset: { pathId: id },
-          }),
-        ),
-        ...(advanced
-          ? [
-              el("p", { class: "rail-label" }, "Advanced"),
-              ...advancedLabs.map(([id, label]) =>
-                button(label, () => openView(id), {
-                  class: state.view === id ? "nav current" : "nav",
-                  "aria-current": state.view === id ? "page" : undefined,
+      el("div", { class: "layout" }, [
+        el("nav", { class: "rail", "aria-label": "Studio" }, [
+          el("p", { class: "rail-label" }, "Path"),
+          ...primaryFlow.map(([id, label]) =>
+            button(label, () => openView(id), {
+              class: state.view === id ? "nav current" : "nav",
+              "aria-current": state.view === id ? "page" : "false",
+              dataset: { pathId: id },
+            }),
+          ),
+          ...(advanced
+            ? [
+                el("p", { class: "rail-label" }, "Advanced"),
+                ...advancedLabs.map(([id, label]) =>
+                  button(label, () => openView(id), {
+                    class: state.view === id ? "nav current" : "nav",
+                    "aria-current": state.view === id ? "page" : undefined,
+                  }),
+                ),
+              ]
+            : [
+                button("Show advanced labs", async () => {
+                  if (!state.project) return;
+                  state.project = await api(
+                    `/api/projects/${state.project.id}`,
+                    {
+                      method: "PATCH",
+                      body: { mode: "advanced" },
+                    },
+                  );
+                  draw();
                 }),
-              ),
-            ]
-          : [
-              button("Show advanced labs", async () => {
-                if (!state.project) return;
-                state.project = await api(`/api/projects/${state.project.id}`, {
-                  method: "PATCH",
-                  body: { mode: "advanced" },
-                });
-                draw();
-              }),
-            ]),
-        el("p", { class: "rail-label" }, "Projects"),
-        ...state.projects.map((project) =>
-          button(project.name || project.id, () => openProject(project.id), {
-            class: state.project?.id === project.id ? "nav current" : "nav",
-          }),
+              ]),
+          el("p", { class: "rail-label" }, "Projects"),
+          ...state.projects.map((project) =>
+            button(project.name || project.id, () => openProject(project.id), {
+              class: state.project?.id === project.id ? "nav current" : "nav",
+            }),
+          ),
+        ]),
+        el(
+          "main",
+          {
+            id: "main",
+            class: simplePath() ? "wide" : undefined,
+            tabindex: "-1",
+          },
+          [
+            state.error
+              ? el("p", { class: "banner bad", role: "alert" }, state.error)
+              : null,
+            state.notice
+              ? el("p", { class: "banner", role: "status" }, state.notice)
+              : null,
+            onboardingCard(),
+            flowStepper(),
+            panel(),
+            explainCard(),
+          ],
         ),
       ]),
-      el(
-        "main",
-        {
-          id: "main",
-          class: simplePath() ? "wide" : undefined,
-          tabindex: "-1",
-        },
-        [
-          state.error
-            ? el("p", { class: "banner bad", role: "alert" }, state.error)
-            : null,
-          state.notice
-            ? el("p", { class: "banner", role: "status" }, state.notice)
-            : null,
-          onboardingCard(),
-          flowStepper(),
-          panel(),
-          explainCard(),
-        ],
-      ),
-    ]),
-    studioFooter(),
-    state.palette ? palette() : null,
-    state.shortcuts ? shortcutSheet() : null,
-    state.tour ? tourCard() : null,
+      studioFooter(),
+      state.palette ? palette() : null,
+      state.shortcuts ? shortcutSheet() : null,
+      state.tour ? tourCard() : null,
+    ].filter((node) => node != null),
   );
 }
 
@@ -483,6 +490,9 @@ function doorPanel(options = {}) {
         () => frontDoorRun(),
         { class: "primary" },
       ),
+      latestRun()
+        ? button("Build from this", () => buildFromThis(), { class: "primary" })
+        : null,
       embedded
         ? null
         : nextStep(
@@ -902,37 +912,45 @@ function draftCard() {
   const draft = state.draft;
   if (!draft) return null;
   const features = draft.features ?? [];
+  const endpoints = draft.endpoints ?? [];
+  const canRebuild = features.length > 0 || endpoints.length > 0;
   return el("article", { class: "card" }, [
     el("h3", {}, "Spec from this investigation"),
     el("p", {}, draft.note || ""),
-    features.length === 0
+    !canRebuild
       ? el(
           "p",
           { class: "empty" },
           "This input does not support a rebuild. No feature was recovered, and none was invented.",
         )
-      : el(
-          "div",
-          { class: "stack feature-grid" },
-          features.map((feature) =>
-            el("label", { class: "check feature" }, [
-              el("input", {
-                type: "checkbox",
-                checked: state.draftChecks[feature.id] ? "checked" : false,
-                onchange: (event) => {
-                  state.draftChecks[feature.id] = event.target.checked;
-                },
-              }),
-              el("span", {}, [
-                el("strong", {}, feature.name),
-                feature.detail
-                  ? el("span", { class: "note" }, feature.detail)
-                  : null,
+      : features.length === 0
+        ? el(
+            "p",
+            {},
+            `${endpoints.length} endpoints were recovered. Rebuild uses those routes.`,
+          )
+        : el(
+            "div",
+            { class: "stack feature-grid" },
+            features.map((feature) =>
+              el("label", { class: "check feature" }, [
+                el("input", {
+                  type: "checkbox",
+                  checked: state.draftChecks[feature.id] ? "checked" : false,
+                  onchange: (event) => {
+                    state.draftChecks[feature.id] = event.target.checked;
+                  },
+                }),
+                el("span", {}, [
+                  el("strong", {}, feature.name),
+                  feature.detail
+                    ? el("span", { class: "note" }, feature.detail)
+                    : null,
+                ]),
               ]),
-            ]),
+            ),
           ),
-        ),
-    features.length
+    canRebuild
       ? button(
           "Rebuild and verify",
           () => {
@@ -2453,6 +2471,9 @@ function overviewPanel() {
           { class: "note" },
           "Simple Mode hides raw commands. Switch to Advanced when you want providers, Evidence ids, and the exact analyzer command.",
         ),
+    run
+      ? button("Build from this", () => buildFromThis(), { class: "primary" })
+      : null,
   ]);
 }
 
@@ -3034,6 +3055,11 @@ async function loadProjects() {
 
 async function openProject(id) {
   state.project = await api(`/api/projects/${id}`);
+  try {
+    localStorage.setItem("ree-studio-project", id);
+  } catch {
+    /* the project still opens for this page */
+  }
   state.view = mode() === "advanced" ? "overview" : "door";
   state.capabilities = state.project.artifacts.length > 0;
   state.error = "";
@@ -3625,7 +3651,15 @@ async function boot() {
   state.readiness = await api("/api/readiness");
   state.researchConfig = await api("/api/research");
   await loadProjects();
-  draw();
+  let saved = null;
+  try {
+    saved = localStorage.getItem("ree-studio-project");
+  } catch {
+    saved = null;
+  }
+  if (saved && state.projects.some((project) => project.id === saved))
+    await openProject(saved);
+  else draw();
 }
 
 boot().catch(setError);

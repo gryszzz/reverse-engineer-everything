@@ -481,3 +481,95 @@ test("shared agent verdicts sit beside the matching board entry", async () => {
     else process.env.REE_SHARED_BOARD = previous;
   }
 });
+
+test("a live build fills What we do better only for evidence about the target", async () => {
+  const board = mkdtempSync(join(tmpdir(), "ree-better-board-"));
+  mkdirSync(join(board, "picks"));
+  const pick = (id, reason, angle, url) => ({
+    agent: "fixture",
+    id,
+    verdict: "build",
+    reason,
+    angle,
+    date: "2026-10-22",
+    ...(url ? { url } : {}),
+  });
+  writeFileSync(
+    join(board, "picks", "photo.json"),
+    JSON.stringify(
+      pick(
+        "photo-list",
+        "Add a photo list to each record.",
+        "Photo list",
+        "https://widgets.example/ideas/photo-list",
+      ),
+    ) + "\n",
+  );
+  for (const [id, reason, angle] of [
+    ["billing", "Shopify billing needs a retry.", "Billing"],
+    ["certs", "The certificate expires next week.", "Cert expiry"],
+    ["backup", "SaaS backup is missing.", "Backup"],
+    ["status", "Status pages should be public.", "Status pages"],
+  ]) {
+    writeFileSync(
+      join(board, "picks", id + ".json"),
+      JSON.stringify(pick(id, reason, angle, null)) + "\n",
+    );
+  }
+  const built = await api("/api/builds", {
+    method: "POST",
+    body: { product_name: "Harbor Kit", spec: spec(), improve_board: board },
+  });
+  assert.equal(built.status, 201, JSON.stringify(built.body));
+  assert.equal(built.body.improvements.items.length, 1);
+  assert.equal(
+    built.body.improvements.items[0].quote,
+    "Add a photo list to each record.",
+  );
+  assert.equal(
+    built.body.improvements.items.some((item) =>
+      String(item.quote).includes("Shopify"),
+    ),
+    false,
+  );
+  const written = JSON.parse(
+    readFileSync(join(built.body.out_dir, "behavior-spec.json"), "utf8"),
+  );
+  const photo = written.features.find(
+    (feature) => feature.name === "Photo list",
+  );
+  assert.ok(photo);
+  assert.equal(photo.citations[0].fetched_at, "2026-10-22T00:00:00.000Z");
+  assert.equal(photo.id.startsWith("improve:"), false);
+  const routes = readFileSync(
+    join(built.body.out_dir, "src/routes.mjs"),
+    "utf8",
+  );
+  assert.match(routes, /\/photo-list/);
+  assert.equal(routes.includes("/improve-"), false);
+  const started = await api("/api/live-builds", {
+    method: "POST",
+    body: {
+      product_name: "Harbor Kit",
+      spec: spec(),
+      improve_board: board,
+    },
+  });
+  assert.equal(started.status, 201, JSON.stringify(started.body));
+  let snapshot = null;
+  const deadline = Date.now() + 60000;
+  while (Date.now() < deadline) {
+    const polled = await api("/api/live-builds/" + started.body.live_id);
+    snapshot = polled.body;
+    if (snapshot.finished === true) break;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 30));
+  }
+  assert.equal(snapshot.finished, true, JSON.stringify(snapshot));
+  assert.equal(snapshot.status, "verified", snapshot.error);
+  assert.equal(snapshot.improvements.title, "What we do better");
+  assert.equal(snapshot.improvements.items.length, 1);
+  assert.equal(
+    snapshot.improvements.items[0].quote,
+    "Add a photo list to each record.",
+  );
+});

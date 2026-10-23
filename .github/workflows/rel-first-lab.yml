@@ -71,6 +71,7 @@ jobs:
           node --test rel/handoff/shared-publish.test.mjs
           node --test rel/opportunities/board.test.mjs
           node --test rel/pipeline/pipeline.test.mjs
+          node --test rel/pipeline/petstore-e2e.test.mjs
           node --test rel/gaps/gaps.test.mjs
           node --test rel/improve/improve.test.mjs
       - name: Verify authorized static target admission and Codex entry
@@ -80,6 +81,8 @@ jobs:
       - name: Verify Investigation Studio boundaries and real engine analysis
         run: |
           node --test rel/studio/graph.test.mjs rel/studio/studio.test.mjs
+          node --test rel/studio/outside-in-run.test.mjs
+          node --test rel/studio/product-flow.test.mjs
           node --test rel/studio/studio-engine.test.mjs
           node --test rel/app/mac-app.test.mjs
       - name: Acquire the binary-layout Python for the accuracy bench
