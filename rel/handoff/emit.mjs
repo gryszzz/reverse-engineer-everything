@@ -186,7 +186,7 @@ export function emitHandoff({
   const quotes = customerQuotes(spec);
   const forbidden = [spec.target.name, scoutFacts.target_name].filter(Boolean);
   const summary =
-    "Clean-room HTTP product. A feature is implemented only when its name matches an endpoint summary or operation id for GET, POST, PUT, PATCH, or DELETE. Other features stay unimplemented. Market scores appear only when a Scout record supplied them.";
+    "Clean-room HTTP product. Each feature gets a data model, write rules, and CRUD routes. A feature that only matches a path template or a method outside GET, POST, PUT, PATCH, and DELETE is left out, with a reason. Market scores appear only when a Scout record supplied them.";
   for (const name of forbidden) {
     if (summary.includes(name) || provenance.product_name.includes(name))
       throw new Error("Customer-facing fields include a competitor name.");
@@ -245,9 +245,7 @@ export function emitHandoff({
       ),
     missing: [
       ...(verify.implemented === 0
-        ? [
-            "No feature name matched a GET, POST, PUT, PATCH, or DELETE endpoint, so no route was built.",
-          ]
+        ? ["No feature could be built as HTTP CRUD, so no route was built."]
         : []),
       ...verify.features
         .filter((feature) => feature.match === "unimplemented")

@@ -178,7 +178,7 @@ test("scout totals must match and specs do not receive invented market scores", 
   assert.equal(listed.specs[0].listing.coverage.features, 1);
 });
 
-test("rebuild stays outside the repo, omits quotes, and leaves unmatched features unimplemented", () => {
+test("rebuild stays outside the repo, omits quotes, and implements a feature with no endpoint", () => {
   const inside = fileURLToPath(new URL("./inside-rebuild", import.meta.url));
   assert.throws(
     () =>
@@ -213,12 +213,14 @@ test("rebuild stays outside the repo, omits quotes, and leaves unmatched feature
   assert.equal(built.provenance.original_code_copied, false);
   const verified = verifyRebuild(out);
   assert.equal(verified.exit_code, 0, verified.stderr || verified.stdout);
-  assert.equal(verified.features[0].match, "unimplemented");
+  assert.equal(verified.features[0].match, "pass");
   assert.equal(verified.features[0].id, "feature:shared-boards");
-  assert.equal(verified.implemented, 0);
-  assert.equal(verified.unimplemented, 1);
+  assert.equal(verified.features[0].route.method, "POST");
+  assert.equal(verified.features[0].route.path, "/shared-boards");
+  assert.equal(verified.implemented, 1);
+  assert.equal(verified.unimplemented, 0);
   assert.equal(verified.failed, 0);
-  assert.equal(verified.ratio, 0);
+  assert.equal(verified.ratio, 1);
   assert.equal(verified.quote_test_passed, true);
   assert.equal(source.includes("Shared boards"), false);
   const readme = readFileSync(join(out, "README.md"), "utf8");
@@ -287,7 +289,7 @@ test("handoff files keep competitor names out of the README and do not claim Gua
   const readme = readFileSync(join(emitted.directory, "README.md"), "utf8");
   assert.equal(readme.includes("Widget Cloud"), false);
   assert.match(readme, /Dry run/);
-  assert.match(readme, /No route test passed/);
+  assert.match(readme, /Those routes run/);
   assert.equal(
     readme.includes("A declaration is not a running feature."),
     false,
@@ -328,8 +330,8 @@ test("handoff files keep competitor names out of the README and do not claim Gua
   assert.equal(scale.dry_run, true);
   assert.equal(scale.notified_scale, false);
   assert.equal(scale.approved, false);
-  assert.equal(handoff.feature_match.implemented, 0);
-  assert.deepEqual(handoff.works_now, []);
+  assert.equal(handoff.feature_match.implemented, 1);
+  assert.ok(handoff.works_now.includes("POST /shared-boards returns 201."));
   assert.equal(handoff.notified_blast, false);
 });
 
@@ -448,7 +450,8 @@ test("rebuild serves an endpoint whose summary or operation id matches a feature
   assert.equal(byName["Create a board"].route.success_status, 201);
   assert.equal(byName.listBoards.match, "pass");
   assert.equal(byName.listBoards.route.method, "GET");
-  assert.equal(byName["Shared boards"].match, "unimplemented");
+  assert.equal(byName["Shared boards"].match, "pass");
+  assert.equal(byName["Shared boards"].route.path, "/shared-boards");
   assert.equal(byName["Open a board"].match, "unimplemented");
   const source = ["behaviors.mjs", "routes.mjs", "server.mjs"]
     .map((name) => readFileSync(join(out, "src", name), "utf8"))
@@ -570,11 +573,13 @@ test("pipeline rebuilds the owned web bench into a packaged product", async () =
   const shared = outcome.verify.features.find(
     (feature) => feature.name === "Shared boards",
   );
-  assert.equal(shared.match, "unimplemented");
-  for (const feature of outcome.verify.features) {
-    if (feature.name !== "Create a board")
-      assert.notEqual(feature.match, "pass", feature.name);
-  }
+  assert.equal(shared.match, "pass");
+  assert.equal(shared.route.path, "/shared-boards");
+  const local = outcome.verify.features.find((feature) =>
+    feature.id.startsWith("feature:local-boards"),
+  );
+  assert.equal(local.match, "pass");
+  assert.ok(outcome.verify.ratio >= 0.8);
   const product = outcome.product_dir;
   const readme = readFileSync(join(product, "README.md"), "utf8");
   assert.equal(readme.includes("Bench Boards"), false);
@@ -589,7 +594,7 @@ test("pipeline rebuilds the owned web bench into a packaged product", async () =
   );
   assert.equal(source.includes("Local boards for the accuracy bench."), false);
   assert.equal(source.includes("Create a board"), false);
-  assert.equal(source.includes("listBoards"), false);
+  assert.match(source, /listBoards/);
   assert.match(source, /createBoard/);
   assert.match(
     readFileSync(join(product, "PRICING.md"), "utf8"),
@@ -713,9 +718,12 @@ test("pipeline rebuilds the owned web bench into a packaged product", async () =
     assert.equal(created.status, 201);
     const body = await created.json();
     assert.equal(body.boardName, "alpha");
-    const missing = await fetch(`http://127.0.0.1:${port}/boards`);
-    assert.equal(missing.status, 405);
-    assert.equal((await missing.json()).error, "method");
+    const listed = await fetch(`http://127.0.0.1:${port}/boards`);
+    assert.equal(listed.status, 200);
+    assert.ok(Array.isArray((await listed.json()).items));
+    const page = await fetch(`http://127.0.0.1:${port}/`);
+    assert.match(page.headers.get("content-type") ?? "", /^text\/html/);
+    assert.match(await page.text(), /data-path="\/boards"/);
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose));
   }

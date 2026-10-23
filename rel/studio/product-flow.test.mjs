@@ -196,8 +196,9 @@ test("onboarding, board ingest, and a dry-run build are live studio routes", asy
   assert.equal(built.status, 201, JSON.stringify(built.body));
   assert.equal(built.body.dry_run, true);
   assert.equal(built.body.verify.exit_code, 0);
-  assert.equal(built.body.verify.features[0].match, "unimplemented");
-  assert.equal(built.body.verify.implemented, 0);
+  assert.equal(built.body.verify.features[0].match, "pass");
+  assert.equal(built.body.verify.features[0].route.path, "/shared-boards");
+  assert.equal(built.body.verify.implemented, 1);
   assert.equal(built.body.box_path_used, false);
   const wrongFixture = await api("/api/pipeline", {
     method: "POST",
@@ -238,7 +239,8 @@ test("onboarding, board ingest, and a dry-run build are live studio routes", asy
   const shared = snapshot.verify.features.find(
     (feature) => feature.name === "Shared boards",
   );
-  assert.equal(shared.match, "unimplemented");
+  assert.equal(shared.match, "pass");
+  assert.equal(shared.route.path, "/shared-boards");
 });
 
 test("a live build shows files and tests, then packages on request", async () => {
@@ -280,6 +282,9 @@ test("a live build shows files and tests, then packages on request", async () =>
   }
   assert.equal(snapshot.finished, true, JSON.stringify(snapshot));
   assert.equal(snapshot.status, "verified", snapshot.error);
+  assert.equal(snapshot.verify.implemented, 1);
+  assert.equal(snapshot.verify.features[0].match, "pass");
+  assert.equal(snapshot.verify.features[0].route.path, "/shared-boards");
   assert.equal(snapshot.package_path, null);
   assert.equal(existsSync(snapshot.out_dir + "/product.tgz"), false);
   assert.ok(snapshot.events.some((event) => event.phase === "spec-item"));

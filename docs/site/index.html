@@ -223,9 +223,10 @@
               <tr>
                 <td>Board and Build</td>
                 <td>
-                  Ingest a Scout target or an outside-in spec, then scaffold a
-                  clean-room folder and a dry-run handoff. Scores are not
-                  invented and original source is not copied.
+                  Ingest a Scout target or an outside-in spec. Each feature gets
+                  a data model, write rules, and CRUD routes. A path template is
+                  left out, with a reason. The handoff is a dry run. Scores are
+                  not invented and original source is not copied.
                 </td>
               </tr>
               <tr>
@@ -641,13 +642,14 @@ node ree.mjs studio --open</code></pre>
             <h3>Clean-room Build</h3>
             <p>
               Board ingests a Scout target or an outside-in spec and does not
-              invent scores. Build writes a clean-room HTTP product for features
-              whose names match an endpoint, lists each file and test result as
-              it is recorded, and writes a dry-run handoff when you package. The
-              studio can also run the owned web fixture through the same stages
-              and show each stage while it runs. Other features stay
-              unimplemented. It does not copy original source, notify Blast,
-              call Guard, call Scale, or copy into Vault.
+              invent scores. Build writes a clean-room HTTP product: each
+              feature gets a data model, write rules, CRUD routes, and a page
+              section. A path template is left out, with a reason. Files and
+              test results are listed as they are recorded. Packaging writes a
+              dry-run handoff. The studio can also run the owned web fixture
+              through the same stages and show each stage while it runs. It does
+              not copy original source, notify Blast, call Guard, call Scale, or
+              copy into Vault.
             </p>
           </article>
           <article class="card">

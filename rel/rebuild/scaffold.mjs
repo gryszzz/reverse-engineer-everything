@@ -11,152 +11,14 @@ import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertValidBehaviorSpec } from "../outside-in/validate.mjs";
+import { plannedCoverage } from "./coverage.mjs";
+import { SERVER_SOURCE, TEST_SOURCE } from "./product-source.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
+const CRUD = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
 export const REBUILD_SCHEMA = "ree.rebuild.provenance.v1";
-
-const SERVER_SOURCE = `import { createServer } from "node:http";
-import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
-import { routes } from "./routes.mjs";
-
-export function createApp() {
-  const stores = new Map();
-  return createServer((request, response) => {
-    let url;
-    try {
-      url = new URL(request.url ?? "/", "http://127.0.0.1");
-    } catch {
-      send(response, 400, { error: "bad-url" });
-      return;
-    }
-    const route = routes.find(
-      (item) => item.method === request.method && item.path === url.pathname,
-    );
-    if (!route) {
-      const known = routes.some((item) => item.path === url.pathname);
-      send(response, known ? 405 : 404, {
-        error: known ? "method" : "not-found",
-      });
-      return;
-    }
-    const store = stores.get(route.path) ?? [];
-    stores.set(route.path, store);
-    if (route.method === "GET") {
-      send(response, route.success_status, { items: store });
-      return;
-    }
-    if (route.method === "DELETE") {
-      store.length = 0;
-      send(response, route.success_status, { deleted: true });
-      return;
-    }
-    const record = { id: String(store.length + 1) };
-    for (const name of route.parameters) {
-      record[name] = url.searchParams.has(name)
-        ? url.searchParams.get(name)
-        : null;
-    }
-    store.push(record);
-    send(response, route.success_status, record);
-  });
-}
-
-function send(response, status, body) {
-  response.writeHead(status, { "content-type": "application/json" });
-  response.end(JSON.stringify(body));
-}
-
-export function listen(port = 0, hostname = "127.0.0.1") {
-  const server = createApp();
-  return new Promise((resolveListen, reject) => {
-    server.once("error", reject);
-    server.listen(port, hostname, () => resolveListen(server));
-  });
-}
-
-const entry = process.argv[1];
-if (entry && import.meta.url === pathToFileURL(resolve(entry)).href) {
-  const port = Number(process.env.PORT ?? 8787);
-  if (!Number.isInteger(port) || port < 0 || port > 65535) {
-    console.error("PORT must be an integer from 0 to 65535.");
-    process.exit(2);
-  }
-  const server = createApp();
-  server.listen(port, "127.0.0.1", () => {
-    console.log("listening http://127.0.0.1:" + server.address().port);
-  });
-}
-`;
-
-const TEST_SOURCE = `import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
-import { test } from "node:test";
-import { behaviors } from "../src/behaviors.mjs";
-import { routes } from "../src/routes.mjs";
-import { listen } from "../src/server.mjs";
-
-const spec = JSON.parse(
-  readFileSync(new URL("../behavior-spec.json", import.meta.url), "utf8"),
-);
-
-for (const behavior of behaviors) {
-  if (behavior.status === "implemented") {
-    test("feature " + behavior.id, async () => {
-      const route = routes.find((item) => item.key === behavior.handler);
-      assert.ok(route, behavior.id);
-      const server = await listen(0);
-      try {
-        const port = server.address().port;
-        const url = new URL("http://127.0.0.1:" + port + route.path);
-        for (const name of route.parameters) url.searchParams.set(name, "sample");
-        const response = await fetch(url, { method: route.method });
-        assert.equal(response.status, route.success_status);
-        const body = await response.json();
-        if (route.method === "GET") assert.ok(Array.isArray(body.items));
-        else if (route.method === "DELETE") assert.equal(body.deleted, true);
-        else {
-          assert.equal(typeof body.id, "string");
-          for (const name of route.parameters)
-            assert.equal(body[name], "sample");
-        }
-      } finally {
-        await new Promise((resolveClose) => server.close(resolveClose));
-      }
-    });
-  } else {
-    test("unimplemented " + behavior.id, () => {
-      assert.equal(behavior.status, "unimplemented");
-      assert.equal(behavior.handler, null);
-      assert.equal(
-        routes.some((route) => route.key === behavior.id),
-        false,
-      );
-    });
-  }
-}
-
-test("source does not contain spec quotes", () => {
-  const names = readdirSync(new URL("../src/", import.meta.url));
-  let source = "";
-  for (const name of names) {
-    if (!name.endsWith(".mjs")) continue;
-    source += readFileSync(new URL("../src/" + name, import.meta.url), "utf8");
-  }
-  const quotes = [];
-  for (const feature of spec.features) {
-    if (feature.quote?.text && feature.quote.text.length >= 12)
-      quotes.push(feature.quote.text);
-  }
-  for (const limitation of spec.limitations) {
-    if (limitation.statement?.text && limitation.statement.text.length >= 12)
-      quotes.push(limitation.statement.text);
-  }
-  for (const quote of quotes) assert.equal(source.includes(quote), false, quote);
-});
-`;
 
 const LICENSE_TEXT = `MIT License
 
@@ -241,15 +103,32 @@ function buildable(endpoint) {
   return { ok: true, method, path };
 }
 
-function matchesFeature(feature, endpoint) {
-  const built = buildable(endpoint);
-  if (!built.ok || !feature?.name) return false;
+function nameEquals(feature, endpoint) {
+  if (!feature?.name) return false;
   const summary = endpoint.summary?.text ?? null;
   const operationId = endpoint.operation_id ?? null;
   return (
     feature.name === summary ||
     (operationId !== null && feature.name === operationId)
   );
+}
+
+function actionFor(method) {
+  if (method === "GET") return "list";
+  if (method === "POST") return "create";
+  if (method === "PUT") return "replace";
+  if (method === "PATCH") return "merge";
+  return "remove";
+}
+
+function unionParameters(endpoints) {
+  const names = [];
+  for (const endpoint of endpoints) {
+    for (const name of parametersOf(endpoint)) {
+      if (!names.includes(name)) names.push(name);
+    }
+  }
+  return names;
 }
 
 function parametersOf(endpoint) {
@@ -262,81 +141,226 @@ function parametersOf(endpoint) {
 }
 
 /**
- * Decide which features become routes.
- * A feature is implemented only when its name equals one endpoint summary
- * or operation id, and that endpoint is GET, POST, PUT, PATCH, or DELETE
- * with a concrete path.
+ * Every spec feature gets a data model, write rules, and CRUD routes.
+ * A feature whose name equals an endpoint summary or operation id uses that
+ * concrete path. A feature with no such endpoint gets its own collection.
+ * Declared GET, POST, PUT, PATCH, and DELETE endpoints are built even when
+ * no feature name matches them. Path templates and other methods stay out.
  */
 export function planProduct(spec) {
   const quotes = quotesIn(spec);
   const endpoints = spec.api?.endpoints ?? [];
   const behaviors = [];
   const routes = [];
+  const resources = [];
   const skipped = [];
   const omitted = [];
+  const leftOut = [];
   for (const endpoint of endpoints) {
     const built = buildable(endpoint);
     if (!built.ok) {
       skipped.push({
-        method: String(endpoint.method ?? ""),
+        method: String(endpoint.method ?? "").toUpperCase(),
         path: typeof endpoint.path === "string" ? endpoint.path : null,
         operation_id: endpoint.operation_id ?? null,
         reason: built.reason,
       });
     }
   }
-  for (const feature of spec.features) {
+
+  function leave(feature, reason) {
+    leftOut.push({ id: feature.id, reason });
+    behaviors.push({ id: feature.id, status: "unimplemented", handler: null });
+  }
+
+  function resourceFor(path, parameters, rules) {
+    const found = resources.find((item) => item.path === path);
+    if (found) return found;
+    const resource = {
+      id: "c" + resources.length,
+      path,
+      parameters,
+      rules,
+      model: ["id", ...parameters],
+    };
+    resources.push(resource);
+    return resource;
+  }
+
+  function storeRoute(draft) {
+    const existing = routes.find(
+      (item) => item.method === draft.method && item.path === draft.path,
+    );
+    if (existing) return existing;
+    if (leaks(draft, quotes)) return null;
+    const route = { key: "r" + routes.length, ...draft };
+    routes.push(route);
+    return route;
+  }
+
+  function crudFor(resource) {
+    const declared = endpoints.filter((endpoint) => {
+      const built = buildable(endpoint);
+      return built.ok && built.path === resource.path;
+    });
+    const made = [];
+    for (const method of CRUD) {
+      const endpoint = declared.find(
+        (item) => String(item.method ?? "").toUpperCase() === method,
+      );
+      const parameters =
+        method === "GET" || method === "DELETE"
+          ? []
+          : endpoint
+            ? parametersOf(endpoint)
+            : resource.parameters;
+      const draft = {
+        method,
+        path: resource.path,
+        operation_id: endpoint?.operation_id ?? null,
+        parameters,
+        success_status: endpoint
+          ? successStatus(method, endpoint.response_codes)
+          : method === "POST"
+            ? 201
+            : 200,
+        resource: resource.id,
+        action: actionFor(method),
+        model: resource.model,
+        rules: resource.rules,
+      };
+      const stored = storeRoute(draft);
+      if (!stored) return null;
+      made.push(stored);
+    }
+    return made;
+  }
+
+  function collectionPath(feature) {
+    const raw = String(feature.id ?? "").replace(/^feature:/u, "");
+    const base = "/" + slug(raw || "item");
+    if (!base.startsWith("/") || base.includes("{") || base === "/")
+      return null;
+    let path = base;
+    let number = 2;
+    while (
+      resources.some((item) => item.path === path) ||
+      endpoints.some((endpoint) => endpoint.path === path)
+    ) {
+      path = `${base}-${number}`;
+      number += 1;
+    }
+    return path;
+  }
+
+  for (const feature of spec.features ?? []) {
     if (leaks(feature.id, quotes)) {
       omitted.push(feature.id);
-      continue;
-    }
-    const endpoint = endpoints.find((item) => matchesFeature(feature, item));
-    if (!endpoint) {
-      behaviors.push({
+      leftOut.push({
         id: feature.id,
-        status: "unimplemented",
-        handler: null,
+        reason: "feature id would repeat a spec quote",
       });
       continue;
     }
+    const named = endpoints.filter((endpoint) => nameEquals(feature, endpoint));
+    const buildableHits = named.filter((endpoint) => buildable(endpoint).ok);
+    const blockedHits = named.filter((endpoint) => !buildable(endpoint).ok);
+    if (buildableHits.length === 0 && blockedHits.length > 0) {
+      leave(feature, buildable(blockedHits[0]).reason);
+      continue;
+    }
+    if (buildableHits.length > 0) {
+      const preferred =
+        buildableHits.find(
+          (endpoint) => String(endpoint.method).toUpperCase() === "POST",
+        ) ?? buildableHits[0];
+      const path = buildable(preferred).path;
+      const onPath = endpoints.filter((endpoint) => {
+        const built = buildable(endpoint);
+        return built.ok && built.path === path;
+      });
+      const parameters = unionParameters(onPath);
+      const resource = resourceFor(
+        path,
+        parameters,
+        parameters.length > 0 ? ["required"] : [],
+      );
+      const made = crudFor(resource);
+      if (!made) {
+        leave(feature, "structural fields repeated a spec quote");
+        continue;
+      }
+      const handler =
+        made.find(
+          (route) =>
+            route.method === String(preferred.method).toUpperCase() &&
+            route.path === path,
+        ) ?? made[0];
+      behaviors.push({
+        id: feature.id,
+        status: "implemented",
+        handler: handler.key,
+      });
+      continue;
+    }
+    const path = collectionPath(feature);
+    if (!path) {
+      leave(feature, "a safe collection path could not be formed");
+      continue;
+    }
+    if (leaks(path, quotes)) {
+      leave(feature, "a safe path would repeat a spec quote");
+      continue;
+    }
+    const resource = resourceFor(
+      path,
+      ["label"],
+      ["required", "unique", "max-length"],
+    );
+    const made = crudFor(resource);
+    if (!made) {
+      leave(feature, "structural fields repeated a spec quote");
+      continue;
+    }
+    const handler = made.find((route) => route.action === "create") ?? made[0];
+    behaviors.push({
+      id: feature.id,
+      status: "implemented",
+      handler: handler.key,
+    });
+  }
+
+  for (const endpoint of endpoints) {
     const built = buildable(endpoint);
-    const route = {
-      key: "r" + routes.length,
-      method: built.method,
-      path: built.path,
-      operation_id: endpoint.operation_id ?? null,
-      parameters: parametersOf(endpoint),
-      success_status: successStatus(built.method, endpoint.response_codes),
-    };
-    if (leaks(route, quotes)) {
-      behaviors.push({
-        id: feature.id,
-        status: "unimplemented",
-        handler: null,
-      });
+    if (!built.ok) continue;
+    if (routes.some((route) => route.path === built.path)) continue;
+    const onPath = endpoints.filter((item) => {
+      const itemBuilt = buildable(item);
+      return itemBuilt.ok && itemBuilt.path === built.path;
+    });
+    const parameters = unionParameters(onPath);
+    const resource = resourceFor(
+      built.path,
+      parameters,
+      parameters.length > 0 ? ["required"] : [],
+    );
+    if (!crudFor(resource)) {
       skipped.push({
-        method: route.method,
-        path: route.path,
+        method: built.method,
+        path: built.path,
         operation_id: null,
         reason: "structural fields repeated a spec quote",
       });
-      continue;
     }
-    const existing = routes.find(
-      (item) =>
-        item.method === route.method &&
-        item.path === route.path &&
-        item.operation_id === route.operation_id,
-    );
-    const key = existing ? existing.key : route.key;
-    if (!existing) routes.push({ ...route, key });
-    behaviors.push({ id: feature.id, status: "implemented", handler: key });
   }
+
   const unmatched = endpoints.filter((endpoint) => {
     if (!buildable(endpoint).ok) return false;
-    return !spec.features.some((feature) => matchesFeature(feature, endpoint));
+    return !(spec.features ?? []).some((feature) =>
+      nameEquals(feature, endpoint),
+    );
   });
-  return { behaviors, routes, skipped, unmatched, omitted };
+  return { behaviors, routes, skipped, unmatched, omitted, leftOut };
 }
 
 function routeLine(route) {
@@ -355,7 +379,45 @@ function endpointLine(endpoint) {
   return `- ${method} ${endpoint.path}${operation}`;
 }
 
-function readmeText(productName, plan) {
+function featureLabel(feature, spec) {
+  const name = typeof feature?.name === "string" ? feature.name : "";
+  const id = feature?.id ?? "feature";
+  if (!name) return id;
+  const quotes = quotesIn(spec);
+  const brand = String(spec.target?.name ?? "").trim();
+  if (quotes.some((quote) => name.includes(quote))) return id;
+  if (brand && name.includes(brand)) return id;
+  return `${id} (${name})`;
+}
+
+function featureLines(spec, plan) {
+  const byId = new Map(
+    (spec.features ?? []).map((feature) => [feature.id, feature]),
+  );
+  const implemented = plan.behaviors.filter(
+    (item) => item.status === "implemented",
+  );
+  const lines = ["## Features", ""];
+  lines.push("Implemented:");
+  if (implemented.length === 0) lines.push("- none");
+  else {
+    for (const item of implemented) {
+      const feature = byId.get(item.id) ?? item;
+      lines.push(`- ${featureLabel(feature, spec)}`);
+    }
+  }
+  lines.push("", "Left out:");
+  if ((plan.leftOut ?? []).length === 0) lines.push("- none");
+  else {
+    for (const item of plan.leftOut) {
+      const feature = byId.get(item.id) ?? item;
+      lines.push(`- ${featureLabel(feature, spec)}: ${item.reason}.`);
+    }
+  }
+  return lines;
+}
+
+function readmeText(productName, spec, plan) {
   const lines = [
     `# ${productName}`,
     "",
@@ -370,62 +432,48 @@ function readmeText(productName, plan) {
     "npm start",
     "```",
     "",
-    "`npm test` runs the route tests.",
+    "`npm test` runs one behavior test per feature.",
     "`npm start` listens on 127.0.0.1 port 8787, or `PORT` when that variable is set.",
+    "GET / is a minimal page for the collections below.",
     "",
     "## What runs",
     "",
   ];
   if (plan.routes.length === 0) {
     lines.push(
-      "No feature name matched a GET, POST, PUT, PATCH, or DELETE endpoint, so no route was built.",
+      "No feature could be built as HTTP CRUD, so no route was built.",
       "`npm start` still listens and answers 404.",
     );
   } else {
     lines.push(
       "The store is in memory and starts empty.",
-      'GET returns `{ "items": [] }` with the success status.',
-      "POST, PUT, and PATCH append a record with an id and the query parameters named in the spec.",
-      'DELETE clears that path and returns `{ "deleted": true }`.',
+      "Each built feature has a data model, write rules, and CRUD routes.",
+      'GET returns `{ "items": [] }` with the model and rules.',
+      "POST creates a record with an id and the query parameters.",
+      "PUT and PATCH update that record when `id` is set, and append one when it is not.",
+      "DELETE with `id` removes that record. DELETE without `id` clears the path.",
+      'Both return `{ "deleted": true }`.',
+      "A missing required field, a duplicate unique field, or a value longer than 80 characters returns 400.",
       "The success status is 200 or 201 when the spec lists that code. Otherwise POST uses 201 and the other methods use 200.",
       "A path that was built for another method answers 405.",
       "",
       ...plan.routes.map(routeLine),
     );
   }
-  lines.push("", "## Not built", "");
-  const unimplemented = plan.behaviors.filter(
-    (item) => item.status !== "implemented",
-  );
-  if (
-    unimplemented.length === 0 &&
-    plan.unmatched.length === 0 &&
-    plan.skipped.length === 0
-  )
-    lines.push("Every spec feature has a route above.");
-  else {
-    if (unimplemented.length === 0)
-      lines.push("Every spec feature has a route above.");
-    else {
+  lines.push("", ...featureLines(spec, plan));
+  if (plan.unmatched.length > 0) {
+    lines.push(
+      "",
+      "These declared endpoints did not match a feature name. Their path was still built:",
+    );
+    for (const endpoint of plan.unmatched) lines.push(endpointLine(endpoint));
+  }
+  if (plan.skipped.length > 0) {
+    lines.push("", "These endpoints were not built:");
+    for (const item of plan.skipped) {
       lines.push(
-        "These feature ids are marked unimplemented and are not routes:",
+        `- ${item.method || "(no method)"} ${item.path ?? "(no path)"}: ${item.reason}.`,
       );
-      for (const item of unimplemented) lines.push(`- ${item.id}`);
-    }
-    if (plan.unmatched.length > 0) {
-      lines.push(
-        "",
-        "Endpoints in the spec with no matching feature name were not built:",
-      );
-      for (const endpoint of plan.unmatched) lines.push(endpointLine(endpoint));
-    }
-    if (plan.skipped.length > 0) {
-      lines.push("", "These endpoints were not built:");
-      for (const item of plan.skipped) {
-        lines.push(
-          `- ${item.method || "(no method)"} ${item.path ?? "(no path)"}: ${item.reason}.`,
-        );
-      }
     }
   }
   lines.push(
@@ -433,17 +481,17 @@ function readmeText(productName, plan) {
     "## Not implemented",
     "",
     "GraphQL, workflows, a pricing checkout, integrations, authentication, and rate limits are not built.",
-    "Features whose names are not an endpoint summary or operation id stay unimplemented.",
+    "A feature that only matches a path template, or a method other than GET, POST, PUT, PATCH, and DELETE, is left out.",
     "Path templates that contain `{` are not expanded.",
-    "Methods other than GET, POST, PUT, PATCH, and DELETE are not built.",
     "",
+    "See FEATURE_REPORT.md for the same implemented and left-out lists.",
     "See PRICING.md. Prices are not invented.",
     "",
   );
   return lines.join("\n");
 }
 
-function landingText(productName, plan) {
+function landingText(productName, spec, plan) {
   const lines = [
     `# ${productName}`,
     "",
@@ -459,22 +507,33 @@ function landingText(productName, plan) {
   } else {
     lines.push(...plan.routes.map(routeLine));
   }
-  const unimplemented = plan.behaviors.filter(
-    (item) => item.status !== "implemented",
-  );
-  lines.push("", "## What is not included", "");
-  if (unimplemented.length === 0)
-    lines.push("Every spec feature has a route above.");
-  else {
-    lines.push("These feature ids were not built:");
-    for (const item of unimplemented) lines.push(`- ${item.id}`);
-  }
+  lines.push("", ...featureLines(spec, plan));
   lines.push(
     "",
     "There is no checkout. See PRICING.md. Prices are not invented.",
     "",
   );
   return lines.join("\n");
+}
+
+function reportText(productName, spec, plan) {
+  const implemented = plan.behaviors.filter(
+    (item) => item.status === "implemented",
+  ).length;
+  const total = spec.features?.length ?? 0;
+  const ratio = total === 0 ? "none" : (implemented / total).toFixed(3);
+  return [
+    `# ${productName} feature report`,
+    "",
+    "Implemented features have a data model, write rules, CRUD routes, a page section, and a behavior test.",
+    "Each feature left out has a reason.",
+    "",
+    ...featureLines(spec, plan),
+    "",
+    `Coverage: ${implemented} of ${total} (${ratio}).`,
+    "The CI gate fails when coverage is under 0.8.",
+    "",
+  ].join("\n");
 }
 
 function pricingText(spec) {
@@ -565,20 +624,20 @@ export function scaffoldRebuild({
   const leaked = quotesIn(spec).find((quote) => name.includes(quote));
   if (leaked) throw new Error("The product name contains a spec quote.");
   const plan = planProduct(spec);
-  const readme = readmeText(name, plan);
-  const landing = landingText(name, plan);
+  const readme = readmeText(name, spec, plan);
+  const landing = landingText(name, spec, plan);
+  const report = reportText(name, spec, plan);
   const brand = String(spec.target.name ?? "").trim();
   if (
     brand &&
-    (readme.includes(brand) ||
-      landing.includes(brand) ||
-      NOTICE_TEXT.includes(brand))
+    [readme, landing, report, NOTICE_TEXT].some((text) => text.includes(brand))
   )
     throw new Error("Customer copy includes the spec target name.");
   const repeated = quotesIn(spec).find(
     (quote) =>
       readme.includes(quote) ||
       landing.includes(quote) ||
+      report.includes(quote) ||
       NOTICE_TEXT.includes(quote),
   );
   if (repeated) throw new Error("Customer copy repeats a spec quote.");
@@ -613,10 +672,13 @@ export function scaffoldRebuild({
       .filter((item) => item.status !== "implemented")
       .map((item) => item.id),
     omitted_feature_ids: plan.omitted,
+    left_out: plan.leftOut,
     generator_limits: [
-      "A feature is implemented only when its name equals an endpoint summary or operation id.",
-      "Methods: GET, POST, PUT, PATCH, DELETE. The store is in memory.",
-      "GET lists items. POST, PUT, and PATCH append a record. DELETE clears that path.",
+      "Each feature gets a data model, write rules, CRUD routes, a page section, and a behavior test.",
+      "A feature whose name equals an endpoint summary or operation id uses that concrete path.",
+      "A feature with no matching endpoint gets its own collection.",
+      "Declared GET, POST, PUT, PATCH, and DELETE endpoints are built even when no feature name matches.",
+      "The store is in memory. GET / is the minimal UI.",
       "Path templates containing { are not expanded.",
       "GraphQL, workflows, pricing checkout, integrations, authentication, and rate limits are not built.",
     ],
@@ -677,6 +739,11 @@ export function scaffoldRebuild({
   write("LICENSE", LICENSE_TEXT);
   write("NOTICE", NOTICE_TEXT);
   write("PRICING.md", pricingText(spec));
+  write("FEATURE_REPORT.md", report);
+  write(
+    "coverage.json",
+    JSON.stringify(plannedCoverage(plan, spec.features.length), null, 2) + "\n",
+  );
   write(
     "src/behaviors.mjs",
     [
