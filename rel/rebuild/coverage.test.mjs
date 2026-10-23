@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -8,6 +8,7 @@ import { extractOpenApi } from "../outside-in/extract-openapi.mjs";
 import { coverageDecision } from "./coverage.mjs";
 import { measureDeskCoverage } from "./coverage-gate.mjs";
 import { planProduct } from "./scaffold.mjs";
+import { savedRecords } from "./saved-records.mjs";
 
 function row(id, name, match) {
   return { id, name, match, route: null };
@@ -92,16 +93,8 @@ test("the owned desk fixture stays at or above 80 percent", async () => {
       assert.equal(created.status, 201);
       const createdBody = await created.json();
       assert.equal(createdBody.boardName, "alpha");
-      const saved = JSON.parse(
-        readFileSync(join(dataDir, "data", "store.json"), "utf8"),
-      );
-      assert.ok(
-        Object.values(saved).some(
-          (bucket) =>
-            Array.isArray(bucket.items) &&
-            bucket.items.some((item) => item.id === createdBody.id),
-        ),
-      );
+      const saved = savedRecords(dataDir);
+      assert.ok(saved.some((item) => item.id === createdBody.id));
       const opened = await fetch(
         `http://127.0.0.1:${port}/boards/${createdBody.id}`,
       );
@@ -166,6 +159,35 @@ test("the owned desk fixture stays at or above 80 percent", async () => {
       assert.match(html, /data-item="\/boards\/\{id\}"/);
       assert.match(html, /application\/json/);
       assert.match(html, /data-path="\/shared-boards"/);
+      assert.match(html, /Saved in SQLite/);
+      const report = JSON.parse(
+        readFileSync(join(measured.product, "capabilities.json"), "utf8"),
+      );
+      assert.match(report.note, /not a percentage/);
+      const status = Object.fromEntries(
+        report.capabilities.map((item) => [item.id, item.status]),
+      );
+      assert.equal(status.storage, "implemented");
+      assert.equal(status.relations, "left-out");
+      assert.equal(status.search, "left-out");
+      assert.equal(status.auth, "left-out");
+      assert.equal(status.roles, "left-out");
+      assert.equal(status.webhooks, "left-out");
+      assert.equal(status.pricing, "left-out");
+      assert.equal(status.ui, "implemented");
+      assert.equal(status.openapi, "implemented");
+      assert.equal(status.deploy, "implemented");
+      assert.equal(existsSync(join(measured.product, "openapi.json")), true);
+      const docker = readFileSync(join(measured.product, "Dockerfile"), "utf8");
+      const render = readFileSync(
+        join(measured.product, "render.yaml"),
+        "utf8",
+      );
+      assert.match(docker, /0\.0\.0\.0/);
+      assert.equal(docker.includes("sk_live_"), false);
+      assert.equal(docker.includes("sk_test_"), false);
+      assert.equal(render.includes("sk_live_"), false);
+      assert.equal(render.includes("sk_test_"), false);
     } finally {
       await new Promise((resolveClose) => server.close(resolveClose));
     }

@@ -64,6 +64,7 @@ jobs:
       - name: Feature coverage stays at least 80 percent
         run: |
           node --test rel/rebuild/coverage.test.mjs
+          node --test rel/rebuild/capabilities.test.mjs
           node rel/rebuild/coverage-gate.mjs
       - name: Verify pipeline shared board handoff
         run: |

@@ -15,6 +15,9 @@ document.addEventListener("click", function (event) {
   var url = new URL(path, location.origin);
   if (!useItem && id && method !== "POST" && method !== "GET")
     url.searchParams.set("id", id);
+  var query = section.querySelector("input[name=q]");
+  if (!useItem && method === "GET" && query && query.value)
+    url.searchParams.set("q", query.value);
   var options = { method: method };
   if (method !== "GET") {
     var payload = {};
@@ -102,23 +105,33 @@ function escapeText(value) {
 }
 `;
 
-export const SERVER_SOURCE = `import { createServer } from "node:http";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+export const SERVER_SOURCE = `import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { createServer } from "node:http";
+import { mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
+import { capabilities } from "./capabilities.mjs";
 import { routes } from "./routes.mjs";
 
 const PRODUCT_NAME = %%PRODUCT_NAME%%;
 
 export function createApp(dataDir) {
   const root = dataDir || process.env.REE_PRODUCT_DATA || process.cwd();
-  const dataFile = join(root, "data", "store.json");
-  const loaded = readStore(dataFile);
-  if (!loaded.ok) throw new Error("data/store.json could not be read.");
-  const stores = loaded.stores;
+  const dataFile = join(root, "data", "store.sqlite");
+  let db = null;
+  let stores = new Map();
+  if (capabilities.storage === "sqlite") {
+    const opened = openStore(dataFile);
+    if (!opened.ok) throw new Error("data/store.sqlite could not be opened.");
+    const loaded = readStore(opened.db);
+    if (!loaded.ok) throw new Error("data/store.sqlite could not be read.");
+    db = opened.db;
+    stores = loaded.stores;
+  }
   function commit(response, status, body) {
     try {
-      writeStore(dataFile, stores);
+      if (db) writeStore(db, stores);
     } catch {
       send(response, 500, { error: "store" });
       return;
@@ -147,6 +160,18 @@ export function createApp(dataDir) {
         ? new URLSearchParams()
         : new URLSearchParams(body);
       if (
+        handleExtra(
+          request,
+          response,
+          url,
+          bodyParams,
+          jsonFields,
+          commit,
+          stores,
+        )
+      )
+        return;
+      if (
         request.method === "GET" &&
         url.pathname === "/" &&
         !routes.some((item) => item.method === "GET" && item.path === "/")
@@ -169,6 +194,11 @@ export function createApp(dataDir) {
         return;
       }
       const route = located.route;
+      const session = currentUser(request, stores);
+      if (!session.ok) {
+        send(response, 401, { error: "auth" });
+        return;
+      }
       const store = bucket(stores, route.resource || route.path);
       const recordId = located.pathId || url.searchParams.get("id");
       if (route.action === "read") {
@@ -177,7 +207,7 @@ export function createApp(dataDir) {
           return;
         }
         const found = store.items.find((item) => item.id === recordId);
-        if (!found) {
+        if (!found || !visible(found, session.user)) {
           send(response, 404, { error: "not-found" });
           return;
         }
@@ -187,7 +217,7 @@ export function createApp(dataDir) {
       if (route.action === "list") {
         if (recordId) {
           const found = store.items.find((item) => item.id === recordId);
-          if (!found) {
+          if (!found || !visible(found, session.user)) {
             send(response, 404, { error: "not-found" });
             return;
           }
@@ -195,7 +225,7 @@ export function createApp(dataDir) {
           return;
         }
         send(response, route.success_status, {
-          items: store.items,
+          items: listItems(store.items, route, url, session.user),
           model: route.model,
           rules: route.rules,
         });
@@ -204,7 +234,7 @@ export function createApp(dataDir) {
       if (route.action === "remove") {
         if (recordId) {
           const index = store.items.findIndex((item) => item.id === recordId);
-          if (index < 0) {
+          if (index < 0 || !visible(store.items[index], session.user)) {
             send(response, 404, { error: "not-found" });
             return;
           }
@@ -212,15 +242,25 @@ export function createApp(dataDir) {
           commit(response, route.success_status, { deleted: true });
           return;
         }
-        store.items.length = 0;
+        if (capabilities.auth) {
+          for (let index = store.items.length - 1; index >= 0; index -= 1) {
+            if (visible(store.items[index], session.user))
+              store.items.splice(index, 1);
+          }
+        } else store.items.length = 0;
         commit(response, route.success_status, { deleted: true });
         return;
       }
       const fields = fieldsFrom(route, url, bodyParams, jsonFields);
+      const relation = relationProblem(stores, route, fields);
+      if (relation) {
+        send(response, 400, relation);
+        return;
+      }
       const id = recordId;
       if ((route.action === "replace" || route.action === "merge") && id) {
         const found = store.items.find((item) => item.id === id);
-        if (!found) {
+        if (!found || !visible(found, session.user)) {
           send(response, 404, { error: "not-found" });
           return;
         }
@@ -240,6 +280,7 @@ export function createApp(dataDir) {
       }
       const record = { id: String(store.next) };
       store.next += 1;
+      if (capabilities.auth) record.owner = session.user.id;
       for (const name of route.parameters) record[name] = fields[name];
       store.items.push(record);
       commit(response, route.success_status, record);
@@ -247,6 +288,328 @@ export function createApp(dataDir) {
       if (!response.headersSent) send(response, 500, { error: "failed" });
     });
   });
+}
+
+function handleExtra(request, response, url, bodyParams, jsonFields, commit, stores) {
+  if (capabilities.pricing && request.method === "GET" && url.pathname === "/pricing") {
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end(pricingPage());
+    return true;
+  }
+  if (capabilities.pricing && request.method === "POST" && url.pathname === "/checkout") {
+    checkout(response, jsonFields, bodyParams);
+    return true;
+  }
+  if (capabilities.auth && url.pathname === "/auth/register" && request.method === "POST") {
+    registerAccount(response, url, bodyParams, jsonFields, commit, stores);
+    return true;
+  }
+  if (capabilities.auth && url.pathname === "/auth/login" && request.method === "POST") {
+    loginAccount(response, url, bodyParams, jsonFields, commit, stores);
+    return true;
+  }
+  if (
+    capabilities.auth &&
+    capabilities.auth.mode === "magic" &&
+    url.pathname === "/auth/magic" &&
+    request.method === "POST"
+  ) {
+    magicAccount(response, url, bodyParams, jsonFields, commit, stores);
+    return true;
+  }
+  if (capabilities.webhooks && url.pathname === "/webhooks") {
+    if (capabilities.auth) {
+      const session = currentUser(request, stores);
+      if (!session.ok) {
+        send(response, 401, { error: "auth" });
+        return true;
+      }
+    }
+    if (request.method === "GET") {
+      const store = bucket(stores, "webhooks");
+      send(response, 200, { items: store.items, delivered: false });
+      return true;
+    }
+    if (request.method === "POST") {
+      const store = bucket(stores, "webhooks");
+      const record = {
+        id: String(store.next),
+        name: textValue("name", url, bodyParams, jsonFields) || "event",
+        delivered: false,
+      };
+      store.next += 1;
+      store.items.push(record);
+      commit(response, 201, {
+        ...record,
+        note: "The event was stored locally. It was not sent.",
+      });
+      return true;
+    }
+  }
+  return false;
+}
+
+function currentUser(request, stores) {
+  if (!capabilities.auth) return { ok: true, user: null };
+  const header = String(request.headers.authorization ?? "");
+  const match = /^Bearer\\s+(\\S+)$/iu.exec(header);
+  if (!match) return { ok: false };
+  const sessions = bucket(stores, "auth:sessions");
+  const session = sessions.items.find((item) => item.token === match[1]);
+  if (!session) return { ok: false };
+  const user = bucket(stores, "auth:users").items.find(
+    (item) => item.id === session.user,
+  );
+  if (!user) return { ok: false };
+  return { ok: true, user };
+}
+
+function visible(item, user) {
+  if (!capabilities.auth) return true;
+  if (!item?.owner || !user) return !capabilities.auth;
+  if (item.owner === user.id) return true;
+  return capabilities.roles === true && user.role === "admin";
+}
+
+function listItems(items, route, url, user) {
+  let chosen = items.filter((item) => visible(item, user));
+  if (!capabilities.search) return chosen;
+  const q = url.searchParams.get("q");
+  if (q) {
+    const needle = q.toLowerCase();
+    chosen = chosen.filter((item) =>
+      (route.model ?? []).some((name) =>
+        String(item[name] ?? "").toLowerCase().includes(needle),
+      ),
+    );
+  }
+  for (const name of route.model ?? []) {
+    if (name === "id" || name === "owner") continue;
+    if (name === "q" || name === "query" || name === "search") continue;
+    if (name === "limit" || name === "offset" || name === "page") continue;
+    if (!url.searchParams.has(name)) continue;
+    const expected = url.searchParams.get(name);
+    chosen = chosen.filter((item) => item[name] === expected);
+  }
+  const offset = countParam(url.searchParams.get("offset"));
+  const limit = countParam(url.searchParams.get("limit"));
+  if (offset === false || limit === false) return chosen;
+  const start = offset ?? 0;
+  if (limit === null) return start ? chosen.slice(start) : chosen;
+  return chosen.slice(start, start + limit);
+}
+
+function countParam(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (!/^\\d+$/u.test(value)) return false;
+  return Number(value);
+}
+
+function relationProblem(stores, route, fields) {
+  for (const relation of capabilities.relations ?? []) {
+    if (!route.parameters.includes(relation.field)) continue;
+    const value = fields[relation.field];
+    if (value === null || String(value).trim() === "") continue;
+    const other = bucket(stores, relation.bucket);
+    if (!other.items.some((item) => item.id === String(value)))
+      return { error: "relation", field: relation.field };
+  }
+  return null;
+}
+
+function registerAccount(response, url, bodyParams, jsonFields, commit, stores) {
+  const email = normalizeEmail(textValue("email", url, bodyParams, jsonFields));
+  const password = textValue("password", url, bodyParams, jsonFields);
+  if (!email.includes("@") || password.length < 8) {
+    send(response, 400, { error: "account" });
+    return;
+  }
+  const users = bucket(stores, "auth:users");
+  if (users.items.some((item) => item.email === email)) {
+    send(response, 400, { error: "account" });
+    return;
+  }
+  const record = {
+    id: String(users.next),
+    email,
+    password_hash: hashPassword(password),
+    role: capabilities.roles && users.items.length === 0 ? "admin" : "member",
+  };
+  users.next += 1;
+  users.items.push(record);
+  commit(response, 201, publicUser(record));
+}
+
+function loginAccount(response, url, bodyParams, jsonFields, commit, stores) {
+  const email = normalizeEmail(textValue("email", url, bodyParams, jsonFields));
+  const password = textValue("password", url, bodyParams, jsonFields);
+  const user = bucket(stores, "auth:users").items.find((item) => item.email === email);
+  if (!user || !checkPassword(password, user.password_hash)) {
+    send(response, 401, { error: "auth" });
+    return;
+  }
+  const token = issueSession(stores, user.id);
+  commit(response, 200, { token, user: publicUser(user) });
+}
+
+function magicAccount(response, url, bodyParams, jsonFields, commit, stores) {
+  const email = normalizeEmail(textValue("email", url, bodyParams, jsonFields));
+  if (!email.includes("@")) {
+    send(response, 400, { error: "account" });
+    return;
+  }
+  const users = bucket(stores, "auth:users");
+  let user = users.items.find((item) => item.email === email);
+  if (!user) {
+    user = {
+      id: String(users.next),
+      email,
+      password_hash: null,
+      role: capabilities.roles && users.items.length === 0 ? "admin" : "member",
+    };
+    users.next += 1;
+    users.items.push(user);
+  }
+  const token = issueSession(stores, user.id);
+  commit(response, 200, {
+    token,
+    user: publicUser(user),
+    note: "No mailer is configured. The token is local.",
+  });
+}
+
+function issueSession(stores, userId) {
+  const sessions = bucket(stores, "auth:sessions");
+  const token = randomBytes(24).toString("hex");
+  sessions.items.push({ id: String(sessions.next), token, user: userId });
+  sessions.next += 1;
+  return token;
+}
+
+function publicUser(user) {
+  const copy = { id: user.id, email: user.email };
+  if (capabilities.roles) copy.role = user.role;
+  return copy;
+}
+
+function hashPassword(password, salt = randomBytes(16).toString("hex")) {
+  const hash = scryptSync(String(password), salt, 32).toString("hex");
+  return salt + ":" + hash;
+}
+
+function checkPassword(password, stored) {
+  const parts = String(stored ?? "").split(":");
+  if (parts.length !== 2) return false;
+  const next = scryptSync(String(password), parts[0], 32);
+  const have = Buffer.from(parts[1], "hex");
+  if (have.length !== next.length) return false;
+  return timingSafeEqual(have, next);
+}
+
+function normalizeEmail(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function textValue(name, url, bodyParams, jsonFields) {
+  if (jsonFields && Object.prototype.hasOwnProperty.call(jsonFields, name)) {
+    const value = jsonFields[name];
+    return value === null || value === undefined ? "" : String(value);
+  }
+  if (url.searchParams.has(name)) return url.searchParams.get(name) ?? "";
+  if (bodyParams.has(name)) return bodyParams.get(name) ?? "";
+  return "";
+}
+
+function checkout(response, jsonFields, bodyParams) {
+  const key = process.env.STRIPE_SECRET_KEY ?? "";
+  if (key.startsWith("sk_live_")) {
+    send(response, 400, {
+      error: "live-key",
+      note: "Live Stripe keys are refused.",
+    });
+    return;
+  }
+  const plans = capabilities.pricing?.plans ?? [];
+  if (!key.startsWith("sk_test_")) {
+    send(response, 200, {
+      configured: false,
+      plans,
+      note: "Checkout is not configured. Set STRIPE_SECRET_KEY to a test key.",
+    });
+    return;
+  }
+  const requested = jsonFields?.plan ?? bodyParams.get("plan");
+  const plan =
+    plans.find((item) => item.name === requested) ?? plans[0] ?? null;
+  const amount = stripeCents(plan?.amount);
+  if (!plan || amount === null) {
+    send(response, 400, { error: "price" });
+    return;
+  }
+  const body = new URLSearchParams({
+    mode: "payment",
+    "line_items[0][quantity]": "1",
+    "line_items[0][price_data][currency]": String(plan.currency || "usd").toLowerCase(),
+    "line_items[0][price_data][unit_amount]": String(amount),
+    "line_items[0][price_data][product_data][name]": plan.name,
+    success_url: "https://example.com/pricing?status=success",
+    cancel_url: "https://example.com/pricing?status=cancel",
+  });
+  fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer " + key,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body,
+  })
+    .then(async (stripe) => {
+      const payload = await stripe.json().catch(() => null);
+      if (!stripe.ok) {
+        send(response, 502, { error: "stripe", configured: true, mode: "test" });
+        return;
+      }
+      send(response, 200, {
+        configured: true,
+        mode: "test",
+        url: payload?.url ?? null,
+      });
+    })
+    .catch(() => {
+      if (!response.headersSent)
+        send(response, 502, { error: "stripe", configured: true, mode: "test" });
+    });
+}
+
+function stripeCents(amount) {
+  if (typeof amount !== "string" || !/^\\d+(\\.\\d{1,2})?$/u.test(amount))
+    return null;
+  const parts = amount.split(".");
+  const frac = (parts[1] ?? "").padEnd(2, "0");
+  return Number(parts[0]) * 100 + Number(frac || 0);
+}
+
+function pricingPage() {
+  const plans = capabilities.pricing?.plans ?? [];
+  const cards = plans
+    .map(
+      (plan) =>
+        "<article><h2>" +
+        escapeHtml(plan.name) +
+        "</h2><p>" +
+        escapeHtml(plan.display || plan.amount || "Price recorded without a display amount.") +
+        "</p></article>",
+    )
+    .join("");
+  return (
+    "<!doctype html><html lang=\\"en\\"><head><meta charset=\\"utf-8\\"><title>" +
+    escapeHtml(PRODUCT_NAME) +
+    " pricing</title><style>" +
+    PAGE_STYLE +
+    "</style></head><body><main><h1 data-pricing=\\"1\\">Pricing</h1><p class=\\"quiet\\">Test mode only. A live Stripe key is refused.</p>" +
+    cards +
+    "<form method=\\"post\\" action=\\"/checkout\\"><button type=\\"submit\\">Checkout</button></form></main></body></html>"
+  );
 }
 
 function jsonObject(request, body) {
@@ -303,33 +666,75 @@ function matchTemplate(route, pathname) {
   }
 }
 
-function readStore(dataFile) {
-  if (!existsSync(dataFile)) return { ok: true, stores: new Map() };
-  let parsed;
+function openStore(dataFile) {
   try {
-    parsed = JSON.parse(readFileSync(dataFile, "utf8"));
+    mkdirSync(dirname(dataFile), { recursive: true });
+    const db = new DatabaseSync(dataFile);
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS records (bucket TEXT NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY (bucket, id))",
+    );
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS sequences (bucket TEXT PRIMARY KEY, next INTEGER NOT NULL)",
+    );
+    return { ok: true, db };
   } catch {
     return { ok: false };
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+}
+
+function readStore(db) {
+  let rows;
+  let sequences;
+  try {
+    rows = db.prepare("SELECT bucket, id, body FROM records").all();
+    sequences = db.prepare("SELECT bucket, next FROM sequences").all();
+  } catch {
     return { ok: false };
+  }
   const stores = new Map();
-  for (const [key, value] of Object.entries(parsed)) {
-    if (!value || typeof value !== "object" || Array.isArray(value))
+  for (const row of rows) {
+    let body;
+    try {
+      body = JSON.parse(row.body);
+    } catch {
       return { ok: false };
-    if (!Array.isArray(value.items) || !Number.isInteger(value.next))
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body))
       return { ok: false };
-    stores.set(key, { items: value.items, next: value.next });
+    bucket(stores, row.bucket).items.push(body);
+  }
+  for (const row of sequences) {
+    if (!Number.isInteger(row.next)) return { ok: false };
+    bucket(stores, row.bucket).next = row.next;
   }
   return { ok: true, stores };
 }
 
-function writeStore(dataFile, stores) {
-  const plain = {};
-  for (const [key, value] of stores)
-    plain[key] = { items: value.items, next: value.next };
-  mkdirSync(dirname(dataFile), { recursive: true });
-  writeFileSync(dataFile, JSON.stringify(plain) + "\\n");
+function writeStore(db, stores) {
+  db.exec("BEGIN");
+  try {
+    db.exec("DELETE FROM records");
+    db.exec("DELETE FROM sequences");
+    const insert = db.prepare(
+      "INSERT INTO records (bucket, id, body) VALUES (?, ?, ?)",
+    );
+    const sequence = db.prepare(
+      "INSERT INTO sequences (bucket, next) VALUES (?, ?)",
+    );
+    for (const [key, value] of stores) {
+      for (const item of value.items)
+        insert.run(key, String(item.id), JSON.stringify(item));
+      sequence.run(key, value.next);
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      /* The failed transaction is already closed. */
+    }
+    throw error;
+  }
 }
 
 function bucket(stores, path) {
@@ -478,6 +883,9 @@ function page() {
     if (!collection) collection = item ? item.collection : sample.path;
     const fields = (sample.model ?? []).filter((name) => name !== "id");
     const rules = ruleText(sample.rules);
+    const search = capabilities.search
+      ? '<label>Search <input name="q" autocomplete="off"></label>'
+      : "";
     const inputs = fields
       .map(
         (name) =>
@@ -528,6 +936,7 @@ function page() {
       "</code></p></div>" +
       itemLine +
       '</div><div class="fields">' +
+      search +
       inputs +
       '<label>id <input name="id" autocomplete="off"></label></div><p class="quiet">Rules: ' +
       escapeHtml(rules) +
@@ -550,7 +959,12 @@ function page() {
     escapeHtml(PRODUCT_NAME) +
     '">' +
     escapeHtml(PRODUCT_NAME) +
-    '</h1><p class="quiet">A local record book.</p></div></div><p class="quiet">Saved on this machine.</p></header><main>' +
+    '</h1><p class="quiet">A local record book.</p></div></div><p class="quiet">' +
+    (capabilities.storage === "sqlite"
+      ? "Saved in SQLite on this machine."
+      : "Nothing is stored.") +
+    (capabilities.pricing ? ' <a href="/pricing">Pricing</a>' : "") +
+    "</p></header><main>" +
     sections.join("") +
     "</main><script>" +
     PAGE_SCRIPT +
@@ -584,8 +998,13 @@ if (entry && import.meta.url === pathToFileURL(resolve(entry)).href) {
     process.exit(2);
   }
   const server = createApp();
-  server.listen(port, "127.0.0.1", () => {
-    console.log("listening http://127.0.0.1:" + server.address().port);
+  const hostname = process.env.HOST || "127.0.0.1";
+  if (hostname !== "127.0.0.1" && hostname !== "0.0.0.0") {
+    console.error("HOST must be 127.0.0.1 or 0.0.0.0.");
+    process.exit(2);
+  }
+  server.listen(port, hostname, () => {
+    console.log("listening http://" + hostname + ":" + server.address().port);
   });
 }
 `;
@@ -598,11 +1017,13 @@ export function serverSource(productName) {
 }
 
 export const TEST_SOURCE = `import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { behaviors } from "../src/behaviors.mjs";
+import { capabilities } from "../src/capabilities.mjs";
 import { routes } from "../src/routes.mjs";
 import { listen } from "../src/server.mjs";
 
@@ -610,7 +1031,7 @@ const spec = JSON.parse(
   readFileSync(new URL("../behavior-spec.json", import.meta.url), "utf8"),
 );
 
-async function call(base, route, value, id) {
+async function call(base, route, value, id, headers = {}, overrides = {}) {
   let path = route.path;
   if (route.path_param && id)
     path = path.replace(
@@ -619,20 +1040,87 @@ async function call(base, route, value, id) {
     );
   const url = new URL(base + path);
   if (id && !route.path_param) url.searchParams.set("id", id);
-  const headers = {};
+  const extra = { ...headers };
   let payload;
   if (value !== null && route.body === "json") {
     payload = {};
-    for (const name of route.parameters) payload[name] = value;
-    headers["content-type"] = "application/json";
+    for (const name of route.parameters)
+      payload[name] = Object.prototype.hasOwnProperty.call(overrides, name)
+        ? overrides[name]
+        : value;
+    extra["content-type"] = "application/json";
   } else if (value !== null) {
-    for (const name of route.parameters) url.searchParams.set(name, value);
+    for (const name of route.parameters) {
+      const chosen = Object.prototype.hasOwnProperty.call(overrides, name)
+        ? overrides[name]
+        : value;
+      url.searchParams.set(name, chosen);
+    }
   }
   return fetch(url, {
     method: route.method,
-    headers,
+    headers: extra,
     body: payload ? JSON.stringify(payload) : undefined,
   });
+}
+
+async function authHeaders(base) {
+  if (!capabilities.auth) return {};
+  const email = "owner@example.com";
+  if (capabilities.auth.mode === "magic") {
+    const response = await fetch(base + "/auth/magic", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.match(body.note, /No mailer is configured/);
+    return { authorization: "Bearer " + body.token };
+  }
+  const registered = await fetch(base + "/auth/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password: "long-secret" }),
+  });
+  assert.ok(registered.status === 201 || registered.status === 400);
+  const logged = await fetch(base + "/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password: "long-secret" }),
+  });
+  const body = await logged.json();
+  assert.equal(logged.status, 200, JSON.stringify(body));
+  return { authorization: "Bearer " + body.token };
+}
+
+async function parentOverrides(base, route, headers) {
+  const overrides = {};
+  for (const relation of capabilities.relations ?? []) {
+    if (!route.parameters.includes(relation.field)) continue;
+    const parent = routes.find(
+      (item) =>
+        item.action === "create" &&
+        (item.resource === relation.bucket || item.path === relation.bucket),
+    );
+    assert.ok(parent, relation.field);
+    const made = await call(base, parent, "sample", null, headers, {});
+    assert.equal(made.status, parent.success_status, relation.field);
+    overrides[relation.field] = (await made.json()).id;
+  }
+  return overrides;
+}
+
+function savedIds(dataDir) {
+  const db = new DatabaseSync(join(dataDir, "data", "store.sqlite"));
+  try {
+    return db
+      .prepare("SELECT body FROM records")
+      .all()
+      .map((row) => JSON.parse(row.body).id);
+  } finally {
+    db.close();
+  }
 }
 
 for (const behavior of behaviors) {
@@ -653,6 +1141,8 @@ for (const behavior of behaviors) {
       const server = await listen(0, "127.0.0.1", dataDir);
       try {
         const base = "http://127.0.0.1:" + server.address().port;
+        const headers = await authHeaders(base);
+        const overrides = await parentOverrides(base, create, headers);
         const page = await fetch(base + "/");
         assert.equal(
           page.headers.get("content-type"),
@@ -665,30 +1155,22 @@ for (const behavior of behaviors) {
         assert.equal(html.includes(marker), true, primary.path);
         assert.equal(html.includes("application/json"), true);
         assert.match(html, /data-product="/);
-        const created = await call(base, create, "sample");
+        const created = await call(base, create, "sample", null, headers, overrides);
         assert.equal(created.status, create.success_status);
         const body = await created.json();
         assert.equal(typeof body.id, "string");
         for (const name of create.parameters)
-          assert.equal(body[name], "sample");
+          assert.equal(body[name], overrides[name] ?? "sample");
         if (list) {
-          const listed = await call(base, list, null);
+          const listed = await call(base, list, null, null, headers);
           assert.equal(listed.status, list.success_status);
           const payload = await listed.json();
           assert.ok(Array.isArray(payload.items));
           assert.ok(Array.isArray(payload.model));
           assert.ok(payload.items.some((item) => item.id === body.id));
         }
-        const saved = JSON.parse(
-          readFileSync(join(dataDir, "data", "store.json"), "utf8"),
-        );
-        assert.ok(
-          Object.values(saved).some(
-            (bucket) =>
-              Array.isArray(bucket.items) &&
-              bucket.items.some((item) => item.id === body.id),
-          ),
-        );
+        if (capabilities.storage === "sqlite")
+          assert.ok(savedIds(dataDir).includes(body.id));
         const revived = await listen(0, "127.0.0.1", dataDir);
         try {
           if (list) {
@@ -697,6 +1179,8 @@ for (const behavior of behaviors) {
                 "http://127.0.0.1:" + revived.address().port,
                 list,
                 null,
+                null,
+                headers,
               )
             ).json();
             assert.ok(kept.items.some((item) => item.id === body.id));
@@ -706,47 +1190,54 @@ for (const behavior of behaviors) {
         }
         const read = owned.find((item) => item.action === "read");
         if (read) {
-          const opened = await call(base, read, null, body.id);
+          const opened = await call(base, read, null, body.id, headers);
           assert.equal(opened.status, read.success_status);
           assert.equal((await opened.json()).id, body.id);
-          const missing = await call(base, read, null, "missing-id");
+          const missing = await call(base, read, null, "missing-id", headers);
           assert.equal(missing.status, 404);
         }
         if (create.rules.includes("unique")) {
-          const again = await call(base, create, "sample");
+          const again = await call(base, create, "sample", null, headers, overrides);
           assert.equal(again.status, 400);
           assert.equal((await again.json()).rule, "unique");
         }
         if (create.rules.includes("required") && create.parameters.length) {
-          const bare = await call(base, create, null);
+          const bare = await call(base, create, null, null, headers);
           assert.equal(bare.status, 400);
           assert.equal((await bare.json()).rule, "required");
         }
         if (create.rules.includes("max-length") && create.parameters.length) {
-          const tooLong = await call(base, create, "x".repeat(81));
+          const tooLong = await call(
+            base,
+            create,
+            "x".repeat(81),
+            null,
+            headers,
+            overrides,
+          );
           assert.equal(tooLong.status, 400);
           assert.equal((await tooLong.json()).rule, "max-length");
         }
         if (update) {
-          const next = await call(base, update, "edited", body.id);
+          const next = await call(base, update, "edited", body.id, headers, overrides);
           assert.equal(next.status, update.success_status);
           const updated = await next.json();
           assert.equal(updated.id, body.id);
           for (const name of update.parameters)
-            assert.equal(updated[name], "edited");
+            assert.equal(updated[name], overrides[name] ?? "edited");
         }
         if (merge) {
-          const next = await call(base, merge, "merged", body.id);
+          const next = await call(base, merge, "merged", body.id, headers, overrides);
           assert.equal(next.status, merge.success_status);
           const updated = await next.json();
           assert.equal(updated.id, body.id);
         }
         if (remove) {
-          const gone = await call(base, remove, null, body.id);
+          const gone = await call(base, remove, null, body.id, headers);
           assert.equal(gone.status, remove.success_status);
           assert.equal((await gone.json()).deleted, true);
           if (list) {
-            const after = await (await call(base, list, null)).json();
+            const after = await (await call(base, list, null, null, headers)).json();
             assert.equal(
               after.items.some((item) => item.id === body.id),
               false,
@@ -787,5 +1278,200 @@ test("source does not contain spec quotes", () => {
       quotes.push(limitation.statement.text);
   }
   for (const quote of quotes) assert.equal(source.includes(quote), false, quote);
+});
+
+test("capabilities behave only when the spec supports them", async () => {
+  const report = JSON.parse(
+    readFileSync(new URL("../capabilities.json", import.meta.url), "utf8"),
+  );
+  assert.match(report.note, /not a percentage/);
+  const byId = Object.fromEntries(
+    report.capabilities.map((item) => [item.id, item]),
+  );
+  assert.equal(
+    byId.storage.status,
+    capabilities.storage === "sqlite" ? "implemented" : "left-out",
+  );
+  assert.equal(byId.auth.status, capabilities.auth ? "implemented" : "left-out");
+  assert.equal(byId.roles.status, capabilities.roles ? "implemented" : "left-out");
+  assert.equal(
+    byId.relations.status,
+    (capabilities.relations ?? []).length ? "implemented" : "left-out",
+  );
+  assert.equal(byId.search.status, capabilities.search ? "implemented" : "left-out");
+  assert.equal(
+    byId.webhooks.status,
+    capabilities.webhooks ? "implemented" : "left-out",
+  );
+  assert.equal(
+    byId.pricing.status,
+    capabilities.pricing ? "implemented" : "left-out",
+  );
+  assert.equal(byId.openapi.status, capabilities.openapi ? "implemented" : "left-out");
+  assert.equal(byId.deploy.status, capabilities.deploy ? "implemented" : "left-out");
+  if (capabilities.openapi)
+    assert.equal(existsSync(new URL("../openapi.json", import.meta.url)), true);
+  if (capabilities.deploy) {
+    const docker = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
+    const render = readFileSync(new URL("../render.yaml", import.meta.url), "utf8");
+    assert.match(docker, /0\\.0\\.0\\.0/);
+    assert.equal(docker.includes("sk_live_"), false);
+    assert.equal(render.includes("sk_live_"), false);
+    assert.equal(render.includes("sk_test_"), false);
+  }
+  const dataDir = mkdtempSync(join(tmpdir(), "ree-cap-"));
+  const server = await listen(0, "127.0.0.1", dataDir);
+  try {
+    const base = "http://127.0.0.1:" + server.address().port;
+    const pricing = await fetch(base + "/pricing");
+    assert.equal(pricing.status, capabilities.pricing ? 200 : 404);
+    if (capabilities.pricing) {
+      assert.match(await pricing.text(), /data-pricing="1"/);
+      const plain = await fetch(base + "/checkout", { method: "POST" });
+      const open = await plain.json();
+      assert.equal(open.configured, false);
+      assert.match(open.note, /test key/);
+      const previous = process.env.STRIPE_SECRET_KEY;
+      process.env.STRIPE_SECRET_KEY = "sk_live_refused";
+      try {
+        const live = await fetch(base + "/checkout", { method: "POST" });
+        const liveBody = await live.json();
+        assert.equal(live.status, 400);
+        assert.equal(liveBody.error, "live-key");
+        assert.equal(JSON.stringify(liveBody).includes("sk_live_refused"), false);
+      } finally {
+        if (previous === undefined) delete process.env.STRIPE_SECRET_KEY;
+        else process.env.STRIPE_SECRET_KEY = previous;
+      }
+    }
+    const hook = await fetch(base + "/webhooks", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(capabilities.auth ? await authHeaders(base) : {}) },
+      body: JSON.stringify({ name: "ping" }),
+    });
+    if (!capabilities.webhooks) assert.equal(hook.status, 404);
+    else {
+      assert.equal(hook.status, 201);
+      const stored = await hook.json();
+      assert.equal(stored.delivered, false);
+      assert.match(stored.note, /not sent/);
+    }
+    if (capabilities.auth && capabilities.auth.mode === "password") {
+      const headers = await authHeaders(base);
+      const other = await fetch(base + "/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: "other@example.com",
+          password: "long-secret",
+        }),
+      });
+      assert.equal(other.status, 201);
+      const otherBody = await other.json();
+      assert.equal(otherBody.password_hash, undefined);
+      if (capabilities.roles) assert.equal(otherBody.role, "member");
+      const otherLogin = await fetch(base + "/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: "other@example.com",
+          password: "long-secret",
+        }),
+      });
+      const otherToken = (await otherLogin.json()).token;
+      const create = routes.find((item) => item.action === "create");
+      if (create) {
+        const overrides = await parentOverrides(base, create, headers);
+        const made = await call(base, create, "owned", null, headers, overrides);
+        assert.equal(made.status, create.success_status);
+        const owned = await made.json();
+        const id = owned.id;
+        assert.equal(typeof owned.owner, "string");
+        assert.equal(owned.password_hash, undefined);
+        const hidden = await call(
+          base,
+          routes.find((item) => item.action === "read" && item.resource === create.resource) ??
+            create,
+          null,
+          id,
+          { authorization: "Bearer " + otherToken },
+        );
+        if (capabilities.roles) assert.equal(hidden.status, 404);
+      }
+    }
+    if (capabilities.relations.length) {
+      const headers = await authHeaders(base);
+      const child = routes.find(
+        (item) =>
+          item.action === "create" &&
+          item.parameters.includes(capabilities.relations[0].field),
+      );
+      if (child) {
+        const missing = await call(base, child, "missing", null, headers, {
+          [capabilities.relations[0].field]: "missing-id",
+        });
+        assert.equal(missing.status, 400);
+        assert.equal((await missing.json()).error, "relation");
+      }
+    }
+    if (capabilities.search) {
+      const headers = await authHeaders(base);
+      const create = routes.find(
+        (item) => item.action === "create" && item.parameters.length > 0,
+      );
+      const list = create
+        ? routes.find(
+            (item) => item.action === "list" && item.resource === create.resource,
+          )
+        : null;
+      if (create && list) {
+        const overrides = await parentOverrides(base, create, headers);
+        await call(base, create, "alpha", null, headers, overrides);
+        await call(base, create, "beta", null, headers, overrides);
+        const all = await call(base, list, null, null, headers);
+        assert.ok((await all.json()).items.length >= 2);
+        const filtered = await fetch(
+          base + list.path + "?q=alpha",
+          { headers },
+        );
+        const found = await filtered.json();
+        assert.ok(found.items.some((item) => Object.values(item).includes("alpha")));
+        assert.equal(
+          found.items.some((item) => Object.values(item).includes("beta")),
+          false,
+        );
+        const field = create.parameters.find(
+          (name) =>
+            !(capabilities.relations ?? []).some(
+              (relation) => relation.field === name,
+            ),
+        );
+        if (field) {
+          const byField = await fetch(
+            base + list.path + "?" + encodeURIComponent(field) + "=alpha",
+            { headers },
+          );
+          const fieldBody = await byField.json();
+          assert.ok(fieldBody.items.some((item) => item[field] === "alpha"));
+          assert.equal(
+            fieldBody.items.some((item) => item[field] === "beta"),
+            false,
+          );
+        }
+        const paged = await fetch(base + list.path + "?limit=1&offset=0", {
+          headers,
+        });
+        assert.equal((await paged.json()).items.length, 1);
+      }
+    }
+  } finally {
+    await new Promise((resolveClose) => server.close(resolveClose));
+  }
+  if (capabilities.storage === "sqlite") {
+    const broken = mkdtempSync(join(tmpdir(), "ree-broken-"));
+    mkdirSync(join(broken, "data"), { recursive: true });
+    writeFileSync(join(broken, "data", "store.sqlite"), "not a database");
+    await assert.rejects(async () => listen(0, "127.0.0.1", broken));
+  }
 });
 `;
