@@ -50,7 +50,7 @@ export function collectGaps({ projectDir, readReport = null, forbidden = [] }) {
     );
   } else {
     for (const item of capabilities.capabilities ?? []) {
-      if (item?.status === "left-out")
+      if (item?.status === "left-out" || item?.status === "needs-setup")
         add("build", `${item.id}: ${item.reason ?? "Left out."}`);
     }
   }

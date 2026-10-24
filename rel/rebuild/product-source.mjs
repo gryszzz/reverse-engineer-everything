@@ -105,7 +105,7 @@ function escapeText(value) {
 }
 `;
 
-export const SERVER_SOURCE = `import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+export const SERVER_SOURCE = `import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -168,6 +168,7 @@ export function createApp(dataDir) {
           jsonFields,
           commit,
           stores,
+          body,
         )
       )
         return;
@@ -194,9 +195,31 @@ export function createApp(dataDir) {
         return;
       }
       const route = located.route;
+      if (route.action === "login") {
+        loginWithRoute(response, route, url, bodyParams, jsonFields, commit, stores);
+        return;
+      }
       const session = currentUser(request, stores);
-      if (!session.ok) {
+      const accountOpen =
+        capabilities.auth &&
+        capabilities.auth.account_path &&
+        route.action === "create" &&
+        route.path === capabilities.auth.account_path;
+      if (!session.ok && !accountOpen) {
         send(response, 401, { error: "auth" });
+        return;
+      }
+      if (route.action === "logout") {
+        revokeSession(request, stores);
+        commit(response, route.success_status, { revoked: true });
+        return;
+      }
+      if (route.action === "filter") {
+        send(response, route.success_status, filterItems(stores, route, url, session.user));
+        return;
+      }
+      if (route.action === "inventory") {
+        send(response, route.success_status, inventoryCounts(stores, route, session.user));
         return;
       }
       const store = bucket(stores, route.resource || route.path);
@@ -282,6 +305,7 @@ export function createApp(dataDir) {
           if (Object.prototype.hasOwnProperty.call(fields, name))
             found[name] = fields[name];
         }
+        rememberPassword(found, jsonFields);
         commit(response, route.success_status, found);
         return;
       }
@@ -299,12 +323,14 @@ export function createApp(dataDir) {
         key = String(fields.id);
       const record = { id: key };
       store.next += 1;
-      if (capabilities.auth) record.owner = session.user.id;
+      if (capabilities.auth && session.user) record.owner = session.user.id;
       for (const name of writeNames(route)) {
         if (name === "id") continue;
         if (Object.prototype.hasOwnProperty.call(fields, name))
           record[name] = fields[name];
       }
+      rememberPassword(record, jsonFields);
+      if (accountOpen && !record.owner) record.owner = record.id;
       store.items.push(record);
       commit(response, route.success_status, record);
     }).catch(() => {
@@ -313,7 +339,15 @@ export function createApp(dataDir) {
   });
 }
 
-function handleExtra(request, response, url, bodyParams, jsonFields, commit, stores) {
+function handleExtra(request, response, url, bodyParams, jsonFields, commit, stores, raw) {
+  if (capabilities.pricing && request.method === "GET" && url.pathname === "/billing") {
+    send(response, 200, billingStatus());
+    return true;
+  }
+  if (capabilities.pricing && request.method === "POST" && url.pathname === "/billing/webhook") {
+    stripeWebhook(response, raw, request, stores);
+    return true;
+  }
   if (capabilities.pricing && request.method === "GET" && url.pathname === "/pricing") {
     response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     response.end(pricingPage());
@@ -383,8 +417,15 @@ function currentUser(request, stores) {
   const user = bucket(stores, "auth:users").items.find(
     (item) => item.id === session.user,
   );
-  if (!user) return { ok: false };
-  return { ok: true, user };
+  if (user) return { ok: true, user };
+  const resource = capabilities.auth.account_resource;
+  if (resource) {
+    const record = bucket(stores, resource).items.find(
+      (item) => item.id === session.user,
+    );
+    if (record) return { ok: true, user: { id: record.id, role: "member" } };
+  }
+  return { ok: false };
 }
 
 function visible(item, user) {
@@ -552,29 +593,16 @@ function checkout(response, jsonFields, bodyParams) {
     });
     return;
   }
-  const plans = capabilities.pricing?.plans ?? [];
-  if (!key.startsWith("sk_test_")) {
-    send(response, 200, {
-      configured: false,
-      plans,
-      note: "Checkout is not configured. Set STRIPE_SECRET_KEY to a test key.",
-    });
+  const status = billingStatus();
+  if (!status.configured) {
+    send(response, 200, status);
     return;
   }
-  const requested = jsonFields?.plan ?? bodyParams.get("plan");
-  const plan =
-    plans.find((item) => item.name === requested) ?? plans[0] ?? null;
-  const amount = stripeCents(plan?.amount);
-  if (!plan || amount === null) {
-    send(response, 400, { error: "price" });
-    return;
-  }
+  const price = priceFor(jsonFields, bodyParams);
   const body = new URLSearchParams({
-    mode: "payment",
+    mode: price.mode,
     "line_items[0][quantity]": "1",
-    "line_items[0][price_data][currency]": String(plan.currency || "usd").toLowerCase(),
-    "line_items[0][price_data][unit_amount]": String(amount),
-    "line_items[0][price_data][product_data][name]": plan.name,
+    "line_items[0][price]": price.id,
     success_url: "https://example.com/pricing?status=success",
     cancel_url: "https://example.com/pricing?status=cancel",
   });
@@ -595,6 +623,8 @@ function checkout(response, jsonFields, bodyParams) {
       send(response, 200, {
         configured: true,
         mode: "test",
+        creates_products: false,
+        price: price.id,
         url: payload?.url ?? null,
       });
     })
@@ -604,23 +634,130 @@ function checkout(response, jsonFields, bodyParams) {
     });
 }
 
-function stripeCents(amount) {
-  if (typeof amount !== "string" || !/^\\d+(\\.\\d{1,2})?$/u.test(amount))
-    return null;
-  const parts = amount.split(".");
-  const frac = (parts[1] ?? "").padEnd(2, "0");
-  return Number(parts[0]) * 100 + Number(frac || 0);
+function billingStatus() {
+  const key = process.env.STRIPE_SECRET_KEY ?? "";
+  const needs = [];
+  if (!key.startsWith("sk_test_")) needs.push("STRIPE_SECRET_KEY");
+  if (!process.env.STRIPE_WEBHOOK_SECRET) needs.push("STRIPE_WEBHOOK_SECRET");
+  const price = priceFor(null, new URLSearchParams());
+  if (!price.id) needs.push("STRIPE_PRICE_ID");
+  const plans = capabilities.pricing?.plans ?? [];
+  return {
+    configured: needs.length === 0,
+    mode: "test",
+    creates_products: false,
+    needs,
+    plans,
+    placeholder: capabilities.pricing?.placeholder === true,
+    note: needs.length
+      ? "Checkout stays off until an existing Stripe test key, webhook secret, and price id are set. No account or product is created."
+      : "Checkout uses an existing Stripe price. No account or product is created.",
+  };
+}
+
+function priceFor(jsonFields, bodyParams) {
+  const requested = String(jsonFields?.plan ?? bodyParams?.get("plan") ?? "");
+  const plans = capabilities.pricing?.plans ?? [];
+  const plan = plans.find((item) => item.name === requested) ?? null;
+  const mapped = priceMap();
+  const id =
+    (requested && mapped[requested]) ||
+    (plan && mapped[plan.name]) ||
+    (String(process.env.STRIPE_PRICE_ID ?? "").startsWith("price_")
+      ? process.env.STRIPE_PRICE_ID
+      : "") ||
+    Object.values(mapped)[0] ||
+    "";
+  const mode = plan?.interval ? "subscription" : "payment";
+  return { id: id.startsWith("price_") ? id : "", mode };
+}
+
+function priceMap() {
+  const map = {};
+  for (const part of String(process.env.STRIPE_PRICE_IDS ?? "").split(",")) {
+    const eq = part.indexOf("=");
+    if (eq < 1) continue;
+    const name = part.slice(0, eq).trim();
+    const id = part.slice(eq + 1).trim();
+    if (name && id.startsWith("price_")) map[name] = id;
+  }
+  return map;
+}
+
+function stripeWebhook(response, raw, request, stores) {
+  const secret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+  if (!secret) {
+    send(response, 200, {
+      configured: false,
+      accepted: false,
+      charged: false,
+      note: "Set STRIPE_WEBHOOK_SECRET. The event was not accepted.",
+    });
+    return;
+  }
+  if (!verifyStripeSignature(raw, request.headers["stripe-signature"], secret)) {
+    send(response, 400, { error: "signature", accepted: false, charged: false });
+    return;
+  }
+  let event = null;
+  try {
+    event = JSON.parse(raw);
+  } catch {
+    event = null;
+  }
+  const store = bucket(stores, "billing:events");
+  const record = {
+    id: String(store.next),
+    event_id: event && typeof event.id === "string" ? event.id : null,
+    type: event && typeof event.type === "string" ? event.type : null,
+    accepted: true,
+    charged: false,
+  };
+  store.next += 1;
+  store.items.push(record);
+  send(response, 200, {
+    configured: true,
+    accepted: true,
+    charged: false,
+    type: record.type,
+  });
+}
+
+function verifyStripeSignature(raw, header, secret) {
+  const items = String(header ?? "").split(",");
+  let timestamp = "";
+  const signatures = [];
+  for (const item of items) {
+    const eq = item.indexOf("=");
+    if (eq < 1) continue;
+    const key = item.slice(0, eq).trim();
+    const value = item.slice(eq + 1).trim();
+    if (key === "t") timestamp = value;
+    if (key === "v1") signatures.push(value);
+  }
+  if (!timestamp || signatures.length === 0) return false;
+  const age = Math.abs(Date.now() / 1000 - Number(timestamp));
+  if (!Number.isFinite(age) || age > 300) return false;
+  const expected = createHmac("sha256", secret)
+    .update(timestamp + "." + String(raw ?? ""))
+    .digest("hex");
+  const left = Buffer.from(expected);
+  return signatures.some((sig) => {
+    const right = Buffer.from(sig);
+    return left.length === right.length && timingSafeEqual(left, right);
+  });
 }
 
 function pricingPage() {
   const plans = capabilities.pricing?.plans ?? [];
+  const placeholder = capabilities.pricing?.placeholder === true;
   const cards = plans
     .map(
       (plan) =>
         "<article><h2>" +
         escapeHtml(plan.name) +
         "</h2><p>" +
-        escapeHtml(plan.display || plan.amount || "Price recorded without a display amount.") +
+        escapeHtml(plan.display || plan.amount || "No display amount was recorded.") +
         "</p></article>",
     )
     .join("");
@@ -629,7 +766,9 @@ function pricingPage() {
     escapeHtml(PRODUCT_NAME) +
     " pricing</title><style>" +
     PAGE_STYLE +
-    "</style></head><body><main><h1 data-pricing=\\"1\\">Pricing</h1><p class=\\"quiet\\">Test mode only. A live Stripe key is refused.</p>" +
+    "</style></head><body><main><h1 data-pricing=\\"1\\"" +
+    (placeholder ? " data-placeholder=\\"1\\"" : "") +
+    ">Pricing</h1><p class=\\"quiet\\">Test mode only. Checkout uses an existing Stripe price and stays off until that price id is set. A live Stripe key is refused.</p>" +
     cards +
     "<form method=\\"post\\" action=\\"/checkout\\"><button type=\\"submit\\">Checkout</button></form></main></body></html>"
   );
@@ -917,7 +1056,104 @@ function readBody(request) {
 
 function send(response, status, body) {
   response.writeHead(status, { "content-type": "application/json" });
-  response.end(JSON.stringify(body));
+  response.end(JSON.stringify(stripSecrets(body)));
+}
+
+function stripSecrets(body) {
+  if (!body || typeof body !== "object") return body;
+  if (Array.isArray(body)) return body.map((item) => stripSecrets(item));
+  const copy = { ...body };
+  delete copy.password;
+  delete copy.password_hash;
+  if (Array.isArray(copy.items))
+    copy.items = copy.items.map((item) => stripSecrets(item));
+  return copy;
+}
+
+function rememberPassword(record, jsonFields) {
+  const raw =
+    typeof record.password === "string"
+      ? record.password
+      : jsonFields && typeof jsonFields.password === "string"
+        ? jsonFields.password
+        : "";
+  delete record.password;
+  if (!raw) return;
+  record.password_hash = hashPassword(raw);
+}
+
+function loginWithRoute(response, route, url, bodyParams, jsonFields, commit, stores) {
+  const names = route.parameters.length ? route.parameters : ["username", "password"];
+  const secretName = names.find((name) => /password/iu.test(name)) || "password";
+  const idName = names.find((name) => name !== secretName) || "username";
+  const identity = textValue(idName, url, bodyParams, jsonFields);
+  const password = textValue(secretName, url, bodyParams, jsonFields);
+  if (!identity || !password) {
+    send(response, 400, { error: "account" });
+    return;
+  }
+  const user = bucket(stores, route.resource).items.find(
+    (item) => String(item[idName] ?? item.username ?? item.email ?? "") === identity,
+  );
+  if (!user || !checkPassword(password, user.password_hash)) {
+    send(response, 401, { error: "auth" });
+    return;
+  }
+  const token = issueSession(stores, user.id);
+  commit(response, route.success_status, { token, user: { id: user.id } });
+}
+
+function revokeSession(request, stores) {
+  const header = String(request.headers.authorization ?? "");
+  const match = /^Bearer\\s+(\\S+)$/iu.exec(header);
+  if (!match) return;
+  const sessions = bucket(stores, "auth:sessions");
+  const index = sessions.items.findIndex((item) => item.token === match[1]);
+  if (index >= 0) sessions.items.splice(index, 1);
+}
+
+function filterItems(stores, route, url, user) {
+  const field = route.filter_field;
+  const wanted = url.searchParams
+    .getAll(field)
+    .flatMap((value) => String(value).split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
+  let chosen = bucket(stores, route.resource).items.filter((item) =>
+    visible(item, user),
+  );
+  if (wanted.length)
+    chosen = chosen.filter((item) => matchesFilter(item[field], wanted));
+  return { items: chosen, model: route.model, rules: route.rules };
+}
+
+function matchesFilter(value, wanted) {
+  if (Array.isArray(value))
+    return value.some((entry) => wanted.some((item) => entryMatches(entry, item)));
+  return wanted.some((item) => entryMatches(value, item));
+}
+
+function entryMatches(entry, wanted) {
+  if (entry && typeof entry === "object")
+    return String(entry.name ?? entry.id ?? "") === wanted;
+  return String(entry) === wanted;
+}
+
+function inventoryCounts(stores, route, user) {
+  const items = bucket(stores, route.resource).items.filter((item) =>
+    visible(item, user),
+  );
+  const field = route.group_field || null;
+  const counts = {};
+  if (field) {
+    for (const item of items) {
+      const key = item[field];
+      if (key === undefined || key === null || key === "") continue;
+      const name = String(key);
+      counts[name] = (counts[name] || 0) + 1;
+    }
+  }
+  return { counts, total: items.length, field };
 }
 
 function markFrom(name) {
@@ -1153,6 +1389,15 @@ function sampleFor(field) {
   return "sample";
 }
 
+function assertStored(body, name, expected) {
+  if (name === "password") {
+    assert.equal(body.password, undefined);
+    assert.equal(body.password_hash, undefined);
+    return;
+  }
+  assert.deepEqual(body[name], expected);
+}
+
 function expectedValue(route, name, overrides, fallback) {
   if (Object.prototype.hasOwnProperty.call(overrides, name)) return overrides[name];
   const field = (route.fields || []).find((item) => item.name === name);
@@ -1284,9 +1529,14 @@ for (const behavior of behaviors) {
           "text/html; charset=utf-8",
         );
         const html = await page.text();
+        const shown =
+          primary.collection &&
+          ["login", "logout", "filter", "inventory"].includes(primary.action)
+            ? primary.collection
+            : primary.path;
         const marker = primary.path_param
           ? 'data-item="' + primary.path + '"'
-          : 'data-path="' + primary.path + '"';
+          : 'data-path="' + shown + '"';
         assert.equal(html.includes(marker), true, primary.path);
         assert.equal(html.includes("application/json"), true);
         assert.match(html, /data-product="/);
@@ -1296,8 +1546,9 @@ for (const behavior of behaviors) {
         assert.equal(typeof body.id, "string");
         for (const name of create.parameters) {
           if (name === "id") continue;
-          assert.deepEqual(
-            body[name],
+          assertStored(
+            body,
+            name,
             expectedValue(create, name, overrides, "sample"),
           );
         }
@@ -1365,8 +1616,9 @@ for (const behavior of behaviors) {
           assert.equal(updated.id, body.id);
           for (const name of update.parameters) {
             if (name === "id") continue;
-            assert.deepEqual(
-              updated[name],
+            assertStored(
+              updated,
+              name,
               expectedValue(update, name, overrides, "edited"),
             );
           }
@@ -1435,6 +1687,105 @@ for (const route of routes) {
         assert.equal(response.status, create.success_status, route.path);
         created = await response.json();
       }
+      if (route.action === "login") {
+        const account = routes.find(
+          (item) => item.action === "create" && item.path === route.collection,
+        );
+        assert.ok(account, route.path);
+        const username = "ada";
+        const password = "long-secret";
+        const made = await fetch(base + account.path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ username, password, email: "ada@example.com" }),
+        });
+        assert.equal(made.status, account.success_status, route.path);
+        assert.equal((await made.json()).password, undefined);
+        const bad = await fetch(
+          base + route.path + "?username=" + username + "&password=not-the-password",
+        );
+        assert.equal(bad.status, 401);
+        const good = await fetch(
+          base + route.path + "?username=" + username + "&password=" + password,
+        );
+        assert.equal(good.status, route.success_status, route.path);
+        const token = (await good.json()).token;
+        assert.equal(typeof token, "string");
+        const locked = await fetch(base + account.path);
+        assert.equal(locked.status, 401);
+        const opened = await fetch(base + account.path, {
+          headers: { authorization: "Bearer " + token },
+        });
+        assert.equal(opened.status, 200);
+        return;
+      }
+      if (route.action === "logout") {
+        const session = await authHeaders(base);
+        const gone = await fetch(base + route.path, {
+          method: route.method,
+          headers: session,
+        });
+        assert.equal(gone.status, route.success_status, route.path);
+        assert.equal((await gone.json()).revoked, true);
+        const again = await fetch(base + route.collection, {
+          headers: session,
+        });
+        assert.equal(again.status, 401);
+        return;
+      }
+      if (route.action === "filter") {
+        const create = routes.find(
+          (item) => item.action === "create" && item.resource === route.resource,
+        );
+        assert.ok(create, route.path);
+        const overrides = await parentOverrides(base, create, headers);
+        const response = await call(base, create, "sample", null, headers, overrides);
+        assert.equal(response.status, create.success_status, route.path);
+        const created = await response.json();
+        const field = route.filter_field;
+        const raw = created[field];
+        const value = Array.isArray(raw) ? raw[0] : raw;
+        const listed = await fetch(
+          base +
+            route.path +
+            "?" +
+            encodeURIComponent(field) +
+            "=" +
+            encodeURIComponent(value ?? ""),
+          { headers },
+        );
+        assert.equal(listed.status, route.success_status, route.path);
+        const body = await listed.json();
+        assert.ok(body.items.some((item) => item.id === created.id));
+        const missed = await (
+          await fetch(
+            base + route.path + "?" + encodeURIComponent(field) + "=missing-value",
+            { headers },
+          )
+        ).json();
+        assert.equal(
+          missed.items.some((item) => item.id === created.id),
+          false,
+        );
+        return;
+      }
+      if (route.action === "inventory") {
+        const create = routes.find(
+          (item) => item.action === "create" && item.resource === route.resource,
+        );
+        assert.ok(create, route.path);
+        const overrides = await parentOverrides(base, create, headers);
+        const response = await call(base, create, "sample", null, headers, overrides);
+        assert.equal(response.status, create.success_status, route.path);
+        const created = await response.json();
+        const listed = await fetch(base + route.path, { headers });
+        assert.equal(listed.status, route.success_status, route.path);
+        const body = await listed.json();
+        assert.ok(body.total >= 1);
+        if (route.group_field && created[route.group_field] != null)
+          assert.ok(body.counts[String(created[route.group_field])] >= 1);
+        return;
+      }
       if (route.action === "create") {
         const overrides = await parentOverrides(base, route, headers);
         const response = await call(base, route, "sample", null, headers, overrides);
@@ -1443,7 +1794,7 @@ for (const route of routes) {
         assert.equal(typeof body.id, "string");
         for (const name of route.parameters) {
           if (name === "id") continue;
-          assert.deepEqual(body[name], expectedValue(route, name, overrides, "sample"));
+          assertStored(body, name, expectedValue(route, name, overrides, "sample"));
         }
         if ((route.fields || []).some((field) => field.required)) {
           const bare = await fetch(base + route.path, {
@@ -1455,7 +1806,10 @@ for (const route of routes) {
           assert.equal((await bare.json()).rule, "required");
         }
         const stringField = (route.fields || []).find(
-          (field) => field.type === "string" && field.name !== "id",
+          (field) =>
+            field.type === "string" &&
+            field.name !== "id" &&
+            !(Array.isArray(field.enum) && field.enum.length > 0),
         );
         if (stringField && route.body === "json") {
           const invalid = await call(base, route, "sample", null, headers, {
@@ -1464,6 +1818,18 @@ for (const route of routes) {
           });
           assert.equal(invalid.status, 400);
           assert.equal((await invalid.json()).rule, "type");
+        }
+        const enumField = (route.fields || []).find(
+          (field) =>
+            Array.isArray(field.enum) && field.enum.length > 0 && field.name !== "id",
+        );
+        if (enumField && route.body === "json") {
+          const invalid = await call(base, route, "sample", null, headers, {
+            ...overrides,
+            [enumField.name]: "not-in-the-recorded-set",
+          });
+          assert.equal(invalid.status, 400);
+          assert.equal((await invalid.json()).rule, "enum");
         }
         return;
       }
@@ -1550,7 +1916,7 @@ test("capabilities behave only when the spec supports them", async () => {
   );
   assert.equal(
     byId.pricing.status,
-    capabilities.pricing ? "implemented" : "left-out",
+    capabilities.pricing ? "needs-setup" : "left-out",
   );
   assert.equal(byId.openapi.status, capabilities.openapi ? "implemented" : "left-out");
   assert.equal(byId.deploy.status, capabilities.deploy ? "implemented" : "left-out");
@@ -1587,6 +1953,76 @@ test("capabilities behave only when the spec supports them", async () => {
       } finally {
         if (previous === undefined) delete process.env.STRIPE_SECRET_KEY;
         else process.env.STRIPE_SECRET_KEY = previous;
+      }
+      const realFetch = globalThis.fetch;
+      const calls = [];
+      process.env.STRIPE_SECRET_KEY = "sk_test_mock";
+      process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+      process.env.STRIPE_PRICE_ID = "price_existing";
+      globalThis.fetch = (url, init) => {
+        if (String(url).startsWith("https://api.stripe.com/")) {
+          calls.push({ url: String(url), body: String(init?.body ?? "") });
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                id: "cs_test_mock",
+                url: "https://checkout.stripe.com/c/pay/cs_test_mock",
+              }),
+              { status: 200, headers: { "content-type": "application/json" } },
+            ),
+          );
+        }
+        return realFetch(url, init);
+      };
+      try {
+        const paid = await fetch(base + "/checkout", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        });
+        const paidBody = await paid.json();
+        assert.equal(paid.status, 200);
+        assert.equal(paidBody.configured, true);
+        assert.equal(paidBody.creates_products, false);
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].body.includes("price_existing"), true);
+        assert.equal(calls[0].body.includes("price_data"), false);
+        const raw = JSON.stringify({
+          id: "evt_test",
+          type: "checkout.session.completed",
+        });
+        const stamp = Math.floor(Date.now() / 1000);
+        const { createHmac } = await import("node:crypto");
+        const sig = createHmac("sha256", "whsec_test")
+          .update(stamp + "." + raw)
+          .digest("hex");
+        const good = await fetch(base + "/billing/webhook", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "stripe-signature": "t=" + stamp + ",v1=" + sig,
+          },
+          body: raw,
+        });
+        const goodBody = await good.json();
+        assert.equal(good.status, 200);
+        assert.equal(goodBody.accepted, true);
+        assert.equal(goodBody.charged, false);
+        const bad = await fetch(base + "/billing/webhook", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "stripe-signature": "t=" + stamp + ",v1=00",
+          },
+          body: raw,
+        });
+        assert.equal(bad.status, 400);
+        assert.equal((await bad.json()).error, "signature");
+      } finally {
+        globalThis.fetch = realFetch;
+        delete process.env.STRIPE_SECRET_KEY;
+        delete process.env.STRIPE_WEBHOOK_SECRET;
+        delete process.env.STRIPE_PRICE_ID;
       }
     }
     const hook = await fetch(base + "/webhooks", {

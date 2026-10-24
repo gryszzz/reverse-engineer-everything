@@ -287,11 +287,15 @@ test("a supported spec builds each capability and the product tests pass", async
     const report = JSON.parse(
       readFileSync(join(out, "capabilities.json"), "utf8"),
     );
-    assert.deepEqual(counts(report), {
-      implemented: 10,
-      left_out: 0,
-      total: 10,
-    });
+    assert.equal(
+      report.capabilities.filter((item) => item.status === "implemented")
+        .length,
+      9,
+    );
+    assert.equal(
+      report.capabilities.find((item) => item.id === "pricing").status,
+      "needs-setup",
+    );
     const server = readFileSync(join(out, "src/server.mjs"), "utf8");
     assert.match(server, /node:sqlite/);
     assert.match(server, /sk_test_/);
@@ -340,7 +344,10 @@ test("magic link sessions stay local and do not send mail", async () => {
   const decision = decideCapabilities(spec, planProduct(spec));
   assert.equal(decision.auth.mode, "magic");
   assert.equal(decision.roles, false);
-  assert.equal(decision.pricing, null);
+  assert.equal(decision.pricing.placeholder, true);
+  assert.equal(decision.pricing.plans[0].name, "Placeholder");
+  assert.equal(decision.pricing.creates_products, false);
+  assert.equal(decision.pricing.mode, "test");
   const out = mkdtempSync(join(tmpdir(), "ree-cap-magic-"));
   try {
     scaffoldRebuild({
@@ -357,7 +364,7 @@ test("magic link sessions stay local and do not send mail", async () => {
     );
     assert.equal(status.auth, "implemented");
     assert.equal(status.roles, "left-out");
-    assert.equal(status.pricing, "left-out");
+    assert.equal(status.pricing, "needs-setup");
     assert.equal(status.webhooks, "left-out");
     assert.equal(status.search, "left-out");
     assert.equal(status.relations, "left-out");
@@ -365,6 +372,68 @@ test("magic link sessions stay local and do not send mail", async () => {
     const ran = await runProductTests(out);
     assert.equal(ran.status, 0, ran.stderr || ran.stdout);
     assert.match(ran.stdout, /No mailer is configured|pass/);
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test("Scale pricing evidence is cited and is not a placeholder", () => {
+  const spec = shell({
+    features: [feature("feature:notes", "Notes", "A short label.")],
+    api: {
+      style: "unknown",
+      servers: [],
+      auth: [],
+      rate_limits: [],
+      endpoints: [endpoint("POST", "/notes", "createNote", ["text"], "json")],
+      unknowns: [],
+    },
+  });
+  const improvements = {
+    schema_version: "ree.improvements.v1",
+    items: [
+      {
+        id: "improve:team",
+        record: "scale",
+        kind: "pricing",
+        recorded: { name: "Team", amount: "12.00", currency: "usd" },
+        citation: {
+          url: "https://owned.docs/pricing",
+          fetched_at: WHEN,
+        },
+      },
+    ],
+  };
+  const decision = decideCapabilities(spec, planProduct(spec), improvements);
+  assert.equal(decision.pricing.placeholder, false);
+  assert.equal(decision.pricing.plans[0].name, "Team");
+  assert.equal(decision.pricing.plans[0].amount, "12.00");
+  assert.equal(
+    decision.pricing.plans[0].source_url,
+    "https://owned.docs/pricing",
+  );
+  assert.equal(decision.pricing.creates_products, false);
+  const out = mkdtempSync(join(tmpdir(), "ree-cap-scale-"));
+  try {
+    scaffoldRebuild({
+      spec,
+      productName: "Harbor Kit",
+      outDir: out,
+      pack: false,
+      improvements,
+    });
+    const pricing = readFileSync(join(out, "PRICING.md"), "utf8");
+    assert.match(pricing, /Team/);
+    assert.match(pricing, /https:\/\/owned\.docs\/pricing/);
+    assert.equal(pricing.includes("The plan below is a placeholder"), false);
+    assert.equal(pricing.includes("Northwind Sample"), false);
+    const report = JSON.parse(
+      readFileSync(join(out, "capabilities.json"), "utf8"),
+    );
+    const billing = report.capabilities.find((item) => item.id === "pricing");
+    assert.equal(billing.status, "needs-setup");
+    assert.match(billing.reason, /STRIPE_SECRET_KEY/);
+    assert.match(billing.reason, /sk_test_/);
   } finally {
     rmSync(out, { recursive: true, force: true });
   }

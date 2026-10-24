@@ -115,11 +115,22 @@ test(
       assert.ok(coverage.endpoints.not_built > 0);
       const report = readFileSync(join(product, "FEATURE_REPORT.md"), "utf8");
       assert.match(report, /Photo list/);
-      assert.match(report, /uploadImage/);
-      assert.match(report, /action endpoint is not a record collection/);
+      const notBuilt = report.split("Not built:")[1] ?? "";
+      assert.match(notBuilt, /uploadImage/);
+      assert.match(notBuilt, /createWithList/);
+      assert.match(notBuilt, /action endpoint is not a record collection/);
+      assert.doesNotMatch(notBuilt, /\/user\/login/);
+      assert.doesNotMatch(notBuilt, /\/user\/logout/);
+      assert.doesNotMatch(notBuilt, /\/pet\/findByStatus/);
+      assert.doesNotMatch(notBuilt, /\/pet\/findByTags/);
+      assert.doesNotMatch(notBuilt, /\/store\/inventory/);
       const routes = readFileSync(join(product, "src/routes.mjs"), "utf8");
       assert.equal(routes.includes("/improve-"), false);
-      assert.equal(routes.includes("/user/login"), false);
+      assert.match(routes, /\/user\/login/);
+      assert.match(routes, /\/user\/logout/);
+      assert.match(routes, /\/pet\/findByStatus/);
+      assert.match(routes, /\/pet\/findByTags/);
+      assert.match(routes, /\/store\/inventory/);
       assert.match(routes, /\/user\/\{username\}/);
       const { routes: routeList } = await import(
         pathToFileURL(join(product, "src/routes.mjs")).href
@@ -180,6 +191,22 @@ test(
         );
         assert.equal(opened.status, 200);
         assert.deepEqual((await opened.json()).name, updated.name);
+        const storedStatus =
+          typeof updated.status === "string" ? updated.status : pet.status;
+        const matched = await fetch(
+          base +
+            "/pet/findByStatus?status=" +
+            encodeURIComponent(storedStatus ?? ""),
+          { headers },
+        );
+        assert.equal(matched.status, 200, await matched.clone().text());
+        assert.equal(
+          (await matched.json()).items.some((item) => item.id === pet.id),
+          true,
+        );
+        const stock = await fetch(base + "/store/inventory", { headers });
+        assert.equal(stock.status, 200, await stock.clone().text());
+        assert.equal(typeof (await stock.json()).counts, "object");
         const removed = await fetch(
           base + "/pet/" + encodeURIComponent(pet.id),
           {
@@ -189,6 +216,59 @@ test(
         );
         assert.equal(removed.status, 200);
         assert.equal((await removed.json()).deleted, true);
+        const createUser = routeList.find(
+          (route) => route.method === "POST" && route.path === "/user",
+        );
+        const loginRoute = routeList.find(
+          (route) => route.method === "GET" && route.path === "/user/login",
+        );
+        const logoutRoute = routeList.find(
+          (route) => route.method === "GET" && route.path === "/user/logout",
+        );
+        assert.ok(createUser);
+        assert.ok(loginRoute);
+        assert.ok(logoutRoute);
+        const signed = await fetch(base + "/user", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            username: "ada",
+            password: "long-secret",
+            email: "ada@example.com",
+          }),
+        });
+        assert.equal(
+          signed.status,
+          createUser.success_status,
+          await signed.clone().text(),
+        );
+        assert.equal((await signed.json()).password_hash, undefined);
+        const rejected = await fetch(
+          base + "/user/login?username=ada&password=not-the-password",
+        );
+        assert.equal(rejected.status, 401);
+        const loggedIn = await fetch(
+          base + "/user/login?username=ada&password=long-secret",
+        );
+        assert.equal(
+          loggedIn.status,
+          loginRoute.success_status,
+          await loggedIn.clone().text(),
+        );
+        const ada = await loggedIn.json();
+        assert.equal(typeof ada.token, "string");
+        const adaHeaders = { authorization: "Bearer " + ada.token };
+        const visible = await fetch(base + "/user/ada", {
+          headers: adaHeaders,
+        });
+        assert.equal(visible.status, 200);
+        const revoked = await fetch(base + "/user/logout", {
+          headers: adaHeaders,
+        });
+        assert.equal(revoked.status, logoutRoute.success_status);
+        assert.equal((await revoked.json()).revoked, true);
+        const closed = await fetch(base + "/user/ada", { headers: adaHeaders });
+        assert.equal(closed.status, 401);
         const upload = await fetch(
           base + "/pet/" + encodeURIComponent(pet.id) + "/uploadImage",
           { method: "POST", headers },
