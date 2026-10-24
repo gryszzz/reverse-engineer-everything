@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { emitHandoff } from "../handoff/emit.mjs";
+import { finishLine, finishProduct } from "../handoff/finish.mjs";
 import {
   exportBoard,
   ingestScout,
@@ -35,6 +36,7 @@ const HELP = [
   "node ree.mjs rebuild --spec FILE --name NAME --out DIR [--json]",
   "node ree.mjs verify --project DIR [--json]",
   "node ree.mjs handoff --project DIR --blast-dir DIR [--scout FILE] [--json]",
+  "node ree.mjs finish DIR [--json]",
   "",
   "pipeline runs scope, investigate, findings, spec, improve, rebuild, verify,",
   "package, guard, and handoff. improve writes improvements.json from Scout",
@@ -63,8 +65,15 @@ const HELP = [
   "verify runs the product tests. pass means the behavior test ran. unimplemented means it was not built.",
   "handoff writes handoff.json, README.md, a Guard submission, a Scale manifest,",
   "a Vault manifest, and requests/guard.json, requests/blast.json, and",
-  "requests/scale.json. It does not notify Blast, call Guard, call Scale, or",
-  "copy into Vault.",
+  "requests/scale.json. It also writes finish.json and one ree.finish.v1",
+  "ticket for each operation the rebuild did not build. It does not notify",
+  "Blast, call Guard, call Scale, or copy into Vault.",
+  "finish DIR lists those open tickets and re-runs verify. DIR is the product",
+  "directory, the handoff directory, or the pipeline output directory. A ticket",
+  "closes when src/routes.mjs lists that method and path and a test named",
+  "endpoint METHOD PATH passes. A handwritten test must call fetch. A declared",
+  "route can close from the generated endpoint test when that test passes.",
+  "coverage.json then counts that operation as built.",
   "board picks --data DIR lists pick files. A pick is a feature whose route",
   "test passed. board picks --from DIR reads agent verdict files in picks/.",
   "Each file has agent, id, verdict (build, skip, or maybe), reason, angle,",
@@ -376,6 +385,14 @@ export async function runPipelineCommand(argv) {
         );
       }
       return verify.exit_code === 0 ? 0 : 1;
+    }
+    if (command === "finish") {
+      const dir = argv.slice(1).find((item) => !item.startsWith("--"));
+      if (!dir) throw new Error("Use finish DIR.");
+      const result = finishProduct(dir);
+      if (json) console.log(JSON.stringify(result, null, 2));
+      else console.log(finishLine(result));
+      return result.verify.exit_code === 0 ? 0 : 1;
     }
     if (command === "board")
       throw new Error(

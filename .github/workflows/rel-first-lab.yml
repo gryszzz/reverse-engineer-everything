@@ -69,6 +69,7 @@ jobs:
       - name: Verify pipeline shared board handoff
         run: |
           node --test rel/handoff/shared-publish.test.mjs
+          node --test rel/handoff/finish.test.mjs
           node --test rel/opportunities/board.test.mjs
           node --test rel/pipeline/pipeline.test.mjs
           node --test rel/pipeline/petstore-e2e.test.mjs

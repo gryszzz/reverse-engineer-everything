@@ -53,6 +53,7 @@ const help = [
   "node ree.mjs rebuild --spec FILE --name NAME --out DIR",
   "node ree.mjs verify --project DIR",
   "node ree.mjs handoff --project DIR [--blast-dir DIR] [--scout FILE]",
+  "node ree.mjs finish DIR [--json]            List open finish tickets and re-run verify",
   "node ree.mjs edition [--json]                   License and edition boundary",
   "node ree.mjs codex                              Check Codex project setup",
   "node ree.mjs doctor [--json]                    Read-only Mac readiness check",
@@ -194,6 +195,7 @@ try {
       "rebuild",
       "verify",
       "handoff",
+      "finish",
       "pipeline",
       "board",
     ].includes(args[0])
