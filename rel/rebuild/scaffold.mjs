@@ -113,6 +113,26 @@ function collectionParents(endpoints) {
   return { anyItem, set };
 }
 
+function actionKind(method, path) {
+  const parts = path.split("/").filter(Boolean);
+  const last = parts.at(-1) ?? "";
+  if (/^login$/iu.test(last)) return { kind: "login" };
+  if (/^logout$/iu.test(last)) return { kind: "logout" };
+  if (method !== "GET" || parts.length < 2) return null;
+  const found = /^findBy([A-Za-z][A-Za-z0-9]*)$/u.exec(last);
+  if (found) {
+    const raw = found[1];
+    return {
+      kind: "filter",
+      field: raw.charAt(0).toLowerCase() + raw.slice(1),
+      collection: "/" + parts.slice(0, -1).join("/"),
+    };
+  }
+  if (/^inventory$/iu.test(last))
+    return { kind: "inventory", prefix: "/" + parts.slice(0, -1).join("/") };
+  return null;
+}
+
 function classifyEndpoint(endpoint, parents = null) {
   const method = String(endpoint?.method ?? "").toUpperCase();
   const path = endpoint?.path;
@@ -120,6 +140,8 @@ function classifyEndpoint(endpoint, parents = null) {
     return { ok: false, reason: "method is not built" };
   if (typeof path !== "string" || !path.startsWith("/"))
     return { ok: false, reason: "path template is not expanded" };
+  const special = actionKind(method, path);
+  if (special) return { ok: true, method, path, item: null, ...special };
   if (!path.includes("{")) {
     if (parents?.anyItem && !parents.set.has(path))
       return {
@@ -200,6 +222,17 @@ function writeRules(model) {
   if (model.fields.length === 0 && model.parameters.length > 0)
     return ["required"];
   return [];
+}
+
+function accountFieldNames(endpoint) {
+  const names = parametersOf(endpoint);
+  const secret = names.find((name) => /password/iu.test(name)) || "password";
+  const identity = names.find((name) => name !== secret) || "username";
+  const chosen = [];
+  for (const name of [identity, secret]) {
+    if (!chosen.includes(name)) chosen.push(name);
+  }
+  return chosen;
 }
 
 function parametersOf(endpoint) {
@@ -492,6 +525,137 @@ export function planProduct(spec) {
     return itemRoute(endpoint, built, resource);
   }
 
+  function skipEndpoint(endpoint, built, reason) {
+    skipped.push({
+      method: built.method,
+      path: built.path,
+      operation_id: endpoint.operation_id ?? null,
+      reason,
+    });
+    return null;
+  }
+
+  function addAccountNames(resource, names) {
+    const schema = resource.fields.length > 0;
+    for (const name of names) {
+      if (!resource.parameters.includes(name)) resource.parameters.push(name);
+      if (!resource.model.includes(name)) resource.model.push(name);
+      if (schema && !resource.fields.some((field) => field.name === name))
+        resource.fields.push({ name, required: false, type: "string" });
+    }
+    for (const route of routes) {
+      if (route.resource !== resource.id) continue;
+      if (!["create", "replace", "merge"].includes(route.action)) continue;
+      for (const name of names) {
+        if (!route.parameters.includes(name)) route.parameters.push(name);
+        if (!route.model.includes(name)) route.model.push(name);
+        if (
+          schema &&
+          route.fields.length > 0 &&
+          !route.fields.some((field) => field.name === name)
+        )
+          route.fields.push({ name, required: false, type: "string" });
+      }
+    }
+  }
+
+  function collectionForInventory(prefix) {
+    const found = new Set();
+    for (const endpoint of endpoints) {
+      const built = buildable(endpoint);
+      if (!built.ok || built.kind) continue;
+      if (built.item && built.item.collection.startsWith(prefix + "/"))
+        found.add(built.item.collection);
+      else if (!built.item && built.path.startsWith(prefix + "/"))
+        found.add(built.path);
+    }
+    return (
+      [...found].sort((left, right) => right.length - left.length)[0] ?? null
+    );
+  }
+
+  function actionRoute(endpoint, built, resource, extra) {
+    return storeRoute({
+      method: built.method,
+      path: built.path,
+      operation_id: endpoint.operation_id ?? null,
+      parameters: extra.parameters ?? [],
+      fields: [],
+      declared: true,
+      success_status: successStatus(built.method, endpoint.response_codes),
+      body: endpoint.body === "json" ? "json" : null,
+      resource: resource.id,
+      collection: extra.collection,
+      action: built.kind,
+      model: resource.model,
+      rules: resource.rules,
+      filter_field: extra.filter_field ?? null,
+      group_field: extra.group_field ?? null,
+    });
+  }
+
+  function addAction(endpoint, built) {
+    const existing = routes.find(
+      (route) => route.method === built.method && route.path === built.path,
+    );
+    if (existing) return existing;
+    if (built.kind === "login" || built.kind === "logout") {
+      const parts = built.path.split("/").filter(Boolean);
+      parts.pop();
+      const collection = parts.length ? `/${parts.join("/")}` : "";
+      if (!collection.startsWith("/"))
+        return skipEndpoint(endpoint, built, "login has no account collection");
+      const resource = parentResource(collection);
+      const accountNames =
+        built.kind === "login" ? accountFieldNames(endpoint) : [];
+      if (accountNames.length) addAccountNames(resource, accountNames);
+      if (!crudFor(resource))
+        return skipEndpoint(
+          endpoint,
+          built,
+          "structural fields repeated a spec quote",
+        );
+      if (accountNames.length) addAccountNames(resource, accountNames);
+      return actionRoute(endpoint, built, resource, {
+        collection,
+        parameters:
+          built.kind === "login" ? accountNames : parametersOf(endpoint),
+      });
+    }
+    if (built.kind === "filter") {
+      const resource = parentResource(built.collection);
+      if (!crudFor(resource))
+        return skipEndpoint(
+          endpoint,
+          built,
+          "structural fields repeated a spec quote",
+        );
+      return actionRoute(endpoint, built, resource, {
+        collection: built.collection,
+        parameters: parametersOf(endpoint),
+        filter_field: built.field,
+      });
+    }
+    const collection = collectionForInventory(built.prefix);
+    if (!collection)
+      return skipEndpoint(
+        endpoint,
+        built,
+        "inventory has no record collection to count",
+      );
+    const resource = parentResource(collection);
+    if (!crudFor(resource))
+      return skipEndpoint(
+        endpoint,
+        built,
+        "structural fields repeated a spec quote",
+      );
+    return actionRoute(endpoint, built, resource, {
+      collection,
+      group_field: resource.model.includes("status") ? "status" : null,
+    });
+  }
+
   for (const feature of spec.features ?? []) {
     if (leaks(feature.id, quotes)) {
       omitted.push(feature.id);
@@ -509,12 +673,37 @@ export function planProduct(spec) {
       continue;
     }
     if (buildableHits.length > 0) {
-      const concrete = buildableHits.filter(
-        (endpoint) => !buildable(endpoint).item,
+      const concrete = buildableHits.filter((endpoint) => {
+        const built = buildable(endpoint);
+        return !built.item && !built.kind;
+      });
+      const actions = buildableHits.filter(
+        (endpoint) => buildable(endpoint).kind,
       );
       const items = buildableHits.filter(
         (endpoint) => buildable(endpoint).item,
       );
+      for (const endpoint of actions) addAction(endpoint, buildable(endpoint));
+      if (concrete.length === 0 && items.length === 0) {
+        const first = actions[0];
+        const stored = first
+          ? routes.find(
+              (route) =>
+                route.method === String(first.method).toUpperCase() &&
+                route.path === first.path,
+            )
+          : null;
+        if (!stored) {
+          leave(feature, "structural fields repeated a spec quote");
+          continue;
+        }
+        behaviors.push({
+          id: feature.id,
+          status: "implemented",
+          handler: stored.key,
+        });
+        continue;
+      }
       if (concrete.length === 0) {
         const stored = ensureItem(
           items.find(
@@ -598,6 +787,10 @@ export function planProduct(spec) {
   for (const endpoint of endpoints) {
     const built = buildable(endpoint);
     if (!built.ok) continue;
+    if (built.kind) {
+      addAction(endpoint, built);
+      continue;
+    }
     if (built.item) {
       if (!ensureItem(endpoint)) {
         skipped.push({
@@ -658,6 +851,14 @@ export function planProduct(spec) {
 }
 
 function routeLine(route) {
+  if (route.action === "login")
+    return `- ${route.method} ${route.path} issues a token after a hashed password check.`;
+  if (route.action === "logout")
+    return `- ${route.method} ${route.path} revokes the current token.`;
+  if (route.action === "filter")
+    return `- ${route.method} ${route.path} filters ${route.collection} by ${route.filter_field}.`;
+  if (route.action === "inventory")
+    return `- ${route.method} ${route.path} counts records in ${route.collection}${route.group_field ? ` by ${route.group_field}` : ""}.`;
   const params = route.parameters.length
     ? ` Fields: ${route.parameters.join(", ")}.`
     : "";
@@ -810,6 +1011,8 @@ function readmeText(productName, spec, plan, capabilities) {
     "A capability is built only when the spec supports it. The capability list is not a percentage of the original product.",
     "GraphQL operations, workflows, and rate limits are not built.",
     "A path with one {name} segment gets get, update, and delete on the parent collection. GET reads one record and answers 404 when that id is missing.",
+    "A login path checks a hashed password and issues a token. Logout revokes that token. Record routes then require it.",
+    "A findBy path filters the parent collection. An inventory path counts the sibling record collection.",
     "Any other path template, or a method other than GET, POST, PUT, PATCH, and DELETE, is left out.",
     "",
     "See FEATURE_REPORT.md for the same implemented and left-out lists.",
@@ -840,7 +1043,7 @@ function landingText(productName, spec, plan, capabilities) {
   lines.push(
     "",
     capabilities.pricing
-      ? "Pricing is a test-mode Stripe checkout. A live key is refused. See PRICING.md."
+      ? "Pricing lists recorded plans or a placeholder. Checkout stays off until an existing Stripe test key and price id are set. A live key is refused. See PRICING.md."
       : "There is no checkout. See PRICING.md. Prices are not invented.",
     "",
   );
@@ -873,30 +1076,41 @@ function reportText(productName, spec, plan, capabilities) {
   ].join("\n");
 }
 
-function pricingText(spec) {
-  const plans = spec.pricing?.plans ?? [];
-  if (plans.length === 0) {
-    return [
-      "# Pricing",
-      "",
-      "No pricing was in the spec and none was invented.",
-      "",
-    ].join("\n");
-  }
-  const lines = [
-    "# Pricing",
-    "",
-    "GET /pricing lists these plans. POST /checkout uses Stripe only when STRIPE_SECRET_KEY starts with sk_test_. A live key is refused, and no price was invented.",
-    "",
-  ];
-  for (const plan of plans) {
-    const display = plan.price?.display ?? null;
+function pricingText(spec, capabilities) {
+  const plans = capabilities.pricing?.plans ?? [];
+  const lines = ["# Pricing", ""];
+  if (!capabilities.pricing) {
     lines.push(
-      `- ${plan.name}: ${display ?? "the spec named this plan and did not record a price."}`,
+      "No pricing was in the spec and none was invented.",
+      "No HTTP service was built, so billing was not added.",
+      "",
     );
-    const citation = plan.citations?.[0];
-    if (citation?.url) lines.push(`  Source: ${citation.url}`);
-    if (citation?.fetched_at) lines.push(`  Fetched: ${citation.fetched_at}`);
+    return lines.join("\n");
+  }
+  lines.push(
+    "Checkout uses an existing Stripe price. Set STRIPE_SECRET_KEY to an sk_test_ key, STRIPE_WEBHOOK_SECRET, and STRIPE_PRICE_ID or STRIPE_PRICE_IDS. No Stripe account or product is created. A live key is refused, and no price was invented. Without those variables, checkout and the webhook stay off.",
+    "",
+  );
+  if (capabilities.pricing.placeholder)
+    lines.push(
+      "No pricing was in the spec and none was invented.",
+      "The plan below is a placeholder. No Scale tier or spec price was recorded.",
+      "",
+    );
+  else
+    lines.push(
+      "These plan names were recorded. Amounts are included only when the record had one.",
+      "",
+    );
+  const brand = String(spec.target?.name ?? "").trim();
+  for (const plan of plans) {
+    lines.push(
+      `- ${plan.name}: ${plan.display || "No display amount was recorded."}`,
+    );
+    const url = typeof plan.source_url === "string" ? plan.source_url : "";
+    if (url && (!brand || !url.includes(brand))) lines.push(`  Source: ${url}`);
+    else if (url) lines.push("  Source: recorded in improvements.json.");
+    if (plan.fetched_at) lines.push(`  Fetched: ${plan.fetched_at}`);
   }
   lines.push("");
   return lines.join("\n");
@@ -962,7 +1176,7 @@ export function scaffoldRebuild({
   const leaked = quotesIn(spec).find((quote) => name.includes(quote));
   if (leaked) throw new Error("The product name contains a spec quote.");
   const plan = planProduct(spec);
-  const capabilities = decideCapabilities(spec, plan);
+  const capabilities = decideCapabilities(spec, plan, improvements);
   const readme = readmeText(name, spec, plan, capabilities);
   const landing = landingText(name, spec, plan, capabilities);
   const report = reportText(name, spec, plan, capabilities);
@@ -1019,7 +1233,8 @@ export function scaffoldRebuild({
       "Declared GET, POST, PUT, PATCH, and DELETE endpoints are built even when no feature name matches.",
       "Records are stored in data/store.sqlite when a record route is built. GET / is the product page. JSON field objects are accepted.",
       "A path with one {name} segment gets get, update, and delete on the parent collection. Other path templates are not expanded.",
-      "Search, relations, accounts, roles, webhooks, and a Stripe test checkout are built only when the spec supports them. A live Stripe key is refused.",
+      "Login and logout paths hash passwords and issue or revoke a token. findBy paths filter a collection. An inventory path counts a sibling collection.",
+      "Stripe checkout and webhook checks are generated for an existing account. They stay off until STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and an existing price id are set. No account or product is created. A live Stripe key is refused.",
       "GraphQL operations, workflows, and rate limits are not built.",
       "An improvement is an extra feature only when a Scout, Scale, or build pick records a quote. That quote is not copied into the product source.",
     ],
@@ -1079,7 +1294,7 @@ export function scaffoldRebuild({
   write("LANDING.md", landing);
   write("LICENSE", LICENSE_TEXT);
   write("NOTICE", NOTICE_TEXT);
-  write("PRICING.md", pricingText(spec));
+  write("PRICING.md", pricingText(spec, capabilities));
   write("FEATURE_REPORT.md", report);
   if (improvements)
     write("improvements.json", JSON.stringify(improvements, null, 2) + "\n");
@@ -1209,11 +1424,22 @@ function openApiDocument(name, plan, capabilities) {
     paths["/pricing"] = {
       get: { responses: { 200: { description: "pricing page" } } },
     };
+    paths["/billing"] = {
+      get: { responses: { 200: { description: "billing setup status" } } },
+    };
     paths["/checkout"] = {
       post: {
         responses: {
           200: { description: "test checkout or unconfigured" },
           400: { description: "live key refused" },
+        },
+      },
+    };
+    paths["/billing/webhook"] = {
+      post: {
+        responses: {
+          200: { description: "signature accepted or billing disabled" },
+          400: { description: "signature rejected" },
         },
       },
     };

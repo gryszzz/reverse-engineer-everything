@@ -26,6 +26,11 @@ test("gaps list left-out builds, skipped reads, and standing limits", () => {
           status: "left-out",
           reason: "The spec has no pricing plan.",
         },
+        {
+          id: "billing",
+          status: "needs-setup",
+          reason: "Set STRIPE_SECRET_KEY to an sk_test_ key.",
+        },
       ],
     });
     write(dir, "read.json", {
@@ -46,6 +51,7 @@ test("gaps list left-out builds, skipped reads, and standing limits", () => {
     const text = report.items.map((item) => item.text).join("\n");
     assert.match(text, /feature:nested: path template is not expanded/);
     assert.match(text, /pricing: The spec has no pricing plan/);
+    assert.match(text, /billing: Set STRIPE_SECRET_KEY to an sk_test_ key/);
     assert.match(text, /Skipped https:\/\/owned\.docs\/private/);
     assert.match(text, /robots\.txt disallows/);
     assert.equal(text.includes("Northwind Sample"), false);

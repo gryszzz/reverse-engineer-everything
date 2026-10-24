@@ -179,7 +179,7 @@ test("the owned desk fixture stays at or above 80 percent", async () => {
       assert.equal(status.auth, "left-out");
       assert.equal(status.roles, "left-out");
       assert.equal(status.webhooks, "left-out");
-      assert.equal(status.pricing, "left-out");
+      assert.equal(status.pricing, "needs-setup");
       assert.equal(status.ui, "implemented");
       assert.equal(status.openapi, "implemented");
       assert.equal(status.deploy, "implemented");
@@ -449,6 +449,20 @@ test("record routes keep schema fields, key by username, and skip action endpoin
         endpoint("POST", "/pet/{petId}/uploadImage", "uploadFile", {
           parameters: ["petId"],
         }),
+        endpoint("POST", "/store/order", "placeOrder", {
+          parameters: ["status"],
+          fields: [
+            {
+              name: "status",
+              required: false,
+              type: "string",
+              enum: ["placed", "approved", "delivered"],
+            },
+          ],
+        }),
+        endpoint("GET", "/store/order/{orderId}", "getOrderById", {
+          parameters: ["orderId"],
+        }),
         endpoint("GET", "/store/inventory", "getInventory"),
         endpoint("POST", "/user", "createUser", {
           parameters: ["username", "email"],
@@ -486,22 +500,10 @@ test("record routes keep schema fields, key by username, and skip action endpoin
   const skipped = new Map(
     plan.skipped.map((item) => [`${item.method} ${item.path}`, item.reason]),
   );
-  assert.equal(
-    skipped.get("GET /user/login"),
-    "action endpoint is not a record collection",
-  );
-  assert.equal(
-    skipped.get("GET /user/logout"),
-    "action endpoint is not a record collection",
-  );
-  assert.equal(
-    skipped.get("GET /store/inventory"),
-    "action endpoint is not a record collection",
-  );
-  assert.equal(
-    skipped.get("GET /pet/findByStatus"),
-    "action endpoint is not a record collection",
-  );
+  assert.equal(skipped.has("GET /user/login"), false);
+  assert.equal(skipped.has("GET /user/logout"), false);
+  assert.equal(skipped.has("GET /store/inventory"), false);
+  assert.equal(skipped.has("GET /pet/findByStatus"), false);
   assert.equal(
     skipped.get("POST /pet/{petId}/uploadImage"),
     "path template is not expanded",
@@ -511,8 +513,14 @@ test("record routes keep schema fields, key by username, and skip action endpoin
   );
   assert.equal(userRead.path_param, "username");
   assert.equal(
-    plan.routes.some((route) => route.path === "/user/login"),
-    false,
+    plan.routes.some(
+      (route) => route.method === "GET" && route.path === "/user/login",
+    ),
+    true,
+  );
+  assert.equal(
+    plan.routes.find((route) => route.path === "/store/inventory")?.action,
+    "inventory",
   );
   const out = mkdtempSync(join(tmpdir(), "ree-pet-model-"));
   const dataDir = mkdtempSync(join(tmpdir(), "ree-pet-data-"));
@@ -535,9 +543,43 @@ test("record routes keep schema fields, key by username, and skip action endpoin
     const server = await listen(0, "127.0.0.1", dataDir);
     try {
       const base = `http://127.0.0.1:${server.address().port}`;
-      const created = await fetch(base + "/pet", {
+      const signedUp = await fetch(base + "/user", {
         method: "POST",
         headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          username: "ada",
+          password: "long-secret",
+          email: "ada@example.com",
+        }),
+      });
+      assert.equal(signedUp.status, 200, await signedUp.clone().text());
+      assert.equal((await signedUp.json()).password, undefined);
+      const rejected = await fetch(
+        base + "/user/login?username=ada&password=not-the-password",
+      );
+      assert.equal(rejected.status, 401);
+      const logged = await fetch(
+        base + "/user/login?username=ada&password=long-secret",
+      );
+      assert.equal(logged.status, 200, await logged.clone().text());
+      const token = (await logged.json()).token;
+      const headers = {
+        authorization: "Bearer " + token,
+        "content-type": "application/json",
+      };
+      const locked = await fetch(base + "/pet", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "fido",
+          status: "available",
+          photoUrls: ["https://pets.example/fido.png"],
+        }),
+      });
+      assert.equal(locked.status, 401);
+      const created = await fetch(base + "/pet", {
+        method: "POST",
+        headers,
         body: JSON.stringify({
           name: "fido",
           status: "available",
@@ -549,23 +591,31 @@ test("record routes keep schema fields, key by username, and skip action endpoin
       assert.equal(pet.name, "fido");
       assert.equal(pet.status, "available");
       assert.deepEqual(pet.photoUrls, ["https://pets.example/fido.png"]);
+      const found = await fetch(base + "/pet/findByStatus?status=available", {
+        headers,
+      });
+      assert.equal(found.status, 200, await found.clone().text());
+      assert.equal(
+        (await found.json()).items.some((item) => item.id === pet.id),
+        true,
+      );
       const empty = await fetch(base + "/pet", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers,
         body: "{}",
       });
       assert.equal(empty.status, 400);
       assert.equal((await empty.json()).rule, "required");
       const partial = await fetch(base + "/pet", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers,
         body: JSON.stringify({ name: "fido", status: "available" }),
       });
       assert.equal(partial.status, 400);
       assert.equal((await partial.json()).field, "photoUrls");
       const replaced = await fetch(base + "/pet?id=" + pet.id, {
         method: "PUT",
-        headers: { "content-type": "application/json" },
+        headers,
         body: JSON.stringify({
           name: "fido",
           status: "sold",
@@ -578,28 +628,25 @@ test("record routes keep schema fields, key by username, and skip action endpoin
       assert.equal(updated.name, "fido");
       assert.equal(updated.status, "sold");
       assert.deepEqual(updated.photoUrls, ["https://pets.example/fido.png"]);
-      const opened = await fetch(base + "/pet/" + pet.id);
+      const opened = await fetch(base + "/pet/" + pet.id, { headers });
       assert.equal(opened.status, 200);
       assert.equal((await opened.json()).status, "sold");
       const removed = await fetch(base + "/pet/" + pet.id, {
         method: "DELETE",
+        headers,
       });
       assert.equal(removed.status, 200);
       assert.equal((await removed.json()).deleted, true);
-      const user = await fetch(base + "/user", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ username: "ada" }),
-      });
-      assert.equal(user.status, 200, await user.clone().text());
-      const account = await user.json();
+      const account = await (
+        await fetch(base + "/user/ada", { headers })
+      ).json();
       assert.equal(account.username, "ada");
-      const byName = await fetch(base + "/user/ada");
+      const byName = await fetch(base + "/user/ada", { headers });
       assert.equal(byName.status, 200);
       assert.equal((await byName.json()).id, account.id);
       const renamed = await fetch(base + "/user/ada", {
         method: "PUT",
-        headers: { "content-type": "application/json" },
+        headers,
         body: JSON.stringify({ email: "ada@example.com" }),
       });
       assert.equal(renamed.status, 200, await renamed.clone().text());
@@ -607,7 +654,7 @@ test("record routes keep schema fields, key by username, and skip action endpoin
       assert.equal(accountUpdated.username, "ada");
       assert.equal(accountUpdated.email, "ada@example.com");
       assert.equal(
-        (await (await fetch(base + "/user/ada")).json()).email,
+        (await (await fetch(base + "/user/ada", { headers })).json()).email,
         "ada@example.com",
       );
       const blankUser = await fetch(base + "/user", {
@@ -616,12 +663,21 @@ test("record routes keep schema fields, key by username, and skip action endpoin
         body: "{}",
       });
       assert.equal(blankUser.status, 200);
+      const stock = await fetch(base + "/store/inventory", { headers });
+      assert.equal(stock.status, 200, await stock.clone().text());
+      assert.equal(typeof (await stock.json()).counts, "object");
       const upload = await fetch(base + "/pet/" + pet.id + "/uploadImage", {
         method: "POST",
+        headers,
       });
       assert.equal(upload.status, 404);
-      const login = await fetch(base + "/user/login");
-      assert.equal(login.status, 404);
+      const gone = await fetch(base + "/user/logout", { headers });
+      assert.equal(gone.status, 200, await gone.clone().text());
+      assert.equal((await gone.json()).revoked, true);
+      const after = await fetch(base + "/pet/findByStatus?status=available", {
+        headers,
+      });
+      assert.equal(after.status, 401);
     } finally {
       await new Promise((resolveClose) => server.close(resolveClose));
     }

@@ -11,7 +11,7 @@ const SEARCH_PARAMS = new Set([
  * Capabilities the rebuild will build from this spec.
  * A missing signal stays left out. Nothing here is a percentage of the original product.
  */
-export function decideCapabilities(spec, plan) {
+export function decideCapabilities(spec, plan, improvements = null) {
   const routes = plan.routes ?? [];
   const hasRecords = routes.some((route) =>
     ["create", "list", "read", "replace", "merge", "remove"].includes(
@@ -21,10 +21,15 @@ export function decideCapabilities(spec, plan) {
   const relations = relationList(routes);
   const search = wantsSearch(spec);
   const auth = authMode(spec);
+  const login = routes.find((route) => route.action === "login");
+  if (auth?.mode === "password" && login) {
+    auth.account_path = login.collection ?? null;
+    auth.account_resource = login.resource ?? null;
+  }
   const roles = Boolean(auth) && wantsRoles(spec);
   const webhooks = wantsWebhooks(spec);
-  const pricing = pricingPlans(spec);
   const http = routes.length > 0;
+  const pricing = http ? billingPlans(spec, improvements) : null;
   const runtime = {
     storage: hasRecords ? "sqlite" : null,
     relations,
@@ -72,7 +77,9 @@ export function decideCapabilities(spec, plan) {
           "implemented",
           auth.mode === "magic"
             ? "Magic link sessions are local. No mailer is configured, so no email is sent."
-            : "Email and password sessions are local. Each record is stored for the signed-in user.",
+            : login
+              ? "Passwords are hashed with scrypt. The target login path issues a token and logout revokes it. Record routes require that token."
+              : "Email and password sessions are local. Each record is stored for the signed-in user.",
         )
       : item("auth", "left-out", "The spec describes no authentication."),
     roles
@@ -100,12 +107,12 @@ export function decideCapabilities(spec, plan) {
           "The spec has no webhook path or integration.",
         ),
     pricing
-      ? item(
+      ? item("pricing", "needs-setup", pricingReason(pricing))
+      : item(
           "pricing",
-          "implemented",
-          "GET /pricing lists the spec plans. POST /checkout accepts a Stripe test key and refuses a live key.",
-        )
-      : item("pricing", "left-out", "The spec has no pricing plan."),
+          "left-out",
+          "No HTTP service was built, so billing was not added.",
+        ),
     http
       ? item(
           "ui",
@@ -227,13 +234,97 @@ function wantsSearch(spec) {
 }
 
 function authMode(spec) {
+  const endpoints = spec.api?.endpoints ?? [];
+  const hasLogin = endpoints.some((endpoint) =>
+    /\/login$/iu.test(String(endpoint?.path ?? "")),
+  );
   const auth = spec.api?.auth ?? [];
-  if (auth.length === 0) return null;
+  if (auth.length === 0 && !hasLogin) return null;
   const text = auth
     .map((entry) => `${entry.name ?? ""} ${entry.style ?? ""}`)
     .join("\n");
-  if (/magic|email.?link/iu.test(text)) return { mode: "magic" };
+  if (!hasLogin && /magic|email.?link/iu.test(text)) return { mode: "magic" };
   return { mode: "password" };
+}
+
+function pricingReason(pricing) {
+  const plans = pricing.placeholder
+    ? "The plan list is a placeholder because no Scale tier or spec price was recorded."
+    : "Plan names come from recorded Scale evidence or the spec, with their citations.";
+  return (
+    "Stripe checkout and webhook verification are generated for an existing account. " +
+    plans +
+    " They stay off until STRIPE_SECRET_KEY is an sk_test_ key, STRIPE_WEBHOOK_SECRET is set, and STRIPE_PRICE_ID or STRIPE_PRICE_IDS names an existing price. No account or product is created. A live key is refused."
+  );
+}
+
+function billingPlans(spec, improvements) {
+  const fromScale = scalePlans(improvements);
+  const plans = fromScale.length > 0 ? fromScale : specPlans(spec);
+  if (plans.length > 0)
+    return { plans, placeholder: false, creates_products: false, mode: "test" };
+  return {
+    plans: [
+      {
+        name: "Placeholder",
+        amount: null,
+        currency: null,
+        interval: null,
+        display: "Placeholder. No price was recorded.",
+        placeholder: true,
+        source_url: null,
+        fetched_at: null,
+      },
+    ],
+    placeholder: true,
+    creates_products: false,
+    mode: "test",
+  };
+}
+
+function scalePlans(improvements) {
+  const plans = [];
+  for (const item of improvements?.items ?? []) {
+    if (item?.record !== "scale" || item?.kind !== "pricing") continue;
+    const name =
+      typeof item.recorded?.name === "string" ? item.recorded.name.trim() : "";
+    if (!name) continue;
+    const amount =
+      typeof item.recorded?.amount === "string" && item.recorded.amount.trim()
+        ? item.recorded.amount.trim()
+        : null;
+    plans.push({
+      name,
+      amount,
+      currency:
+        typeof item.recorded?.currency === "string"
+          ? item.recorded.currency.trim() || null
+          : null,
+      interval: null,
+      display: amount ?? "Named in Scale evidence. No amount was recorded.",
+      placeholder: false,
+      source_url:
+        typeof item.citation?.url === "string" ? item.citation.url : null,
+      fetched_at:
+        typeof item.citation?.fetched_at === "string"
+          ? item.citation.fetched_at
+          : null,
+    });
+  }
+  return plans;
+}
+
+function specPlans(spec) {
+  return (spec.pricing?.plans ?? []).map((plan) => ({
+    name: String(plan.name ?? ""),
+    amount: plan.price?.amount ?? null,
+    currency: plan.price?.currency ?? null,
+    interval: plan.price?.interval ?? null,
+    display: plan.price?.display ?? null,
+    placeholder: false,
+    source_url: plan.citations?.[0]?.url ?? null,
+    fetched_at: plan.citations?.[0]?.fetched_at ?? null,
+  }));
 }
 
 function wantsRoles(spec) {
@@ -258,18 +349,4 @@ function wantsWebhooks(spec) {
   return (spec.integrations ?? []).some((entry) =>
     /webhook/iu.test(String(entry.name ?? "")),
   );
-}
-
-function pricingPlans(spec) {
-  const plans = spec.pricing?.plans ?? [];
-  if (plans.length === 0) return null;
-  return {
-    plans: plans.map((plan) => ({
-      name: String(plan.name ?? ""),
-      amount: plan.price?.amount ?? null,
-      currency: plan.price?.currency ?? null,
-      interval: plan.price?.interval ?? null,
-      display: plan.price?.display ?? null,
-    })),
-  };
 }
