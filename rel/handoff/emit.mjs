@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { collectGaps, gapLines } from "../gaps/report.mjs";
+import { writeFinishTickets } from "./finish.mjs";
 import { improvementLines, publicImprovements } from "../improve/collect.mjs";
 import { parseScoutTarget } from "../opportunities/parse.mjs";
 
@@ -390,6 +391,11 @@ export function emitHandoff({
       note: "Scale was not called. This file is the request a person can send.",
     }),
   };
+  const finishTickets = writeFinishTickets({
+    directory,
+    projectDir,
+    forbidden,
+  });
   const readme = [
     `# ${provenance.product_name}`,
     "",
@@ -413,6 +419,7 @@ export function emitHandoff({
       ? "Unimplemented features are marked in the product and are not routes."
       : "No spec feature was left unimplemented.",
     `Failed route tests: ${verify.failed}.`,
+    `Open finish tickets: ${finishTickets.tickets.length}. Each file is ree.finish.v1. node ree.mjs finish DIR lists the open tickets and re-runs verify.`,
     "",
     "Guard sign-off: not submitted. Guard was not called.",
     "Scale was not called.",
@@ -458,5 +465,14 @@ export function emitHandoff({
       JSON.stringify(document, null, 2) + "\n",
     );
   }
-  return { directory, handoff, guard, vault, scale, requests, gaps };
+  return {
+    directory,
+    handoff,
+    guard,
+    vault,
+    scale,
+    requests,
+    gaps,
+    finish: finishTickets,
+  };
 }

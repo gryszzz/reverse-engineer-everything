@@ -851,6 +851,10 @@ async function stageHandoff(ctx) {
       `${buildDir}/requests/guard.json`,
       `${buildDir}/requests/blast.json`,
       `${buildDir}/requests/scale.json`,
+      `${buildDir}/finish.json`,
+      ...emitted.finish.tickets.map(
+        (ticket) => `${buildDir}/finish/${ticket.id}.json`,
+      ),
     ],
     provenance: {
       approvals: ctx.run.approvals,

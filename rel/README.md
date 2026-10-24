@@ -43,6 +43,7 @@ node ree.mjs board picks --from /tmp/ree-shared-board
 node ree.mjs rebuild --spec /tmp/spec/behavior-spec.json --name "Board Kit" --out /tmp/board-kit
 node ree.mjs verify --project /tmp/board-kit
 node ree.mjs handoff --project /tmp/board-kit --blast-dir /tmp/ree-blast
+node ree.mjs finish /tmp/board-kit
 ```
 
 ## Retained Evidence and selected views
