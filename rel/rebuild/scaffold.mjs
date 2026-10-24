@@ -1043,7 +1043,7 @@ function landingText(productName, spec, plan, capabilities) {
   lines.push(
     "",
     capabilities.pricing
-      ? "Pricing lists recorded plans or a placeholder. Checkout stays off until an existing Stripe test key and price id are set. A live key is refused. See PRICING.md."
+      ? "Pricing lists recorded plans or a placeholder. Checkout stays off until an existing Stripe test key and price id are set. A test key can smoke-check checkout. Live mode stays off unless that deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes. See PRICING.md."
       : "There is no checkout. See PRICING.md. Prices are not invented.",
     "",
   );
@@ -1088,7 +1088,7 @@ function pricingText(spec, capabilities) {
     return lines.join("\n");
   }
   lines.push(
-    "Checkout uses an existing Stripe price. Set STRIPE_SECRET_KEY to an sk_test_ key, STRIPE_WEBHOOK_SECRET, and STRIPE_PRICE_ID or STRIPE_PRICE_IDS. No Stripe account or product is created. A live key is refused, and no price was invented. Without those variables, checkout and the webhook stay off.",
+    "Checkout uses an existing Stripe price. Set STRIPE_SECRET_KEY to an sk_test_ key, STRIPE_WEBHOOK_SECRET, and STRIPE_PRICE_ID or STRIPE_PRICE_IDS. No Stripe account or product is created. A test key can smoke-check checkout. Live mode stays off unless that deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes, and no price was invented. Without those variables, checkout and the webhook stay off.",
     "",
   );
   if (capabilities.pricing.placeholder)
@@ -1234,7 +1234,7 @@ export function scaffoldRebuild({
       "Records are stored in data/store.sqlite when a record route is built. GET / is the product page. JSON field objects are accepted.",
       "A path with one {name} segment gets get, update, and delete on the parent collection. Other path templates are not expanded.",
       "Login and logout paths hash passwords and issue or revoke a token. findBy paths filter a collection. An inventory path counts a sibling collection.",
-      "Stripe checkout and webhook checks are generated for an existing account. They stay off until STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and an existing price id are set. No account or product is created. A live Stripe key is refused.",
+      "Stripe checkout and webhook checks are generated for an existing account. They stay off until STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and an existing price id are set. No account or product is created. A test key can smoke-check checkout. Live mode stays off unless that deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes.",
       "GraphQL operations, workflows, and rate limits are not built.",
       "An improvement is an extra feature only when a Scout, Scale, or build pick records a quote. That quote is not copied into the product source.",
     ],
@@ -1333,6 +1333,8 @@ export function scaffoldRebuild({
   if (capabilities.deploy) {
     write("Dockerfile", dockerText());
     write("render.yaml", renderText());
+    write(".env.example", envExampleText());
+    write(".gitignore", productGitignore());
   }
   write("test/product.test.mjs", TEST_SOURCE);
   write("behavior-spec.json", JSON.stringify(spec, null, 2) + "\n");
@@ -1431,7 +1433,7 @@ function openApiDocument(name, plan, capabilities) {
       post: {
         responses: {
           200: { description: "test checkout or unconfigured" },
-          400: { description: "live key refused" },
+          400: { description: "live key not approved" },
         },
       },
     };
@@ -1508,8 +1510,37 @@ function renderText() {
     "        value: 0.0.0.0",
     "      - key: PORT",
     "        sync: false",
+    "      - key: STRIPE_SECRET_KEY",
+    "        sync: false",
+    "      - key: STRIPE_WEBHOOK_SECRET",
+    "        sync: false",
+    "      - key: STRIPE_PRICE_ID",
+    "        sync: false",
+    "      - key: STRIPE_PRICE_IDS",
+    "        sync: false",
+    "      - key: REE_BILLING_MODE",
+    "        sync: false",
+    "      - key: REE_BILLING_LIVE_APPROVED",
+    "        sync: false",
     "",
   ].join("\n");
+}
+
+function envExampleText() {
+  return [
+    "# Set these in the deploy environment. Do not commit values.",
+    "STRIPE_SECRET_KEY=",
+    "STRIPE_WEBHOOK_SECRET=",
+    "STRIPE_PRICE_ID=",
+    "STRIPE_PRICE_IDS=",
+    "REE_BILLING_MODE=",
+    "REE_BILLING_LIVE_APPROVED=",
+    "",
+  ].join("\n");
+}
+
+function productGitignore() {
+  return [".env", ".env.*", "!.env.example", ""].join("\n");
 }
 
 function slug(name) {

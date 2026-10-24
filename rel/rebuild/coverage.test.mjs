@@ -194,6 +194,12 @@ test("the owned desk fixture stays at or above 80 percent", async () => {
       assert.equal(docker.includes("sk_test_"), false);
       assert.equal(render.includes("sk_live_"), false);
       assert.equal(render.includes("sk_test_"), false);
+      const example = readFileSync(
+        join(measured.product, ".env.example"),
+        "utf8",
+      );
+      assert.match(example, /^STRIPE_SECRET_KEY=$/m);
+      assert.equal(example.includes("sk_"), false);
     } finally {
       await new Promise((resolveClose) => server.close(resolveClose));
     }

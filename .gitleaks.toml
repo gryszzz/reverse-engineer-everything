@@ -1,0 +1,8 @@
+title = "REE"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "tests/fixtures/golden/provenance.json stores sha256 digests of fixture files. gitleaks generic-api-key treats those hex strings as keys."
+paths = ['''tests/fixtures/golden/provenance\.json''']

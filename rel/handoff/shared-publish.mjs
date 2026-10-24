@@ -6,6 +6,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { redactText } from "../secrets/redact.mjs";
 import { handoffRequest } from "./emit.mjs";
 import { stableId } from "../opportunities/board.mjs";
 import {
@@ -57,12 +58,13 @@ function approvalsOf(value = {}) {
 
 function writeJson(path, value) {
   mkdirSync(join(path, ".."), { recursive: true });
-  writeFileSync(path, JSON.stringify(value, null, 2) + "\n");
+  writeFileSync(path, redactText(JSON.stringify(value, null, 2) + "\n"));
 }
 
 function writeText(path, text) {
   mkdirSync(join(path, ".."), { recursive: true });
-  writeFileSync(path, text.endsWith("\n") ? text : text + "\n");
+  const body = text.endsWith("\n") ? text : text + "\n";
+  writeFileSync(path, redactText(body));
 }
 
 function findingReason(featureId, match, reasons) {

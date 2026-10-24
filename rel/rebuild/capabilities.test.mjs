@@ -308,6 +308,17 @@ test("a supported spec builds each capability and the product tests pass", async
     const render = readFileSync(join(out, "render.yaml"), "utf8");
     assert.equal(render.includes("sk_live_"), false);
     assert.equal(render.includes("sk_test_"), false);
+    assert.match(render, /STRIPE_SECRET_KEY/);
+    assert.match(render, /sync: false/);
+    const example = readFileSync(join(out, ".env.example"), "utf8");
+    assert.match(example, /^STRIPE_SECRET_KEY=$/m);
+    assert.match(example, /^STRIPE_WEBHOOK_SECRET=$/m);
+    assert.match(example, /^REE_BILLING_LIVE_APPROVED=$/m);
+    assert.equal(example.includes("sk_"), false);
+    assert.equal(example.includes("rk_"), false);
+    assert.equal(example.includes("whsec_"), false);
+    const ignore = readFileSync(join(out, ".gitignore"), "utf8");
+    assert.match(ignore, /^\.env$/m);
     const openapi = JSON.parse(readFileSync(join(out, "openapi.json"), "utf8"));
     assert.equal(openapi.openapi, "3.0.3");
     assert.equal(openapi.components.securitySchemes.bearer.scheme, "bearer");

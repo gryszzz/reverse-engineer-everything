@@ -9,6 +9,7 @@ import { join, relative, resolve } from "node:path";
 import { plannedCoverage } from "../rebuild/coverage.mjs";
 import { planProduct } from "../rebuild/scaffold.mjs";
 import { readGeneratedArray, verifyRebuild } from "../rebuild/verify.mjs";
+import { redactText } from "../secrets/redact.mjs";
 
 export const FINISH_SCHEMA = "ree.finish.v1";
 
@@ -27,13 +28,6 @@ function readJson(path) {
 
 function writeJson(path, value) {
   writeFileSync(path, redactText(JSON.stringify(value, null, 2)) + "\n");
-}
-
-function redactText(value) {
-  return String(value ?? "").replace(
-    /(?:sk|rk)_(?:live|test)_[A-Za-z0-9]+|whsec_[A-Za-z0-9]+/g,
-    "[redacted]",
-  );
 }
 
 function endpointKey(method, path) {
