@@ -115,6 +115,8 @@ import { capabilities } from "./capabilities.mjs";
 import { routes } from "./routes.mjs";
 
 const PRODUCT_NAME = %%PRODUCT_NAME%%;
+const PRODUCT_ID = %%PRODUCT_ID%%;
+const BUILD_ID = %%BUILD_ID%%;
 
 export function createApp(dataDir) {
   const root = dataDir || process.env.REE_PRODUCT_DATA || process.cwd();
@@ -169,6 +171,9 @@ export function createApp(dataDir) {
           commit,
           stores,
           body,
+          () => {
+            if (db) writeStore(db, stores);
+          },
         )
       )
         return;
@@ -339,13 +344,13 @@ export function createApp(dataDir) {
   });
 }
 
-function handleExtra(request, response, url, bodyParams, jsonFields, commit, stores, raw) {
+function handleExtra(request, response, url, bodyParams, jsonFields, commit, stores, raw, persist) {
   if (capabilities.pricing && request.method === "GET" && url.pathname === "/billing") {
-    send(response, 200, billingStatus());
+    send(response, 200, billingStatus(stores));
     return true;
   }
   if (capabilities.pricing && request.method === "POST" && url.pathname === "/billing/webhook") {
-    stripeWebhook(response, raw, request, stores);
+    stripeWebhook(response, raw, request, stores, persist);
     return true;
   }
   if (capabilities.pricing && request.method === "GET" && url.pathname === "/pricing") {
@@ -354,7 +359,7 @@ function handleExtra(request, response, url, bodyParams, jsonFields, commit, sto
     return true;
   }
   if (capabilities.pricing && request.method === "POST" && url.pathname === "/checkout") {
-    checkout(response, jsonFields, bodyParams);
+    checkout(response, jsonFields, bodyParams, stores);
     return true;
   }
   if (capabilities.auth && url.pathname === "/auth/register" && request.method === "POST") {
@@ -603,7 +608,7 @@ function keyType(key) {
   return null;
 }
 
-function checkout(response, jsonFields, bodyParams) {
+function checkout(response, jsonFields, bodyParams, stores) {
   const key = process.env.STRIPE_SECRET_KEY ?? "";
   const kind = keyKind(key);
   if (kind === "live" && !liveApproved()) {
@@ -613,9 +618,15 @@ function checkout(response, jsonFields, bodyParams) {
     });
     return;
   }
-  const status = billingStatus();
+  const status = billingStatus(stores);
   if (!status.configured) {
-    send(response, 200, status);
+    send(response, 403, {
+      configured: false,
+      error: "not-configured",
+      needs: status.needs,
+      note: status.note,
+      access: status.access,
+    });
     return;
   }
   const price = priceFor(jsonFields, bodyParams);
@@ -625,6 +636,8 @@ function checkout(response, jsonFields, bodyParams) {
     "line_items[0][price]": price.id,
     success_url: "https://example.com/pricing?status=success",
     cancel_url: "https://example.com/pricing?status=cancel",
+    "metadata[product_id]": PRODUCT_ID,
+    "metadata[build_id]": BUILD_ID,
   });
   const mode = kind === "live" ? "live" : "test";
   fetch("https://api.stripe.com/v1/checkout/sessions", {
@@ -647,7 +660,10 @@ function checkout(response, jsonFields, bodyParams) {
         key_type: keyType(key),
         creates_products: false,
         price: price.id,
+        product_id: PRODUCT_ID,
+        build_id: BUILD_ID,
         url: payload && typeof payload.url === "string" ? payload.url : null,
+        access: status.access,
       };
       if (mode === "test" && process.env.REE_BILLING_MODE === "live")
         result.note = "A test key does not charge live.";
@@ -659,7 +675,7 @@ function checkout(response, jsonFields, bodyParams) {
     });
 }
 
-function billingStatus() {
+function billingStatus(stores) {
   const key = process.env.STRIPE_SECRET_KEY ?? "";
   const kind = keyKind(key);
   const needs = [];
@@ -674,6 +690,11 @@ function billingStatus() {
   const plans = capabilities.pricing?.plans ?? [];
   const configured = needs.length === 0;
   const mode = configured && kind === "live" ? "live" : "test";
+  const access = stores
+    ? bucket(stores, "billing:access").items.some(
+        (item) => item.product_id === PRODUCT_ID && item.active === true,
+      )
+    : false;
   return {
     configured,
     mode,
@@ -682,8 +703,11 @@ function billingStatus() {
     needs,
     plans,
     placeholder: capabilities.pricing?.placeholder === true,
+    access,
+    product_id: PRODUCT_ID,
+    build_id: BUILD_ID,
     note: needs.length
-      ? "Checkout stays off until an existing Stripe test key, webhook secret, and price id are set. A live key also needs REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes on that deploy. No account or product is created."
+      ? "Checkout stays off until an existing Stripe test key, webhook secret, and price id are set. A live key also needs REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes on that deploy. No account or product is created. Access is not granted from the success page."
       : mode === "test" && process.env.REE_BILLING_MODE === "live"
         ? "A test key does not charge live. Checkout uses an existing Stripe price. No account or product is created."
         : "Checkout uses an existing Stripe price. No account or product is created.",
@@ -691,6 +715,7 @@ function billingStatus() {
 }
 
 function priceFor(jsonFields, bodyParams) {
+  // Plan name selects a server env price id. Client price, amount, and price_data are ignored.
   const requested = String(jsonFields?.plan ?? bodyParams?.get("plan") ?? "");
   const plans = capabilities.pricing?.plans ?? [];
   const plan = plans.find((item) => item.name === requested) ?? null;
@@ -719,43 +744,134 @@ function priceMap() {
   return map;
 }
 
-function stripeWebhook(response, raw, request, stores) {
+function stripeWebhook(response, raw, request, stores, persist) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
   if (!secret) {
-    send(response, 200, {
+    send(response, 403, {
       configured: false,
       accepted: false,
       charged: false,
-      note: "Set STRIPE_WEBHOOK_SECRET. The event was not accepted.",
+      granted: false,
+      error: "not-configured",
+      note: "Set STRIPE_WEBHOOK_SECRET for this product endpoint. The event was not accepted.",
     });
     return;
   }
   if (!verifyStripeSignature(raw, request.headers["stripe-signature"], secret)) {
-    send(response, 400, { error: "signature", accepted: false, charged: false });
+    send(response, 400, {
+      error: "signature",
+      accepted: false,
+      charged: false,
+      granted: false,
+    });
     return;
   }
   let event = null;
   try {
-    event = JSON.parse(raw);
+    event = JSON.parse(String(raw ?? ""));
   } catch {
     event = null;
   }
-  const store = bucket(stores, "billing:events");
+  const eventId = event && typeof event.id === "string" ? event.id : "";
+  const type = event && typeof event.type === "string" ? event.type : "";
+  const events = bucket(stores, "billing:events");
+  if (eventId && events.items.some((item) => item.event_id === eventId)) {
+    send(response, 200, {
+      configured: true,
+      accepted: true,
+      duplicate: true,
+      charged: false,
+      granted: false,
+      type: type || null,
+    });
+    return;
+  }
+  const metadata = eventMetadata(event);
+  const grantType =
+    type === "checkout.session.completed" || type === "invoice.paid";
+  const productOk = metadata.product_id === PRODUCT_ID && PRODUCT_ID !== "";
+  const granted = grantType && productOk && eventId !== "";
   const record = {
-    id: String(store.next),
-    event_id: event && typeof event.id === "string" ? event.id : null,
-    type: event && typeof event.type === "string" ? event.type : null,
+    id: String(events.next),
+    event_id: eventId || null,
+    type: type || null,
     accepted: true,
     charged: false,
+    granted,
   };
-  store.next += 1;
-  store.items.push(record);
-  send(response, 200, {
+  events.next += 1;
+  events.items.push(record);
+  if (granted) {
+    const access = bucket(stores, "billing:access");
+    const object =
+      event.data && event.data.object && typeof event.data.object === "object"
+        ? event.data.object
+        : {};
+    access.items.push({
+      id: String(access.next),
+      event_id: eventId,
+      type,
+      product_id: PRODUCT_ID,
+      build_id:
+        typeof metadata.build_id === "string" && metadata.build_id
+          ? metadata.build_id
+          : BUILD_ID,
+      active: true,
+      customer: typeof object.customer === "string" ? object.customer : null,
+    });
+    access.next += 1;
+  }
+  try {
+    if (persist) persist();
+  } catch {
+    events.items.pop();
+    events.next -= 1;
+    if (granted) {
+      const access = bucket(stores, "billing:access");
+      access.items.pop();
+      access.next -= 1;
+    }
+    send(response, 500, {
+      error: "store",
+      accepted: false,
+      charged: false,
+      granted: false,
+    });
+    return;
+  }
+  const body = {
     configured: true,
     accepted: true,
     charged: false,
-    type: record.type,
-  });
+    granted,
+    type: type || null,
+  };
+  if (grantType && !productOk) body.reason = "product";
+  send(response, 200, body);
+}
+
+function eventMetadata(event) {
+  const object =
+    event &&
+    event.data &&
+    event.data.object &&
+    typeof event.data.object === "object"
+      ? event.data.object
+      : {};
+  const parent = object.parent && typeof object.parent === "object" ? object.parent : {};
+  const sources = [
+    object.metadata,
+    object.subscription_details && object.subscription_details.metadata,
+    parent.subscription_details && parent.subscription_details.metadata,
+  ];
+  const merged = {};
+  for (const source of sources) {
+    if (!source || typeof source !== "object" || Array.isArray(source)) continue;
+    for (const [key, value] of Object.entries(source)) {
+      if (typeof value === "string") merged[key] = value;
+    }
+  }
+  return merged;
 }
 
 function verifyStripeSignature(raw, header, secret) {
@@ -803,7 +919,7 @@ function pricingPage() {
     PAGE_STYLE +
     "</style></head><body><main><h1 data-pricing=\\"1\\"" +
     (placeholder ? " data-placeholder=\\"1\\"" : "") +
-    ">Pricing</h1><p class=\\"quiet\\">A test key can smoke-check checkout. Live mode stays off unless this deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes. Checkout uses an existing Stripe price.</p>" +
+    ">Pricing</h1><p class=\\"quiet\\">A test key can smoke-check checkout. Live mode stays off unless this deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes. Checkout uses an existing Stripe price. Returning from checkout does not grant access.</p>" +
     cards +
     "<form method=\\"post\\" action=\\"/checkout\\"><button type=\\"submit\\">Checkout</button></form></main></body></html>"
   );
@@ -1430,11 +1546,26 @@ if (entry && import.meta.url === pathToFileURL(resolve(entry)).href) {
 }
 `;
 
-export function serverSource(productName) {
+export function serverSource(productName, identity = {}) {
+  const productId =
+    typeof identity.productId === "string" && identity.productId.trim()
+      ? identity.productId.trim()
+      : String(productName)
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "") || "rebuild";
+  const buildId =
+    typeof identity.buildId === "string" &&
+    /^bld_[0-9a-f]{16}$/.test(identity.buildId)
+      ? identity.buildId
+      : "";
   return SERVER_SOURCE.replaceAll(
     "%%PRODUCT_NAME%%",
     JSON.stringify(String(productName)),
-  );
+  )
+    .replaceAll("%%PRODUCT_ID%%", JSON.stringify(productId))
+    .replaceAll("%%BUILD_ID%%", JSON.stringify(buildId));
 }
 
 export const TEST_SOURCE = `import assert from "node:assert/strict";
@@ -2013,7 +2144,10 @@ test("capabilities behave only when the spec supports them", async () => {
       assert.match(await pricing.text(), /data-pricing="1"/);
       const plain = await fetch(base + "/checkout", { method: "POST" });
       const open = await plain.json();
+      assert.equal(plain.status, 403);
       assert.equal(open.configured, false);
+      assert.equal(open.error, "not-configured");
+      assert.equal(open.access, false);
       assert.match(open.note, /test key/);
       const previous = process.env.STRIPE_SECRET_KEY;
       process.env.STRIPE_SECRET_KEY = "sk_live_refused";
@@ -2062,37 +2196,171 @@ test("capabilities behave only when the spec supports them", async () => {
         assert.equal(calls.length, 1);
         assert.equal(calls[0].body.includes("price_existing"), true);
         assert.equal(calls[0].body.includes("price_data"), false);
+        assert.match(paidBody.product_id, /[a-z0-9-]+/);
+        assert.match(paidBody.build_id, /^bld_[0-9a-f]{16}$/);
+        calls.length = 0;
+        const priced = await fetch(base + "/checkout", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            plan: "Placeholder",
+            price: "price_evil",
+            amount: 1,
+            unit_amount: 50,
+            price_data: { currency: "usd", unit_amount: 50 },
+          }),
+        });
+        assert.equal(priced.status, 200);
+        assert.equal(calls.length, 1);
+        const stripeBody = calls[0].body;
+        const stripeParams = new URLSearchParams(stripeBody);
+        assert.equal(stripeParams.get("line_items[0][price]"), "price_existing");
+        assert.equal(stripeBody.includes("price_evil"), false);
+        assert.equal(stripeBody.includes("price_data"), false);
+        assert.equal(stripeBody.includes("unit_amount"), false);
+        assert.equal(stripeBody.includes("amount"), false);
+        assert.equal(stripeParams.get("metadata[product_id]"), paidBody.product_id);
+        assert.equal(stripeParams.get("metadata[build_id]"), paidBody.build_id);
+        const redirect = await fetch(base + "/pricing?status=success");
+        assert.equal(redirect.status, 200);
+        const beforeGrant = await (await fetch(base + "/billing")).json();
+        assert.equal(beforeGrant.access, false);
+        assert.equal(beforeGrant.product_id, paidBody.product_id);
+        assert.equal(beforeGrant.build_id, paidBody.build_id);
+        const { createHmac } = await import("node:crypto");
+        function sign(raw) {
+          const stamp = Math.floor(Date.now() / 1000);
+          const sig = createHmac("sha256", "whsec_test")
+            .update(stamp + "." + raw)
+            .digest("hex");
+          return "t=" + stamp + ",v1=" + sig;
+        }
+        async function postWebhook(raw, signature) {
+          return fetch(base + "/billing/webhook", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "stripe-signature": signature,
+            },
+            body: raw,
+          });
+        }
+        const keptSecret = process.env.STRIPE_WEBHOOK_SECRET;
+        delete process.env.STRIPE_WEBHOOK_SECRET;
+        const closedRaw = JSON.stringify({
+          id: "evt_closed",
+          type: "checkout.session.completed",
+        });
+        const closed = await postWebhook(closedRaw, sign(closedRaw));
+        const closedBody = await closed.json();
+        assert.equal(closed.status, 403);
+        assert.equal(closedBody.accepted, false);
+        assert.equal(closedBody.granted, false);
+        process.env.STRIPE_WEBHOOK_SECRET = keptSecret;
+        const closedAgain = await postWebhook(closedRaw, sign(closedRaw));
+        const closedAgainBody = await closedAgain.json();
+        assert.equal(closedAgain.status, 200);
+        assert.equal(closedAgainBody.duplicate, undefined);
+        assert.equal(closedAgainBody.granted, false);
+        assert.equal(closedAgainBody.reason, "product");
         const raw = JSON.stringify({
           id: "evt_test",
           type: "checkout.session.completed",
         });
-        const stamp = Math.floor(Date.now() / 1000);
-        const { createHmac } = await import("node:crypto");
-        const sig = createHmac("sha256", "whsec_test")
-          .update(stamp + "." + raw)
-          .digest("hex");
-        const good = await fetch(base + "/billing/webhook", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "stripe-signature": "t=" + stamp + ",v1=" + sig,
-          },
-          body: raw,
-        });
+        const good = await postWebhook(raw, sign(raw));
         const goodBody = await good.json();
         assert.equal(good.status, 200);
         assert.equal(goodBody.accepted, true);
         assert.equal(goodBody.charged, false);
-        const bad = await fetch(base + "/billing/webhook", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "stripe-signature": "t=" + stamp + ",v1=00",
+        assert.equal(goodBody.granted, false);
+        assert.equal(goodBody.reason, "product");
+        const replay = await postWebhook(raw, sign(raw));
+        const replayBody = await replay.json();
+        assert.equal(replay.status, 200);
+        assert.equal(replayBody.duplicate, true);
+        assert.equal(replayBody.granted, false);
+        const chargeRaw = JSON.stringify({
+          id: "evt_charge",
+          type: "charge.succeeded",
+          data: {
+            object: { metadata: { product_id: paidBody.product_id } },
           },
-          body: raw,
         });
+        const charge = await postWebhook(chargeRaw, sign(chargeRaw));
+        const chargeBody = await charge.json();
+        assert.equal(charge.status, 200);
+        assert.equal(chargeBody.granted, false);
+        assert.equal((await (await fetch(base + "/billing")).json()).access, false);
+        const bad = await postWebhook(raw, "t=" + Math.floor(Date.now() / 1000) + ",v1=00");
         assert.equal(bad.status, 400);
         assert.equal((await bad.json()).error, "signature");
+        const compact = JSON.stringify({
+          id: "evt_raw",
+          type: "checkout.session.completed",
+          data: {
+            object: {
+              metadata: {
+                product_id: paidBody.product_id,
+                build_id: paidBody.build_id,
+              },
+            },
+          },
+        });
+        const pretty = JSON.stringify(JSON.parse(compact), null, 2);
+        assert.notEqual(pretty, compact);
+        const mismatched = await postWebhook(pretty, sign(compact));
+        assert.equal(mismatched.status, 400);
+        const matched = await postWebhook(pretty, sign(pretty));
+        const matchedBody = await matched.json();
+        assert.equal(matched.status, 200);
+        assert.equal(matchedBody.granted, true);
+        assert.equal((await (await fetch(base + "/billing")).json()).access, true);
+        const matchedAgain = await postWebhook(pretty, sign(pretty));
+        assert.equal((await matchedAgain.json()).duplicate, true);
+        assert.equal((await (await fetch(base + "/billing")).json()).access, true);
+        const invoiceRaw = JSON.stringify({
+          id: "evt_invoice",
+          type: "invoice.paid",
+          data: {
+            object: {
+              id: "in_test",
+              customer: "cus_test",
+              parent: {
+                subscription_details: {
+                  metadata: {
+                    product_id: paidBody.product_id,
+                    build_id: paidBody.build_id,
+                  },
+                },
+              },
+            },
+          },
+        });
+        const invoice = await postWebhook(invoiceRaw, sign(invoiceRaw));
+        assert.equal((await invoice.json()).granted, true);
+        const nestedInvoice = JSON.stringify({
+          id: "evt_invoice_direct",
+          type: "invoice.paid",
+          data: {
+            object: {
+              subscription_details: {
+                metadata: { product_id: paidBody.product_id },
+              },
+            },
+          },
+        });
+        assert.equal((await (await postWebhook(nestedInvoice, sign(nestedInvoice))).json()).granted, true);
+        const wrongRaw = JSON.stringify({
+          id: "evt_wrong",
+          type: "checkout.session.completed",
+          data: { object: { metadata: { product_id: "other-product" } } },
+        });
+        const wrong = await postWebhook(wrongRaw, sign(wrongRaw));
+        const wrongBody = await wrong.json();
+        assert.equal(wrong.status, 200);
+        assert.equal(wrongBody.granted, false);
+        assert.equal(wrongBody.reason, "product");
+        assert.equal((await (await fetch(base + "/billing")).json()).access, true);
         const restricted = "rk_" + "test_" + "mock";
         process.env.STRIPE_SECRET_KEY = restricted;
         const restrictedPaid = await fetch(base + "/checkout", { method: "POST" });
@@ -2128,6 +2396,15 @@ test("capabilities behave only when the spec supports them", async () => {
         assert.equal(openedBody.creates_products, false);
         assert.equal(calls.length, 1);
         assert.equal(calls[0].body.includes("price_data"), false);
+        assert.equal(calls[0].body.includes("price_existing"), true);
+        assert.equal(
+          new URLSearchParams(calls[0].body).get("metadata[product_id]"),
+          paidBody.product_id,
+        );
+        assert.equal(
+          new URLSearchParams(calls[0].body).get("metadata[build_id]"),
+          paidBody.build_id,
+        );
         assert.equal(JSON.stringify(openedBody).includes(liveKey), false);
         process.env.STRIPE_SECRET_KEY = "sk_test_mock";
         const smoke = await fetch(base + "/checkout", { method: "POST" });
