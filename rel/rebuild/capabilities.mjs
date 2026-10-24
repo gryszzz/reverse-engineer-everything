@@ -254,7 +254,7 @@ function pricingReason(pricing) {
   return (
     "Stripe checkout and webhook verification are generated for an existing account. " +
     plans +
-    " They stay off until STRIPE_SECRET_KEY is an sk_test_ key, STRIPE_WEBHOOK_SECRET is set, and STRIPE_PRICE_ID or STRIPE_PRICE_IDS names an existing price. No account or product is created. A test key can smoke-check checkout. Live mode stays off unless REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes."
+    " They stay off until STRIPE_SECRET_KEY is an sk_test_ or rk_test_ key, STRIPE_WEBHOOK_SECRET is set for this product endpoint, and STRIPE_PRICE_ID or STRIPE_PRICE_IDS names an existing price. No account or product is created. A client amount or price is not used. A test key can smoke-check checkout. Live mode stays off unless REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes. Access follows checkout.session.completed or invoice.paid, not the success redirect."
   );
 }
 

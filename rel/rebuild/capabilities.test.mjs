@@ -300,6 +300,17 @@ test("a supported spec builds each capability and the product tests pass", async
     assert.match(server, /node:sqlite/);
     assert.match(server, /sk_test_/);
     assert.match(server, /sk_live_/);
+    assert.match(server, /rk_test_/);
+    assert.match(server, /rk_live_/);
+    assert.match(server, /metadata\[product_id\]/);
+    assert.match(server, /checkout\.session\.completed/);
+    assert.match(server, /invoice\.paid/);
+    assert.equal(server.includes("%%PRODUCT"), false);
+    const provenance = JSON.parse(
+      readFileSync(join(out, "provenance.json"), "utf8"),
+    );
+    assert.match(server, new RegExp(provenance.build_id));
+    assert.match(server, /"harbor-kit"/);
     assert.match(server, /api\.stripe\.com/);
     const docker = readFileSync(join(out, "Dockerfile"), "utf8");
     assert.match(docker, /0\.0\.0\.0/);

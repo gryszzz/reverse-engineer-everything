@@ -238,7 +238,7 @@ export function emitHandoff({
     : null;
   const shownImprovements = publicImprovements(improvements, forbidden);
   const summary =
-    "Clean-room HTTP product. Each feature gets a data model, write rules, and CRUD routes. A path with one {name} segment gets get, update, and delete on the parent collection. Login, logout, findBy filters, and inventory counts are built when declared. Any other path template, or a method outside GET, POST, PUT, PATCH, and DELETE, is left out, with a reason. Stripe checkout stays off until an existing test key and price id are set. Live mode stays off unless that deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes. Market scores appear only when a Scout record supplied them.";
+    "Clean-room HTTP product. Each feature gets a data model, write rules, and CRUD routes. A path with one {name} segment gets get, update, and delete on the parent collection. Login, logout, findBy filters, and inventory counts are built when declared. Any other path template, or a method outside GET, POST, PUT, PATCH, and DELETE, is left out, with a reason. Stripe checkout stays off until an existing test key and price id are set. The server price id is used, and access follows the product webhook rather than the success redirect. Live mode stays off unless that deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes. Market scores appear only when a Scout record supplied them.";
   for (const name of forbidden) {
     if (summary.includes(name) || provenance.product_name.includes(name))
       throw new Error("Customer-facing fields include a competitor name.");

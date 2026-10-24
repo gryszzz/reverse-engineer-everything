@@ -1088,7 +1088,7 @@ function pricingText(spec, capabilities) {
     return lines.join("\n");
   }
   lines.push(
-    "Checkout uses an existing Stripe price. Set STRIPE_SECRET_KEY to an sk_test_ key, STRIPE_WEBHOOK_SECRET, and STRIPE_PRICE_ID or STRIPE_PRICE_IDS. No Stripe account or product is created. A test key can smoke-check checkout. Live mode stays off unless that deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes, and no price was invented. Without those variables, checkout and the webhook stay off.",
+    "Checkout uses an existing Stripe price looked up on the server. A client amount or price id is ignored. Set STRIPE_SECRET_KEY to an sk_test_ or rk_test_ key, STRIPE_WEBHOOK_SECRET for this product's webhook endpoint, and STRIPE_PRICE_ID or STRIPE_PRICE_IDS. No Stripe account or product is created. A test key can smoke-check checkout. Live mode stays off unless that deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes, and no price was invented. Without those variables, checkout and the webhook stay off. Access is granted only for checkout.session.completed or invoice.paid on that webhook, not from the success redirect.",
     "",
   );
   if (capabilities.pricing.placeholder)
@@ -1234,7 +1234,7 @@ export function scaffoldRebuild({
       "Records are stored in data/store.sqlite when a record route is built. GET / is the product page. JSON field objects are accepted.",
       "A path with one {name} segment gets get, update, and delete on the parent collection. Other path templates are not expanded.",
       "Login and logout paths hash passwords and issue or revoke a token. findBy paths filter a collection. An inventory path counts a sibling collection.",
-      "Stripe checkout and webhook checks are generated for an existing account. They stay off until STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and an existing price id are set. No account or product is created. A test key can smoke-check checkout. Live mode stays off unless that deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes.",
+      "Stripe checkout and webhook checks are generated for an existing account. They stay off until STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and an existing price id are set. The price id is chosen on the server. Access is granted only for checkout.session.completed or invoice.paid, and not from the success redirect. No account or product is created. A test key can smoke-check checkout. Live mode stays off unless that deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes.",
       "GraphQL operations, workflows, and rate limits are not built.",
       "An improvement is an extra feature only when a Scout, Scale, or build pick records a quote. That quote is not copied into the product source.",
     ],
@@ -1322,7 +1322,10 @@ export function scaffoldRebuild({
       "",
     ].join("\n"),
   );
-  write("src/server.mjs", serverSource(name));
+  write(
+    "src/server.mjs",
+    serverSource(name, { productId: slug(name), buildId }),
+  );
   write("src/capabilities.mjs", capabilitiesSource(capabilities));
   write(
     "capabilities.json",
@@ -1432,16 +1435,18 @@ function openApiDocument(name, plan, capabilities) {
     paths["/checkout"] = {
       post: {
         responses: {
-          200: { description: "test checkout or unconfigured" },
+          200: { description: "checkout session from a server price id" },
           400: { description: "live key not approved" },
+          403: { description: "billing keys are missing" },
         },
       },
     };
     paths["/billing/webhook"] = {
       post: {
         responses: {
-          200: { description: "signature accepted or billing disabled" },
+          200: { description: "signed event accepted" },
           400: { description: "signature rejected" },
+          403: { description: "webhook secret is missing" },
         },
       },
     };
