@@ -473,6 +473,27 @@ test("favicon.ico is an icon, not a studio 404", async () => {
   assert.ok(icon.body.length > 8);
 });
 
+test("studio JSON redacts a stripe key", async () => {
+  const key = "sk_" + "live_" + "abcdefghij";
+  const response = await fetch(origin + "/api/projects", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-ree-studio-token": studio.token,
+    },
+    body: JSON.stringify({ name: key }),
+  });
+  const text = await response.text();
+  assert.equal(response.status, 201);
+  assert.equal(text.includes(key), false);
+  assert.match(text, /\[redacted\]/);
+  const stored = readFileSync(
+    join(dataDir, "projects", JSON.parse(text).id, "project.json"),
+    "utf8",
+  );
+  assert.equal(stored.includes(key), false);
+});
+
 test("studio data inside the checkout is rejected", async () => {
   await assert.rejects(
     startStudio({

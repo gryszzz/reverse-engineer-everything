@@ -74,6 +74,7 @@ jobs:
           node --test rel/pipeline/petstore-e2e.test.mjs
           node --test rel/gaps/gaps.test.mjs
           node --test rel/improve/improve.test.mjs
+          node --test rel/secrets/redact.test.mjs
       - name: Verify authorized static target admission and Codex entry
         run: node --test rel/analyze-static.test.mjs
       - name: Verify report fail-closed behavior

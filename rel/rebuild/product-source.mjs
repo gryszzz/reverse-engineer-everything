@@ -584,12 +584,32 @@ function textValue(name, url, bodyParams, jsonFields) {
   return "";
 }
 
+function keyKind(key) {
+  if (key.startsWith("rk_test_") || key.startsWith("sk_test_")) return "test";
+  if (key.startsWith("rk_live_") || key.startsWith("sk_live_")) return "live";
+  return "";
+}
+
+function liveApproved() {
+  return (
+    process.env.REE_BILLING_MODE === "live" &&
+    process.env.REE_BILLING_LIVE_APPROVED === "yes"
+  );
+}
+
+function keyType(key) {
+  if (key.startsWith("rk_")) return "restricted";
+  if (key.startsWith("sk_")) return "secret";
+  return null;
+}
+
 function checkout(response, jsonFields, bodyParams) {
   const key = process.env.STRIPE_SECRET_KEY ?? "";
-  if (key.startsWith("sk_live_")) {
+  const kind = keyKind(key);
+  if (kind === "live" && !liveApproved()) {
     send(response, 400, {
       error: "live-key",
-      note: "Live Stripe keys are refused.",
+      note: "Live Stripe keys stay off until REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes are set for this deploy.",
     });
     return;
   }
@@ -606,6 +626,7 @@ function checkout(response, jsonFields, bodyParams) {
     success_url: "https://example.com/pricing?status=success",
     cancel_url: "https://example.com/pricing?status=cancel",
   });
+  const mode = kind === "live" ? "live" : "test";
   fetch("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",
     headers: {
@@ -617,41 +638,55 @@ function checkout(response, jsonFields, bodyParams) {
     .then(async (stripe) => {
       const payload = await stripe.json().catch(() => null);
       if (!stripe.ok) {
-        send(response, 502, { error: "stripe", configured: true, mode: "test" });
+        send(response, 502, { error: "stripe", configured: true, mode });
         return;
       }
-      send(response, 200, {
+      const result = {
         configured: true,
-        mode: "test",
+        mode,
+        key_type: keyType(key),
         creates_products: false,
         price: price.id,
-        url: payload?.url ?? null,
-      });
+        url: payload && typeof payload.url === "string" ? payload.url : null,
+      };
+      if (mode === "test" && process.env.REE_BILLING_MODE === "live")
+        result.note = "A test key does not charge live.";
+      send(response, 200, result);
     })
     .catch(() => {
       if (!response.headersSent)
-        send(response, 502, { error: "stripe", configured: true, mode: "test" });
+        send(response, 502, { error: "stripe", configured: true, mode });
     });
 }
 
 function billingStatus() {
   const key = process.env.STRIPE_SECRET_KEY ?? "";
+  const kind = keyKind(key);
   const needs = [];
-  if (!key.startsWith("sk_test_")) needs.push("STRIPE_SECRET_KEY");
+  if (kind === "live") {
+    if (process.env.REE_BILLING_MODE !== "live") needs.push("REE_BILLING_MODE");
+    if (process.env.REE_BILLING_LIVE_APPROVED !== "yes")
+      needs.push("REE_BILLING_LIVE_APPROVED");
+  } else if (kind !== "test") needs.push("STRIPE_SECRET_KEY");
   if (!process.env.STRIPE_WEBHOOK_SECRET) needs.push("STRIPE_WEBHOOK_SECRET");
   const price = priceFor(null, new URLSearchParams());
   if (!price.id) needs.push("STRIPE_PRICE_ID");
   const plans = capabilities.pricing?.plans ?? [];
+  const configured = needs.length === 0;
+  const mode = configured && kind === "live" ? "live" : "test";
   return {
-    configured: needs.length === 0,
-    mode: "test",
+    configured,
+    mode,
+    key_type: configured ? keyType(key) : null,
     creates_products: false,
     needs,
     plans,
     placeholder: capabilities.pricing?.placeholder === true,
     note: needs.length
-      ? "Checkout stays off until an existing Stripe test key, webhook secret, and price id are set. No account or product is created."
-      : "Checkout uses an existing Stripe price. No account or product is created.",
+      ? "Checkout stays off until an existing Stripe test key, webhook secret, and price id are set. A live key also needs REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes on that deploy. No account or product is created."
+      : mode === "test" && process.env.REE_BILLING_MODE === "live"
+        ? "A test key does not charge live. Checkout uses an existing Stripe price. No account or product is created."
+        : "Checkout uses an existing Stripe price. No account or product is created.",
   };
 }
 
@@ -768,7 +803,7 @@ function pricingPage() {
     PAGE_STYLE +
     "</style></head><body><main><h1 data-pricing=\\"1\\"" +
     (placeholder ? " data-placeholder=\\"1\\"" : "") +
-    ">Pricing</h1><p class=\\"quiet\\">Test mode only. Checkout uses an existing Stripe price and stays off until that price id is set. A live Stripe key is refused.</p>" +
+    ">Pricing</h1><p class=\\"quiet\\">A test key can smoke-check checkout. Live mode stays off unless this deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes. Checkout uses an existing Stripe price.</p>" +
     cards +
     "<form method=\\"post\\" action=\\"/checkout\\"><button type=\\"submit\\">Checkout</button></form></main></body></html>"
   );
@@ -1056,7 +1091,35 @@ function readBody(request) {
 
 function send(response, status, body) {
   response.writeHead(status, { "content-type": "application/json" });
-  response.end(JSON.stringify(stripSecrets(body)));
+  response.end(JSON.stringify(redactValue(stripSecrets(body))));
+}
+
+function redactText(value) {
+  let text = String(value ?? "").replace(
+    new RegExp(
+      "(?:sk|rk)_(?:live|test)_[A-Za-z0-9]+|whsec_[A-Za-z0-9]+",
+      "g",
+    ),
+    "[redacted]",
+  );
+  for (const name of ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"]) {
+    const secret = process.env[name];
+    if (typeof secret === "string" && secret.length >= 8)
+      text = text.split(secret).join("[redacted]");
+  }
+  return text;
+}
+
+function redactValue(value) {
+  if (typeof value === "string") return redactText(value);
+  if (Array.isArray(value)) return value.map((item) => redactValue(item));
+  if (value && typeof value === "object") {
+    const copy = {};
+    for (const [key, item] of Object.entries(value))
+      copy[key] = redactValue(item);
+    return copy;
+  }
+  return value;
 }
 
 function stripSecrets(body) {
@@ -1336,6 +1399,16 @@ export function listen(port = 0, hostname = "127.0.0.1", dataDir) {
     server.once("error", reject);
     server.listen(port, hostname, () => resolveListen(server));
   });
+}
+
+for (const method of ["log", "error", "warn", "info"]) {
+  const original = console[method].bind(console);
+  console[method] = (...parts) =>
+    original(
+      ...parts.map((part) =>
+        typeof part === "string" ? redactText(part) : part,
+      ),
+    );
 }
 
 const entry = process.argv[1];
@@ -1983,7 +2056,9 @@ test("capabilities behave only when the spec supports them", async () => {
         const paidBody = await paid.json();
         assert.equal(paid.status, 200);
         assert.equal(paidBody.configured, true);
+        assert.equal(paidBody.mode, "test");
         assert.equal(paidBody.creates_products, false);
+        assert.equal(JSON.stringify(paidBody).includes("sk_test_mock"), false);
         assert.equal(calls.length, 1);
         assert.equal(calls[0].body.includes("price_existing"), true);
         assert.equal(calls[0].body.includes("price_data"), false);
@@ -2018,11 +2093,72 @@ test("capabilities behave only when the spec supports them", async () => {
         });
         assert.equal(bad.status, 400);
         assert.equal((await bad.json()).error, "signature");
+        const restricted = "rk_" + "test_" + "mock";
+        process.env.STRIPE_SECRET_KEY = restricted;
+        const restrictedPaid = await fetch(base + "/checkout", { method: "POST" });
+        const restrictedBody = await restrictedPaid.json();
+        assert.equal(restrictedPaid.status, 200);
+        assert.equal(restrictedBody.mode, "test");
+        assert.equal(restrictedBody.key_type, "restricted");
+        assert.equal(JSON.stringify(restrictedBody).includes(restricted), false);
+        const liveKey = "rk_" + "live_" + "examplekeyvalue";
+        process.env.STRIPE_SECRET_KEY = liveKey;
+        delete process.env.REE_BILLING_MODE;
+        delete process.env.REE_BILLING_LIVE_APPROVED;
+        const blocked = await fetch(base + "/checkout", { method: "POST" });
+        const blockedBody = await blocked.json();
+        assert.equal(blocked.status, 400);
+        assert.equal(blockedBody.error, "live-key");
+        assert.equal(JSON.stringify(blockedBody).includes(liveKey), false);
+        const statusBlocked = await (await fetch(base + "/billing")).json();
+        assert.equal(statusBlocked.configured, false);
+        assert.equal(statusBlocked.needs.includes("REE_BILLING_MODE"), true);
+        assert.equal(statusBlocked.needs.includes("REE_BILLING_LIVE_APPROVED"), true);
+        process.env.REE_BILLING_MODE = "live";
+        const half = await fetch(base + "/checkout", { method: "POST" });
+        assert.equal(half.status, 400);
+        assert.equal((await half.json()).error, "live-key");
+        process.env.REE_BILLING_LIVE_APPROVED = "yes";
+        calls.length = 0;
+        const opened = await fetch(base + "/checkout", { method: "POST" });
+        const openedBody = await opened.json();
+        assert.equal(opened.status, 200);
+        assert.equal(openedBody.mode, "live");
+        assert.equal(openedBody.key_type, "restricted");
+        assert.equal(openedBody.creates_products, false);
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].body.includes("price_data"), false);
+        assert.equal(JSON.stringify(openedBody).includes(liveKey), false);
+        process.env.STRIPE_SECRET_KEY = "sk_test_mock";
+        const smoke = await fetch(base + "/checkout", { method: "POST" });
+        const smokeBody = await smoke.json();
+        assert.equal(smoke.status, 200);
+        assert.equal(smokeBody.mode, "test");
+        assert.match(smokeBody.note, /does not charge live/);
+        assert.equal(JSON.stringify(smokeBody).includes("sk_test_mock"), false);
+        globalThis.fetch = (url, init) => {
+          if (String(url).startsWith("https://api.stripe.com/")) {
+            return Promise.resolve(
+              new Response(JSON.stringify({ error: { message: liveKey } }), {
+                status: 402,
+                headers: { "content-type": "application/json" },
+              }),
+            );
+          }
+          return realFetch(url, init);
+        };
+        process.env.STRIPE_SECRET_KEY = liveKey;
+        const failed = await fetch(base + "/checkout", { method: "POST" });
+        const failedText = await failed.text();
+        assert.equal(failed.status, 502);
+        assert.equal(failedText.includes(liveKey), false);
       } finally {
         globalThis.fetch = realFetch;
         delete process.env.STRIPE_SECRET_KEY;
         delete process.env.STRIPE_WEBHOOK_SECRET;
         delete process.env.STRIPE_PRICE_ID;
+        delete process.env.REE_BILLING_MODE;
+        delete process.env.REE_BILLING_LIVE_APPROVED;
       }
     }
     const hook = await fetch(base + "/webhooks", {
