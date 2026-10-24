@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { collectGaps, gapLines } from "../gaps/report.mjs";
+import { redactText } from "../secrets/redact.mjs";
 import { improvementLines, publicImprovements } from "../improve/collect.mjs";
 import { parseScoutTarget } from "../opportunities/parse.mjs";
 
@@ -237,7 +238,7 @@ export function emitHandoff({
     : null;
   const shownImprovements = publicImprovements(improvements, forbidden);
   const summary =
-    "Clean-room HTTP product. Each feature gets a data model, write rules, and CRUD routes. A path with one {name} segment gets get, update, and delete on the parent collection. Login, logout, findBy filters, and inventory counts are built when declared. Any other path template, or a method outside GET, POST, PUT, PATCH, and DELETE, is left out, with a reason. Stripe checkout stays off until an existing test key and price id are set. Market scores appear only when a Scout record supplied them.";
+    "Clean-room HTTP product. Each feature gets a data model, write rules, and CRUD routes. A path with one {name} segment gets get, update, and delete on the parent collection. Login, logout, findBy filters, and inventory counts are built when declared. Any other path template, or a method outside GET, POST, PUT, PATCH, and DELETE, is left out, with a reason. Stripe checkout stays off until an existing test key and price id are set. Live mode stays off unless that deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes. Market scores appear only when a Scout record supplied them.";
   for (const name of forbidden) {
     if (summary.includes(name) || provenance.product_name.includes(name))
       throw new Error("Customer-facing fields include a competitor name.");
@@ -435,25 +436,26 @@ export function emitHandoff({
   mkdirSync(join(directory, "vault"), { recursive: true });
   mkdirSync(join(directory, "scale"), { recursive: true });
   mkdirSync(join(directory, "requests"), { recursive: true });
-  writeFileSync(
+  const writeRedacted = (path, text) => writeFileSync(path, redactText(text));
+  writeRedacted(
     join(directory, "handoff.json"),
     JSON.stringify(handoff, null, 2) + "\n",
   );
-  writeFileSync(join(directory, "README.md"), readme);
-  writeFileSync(
+  writeRedacted(join(directory, "README.md"), readme);
+  writeRedacted(
     join(directory, "guard/submission.json"),
     JSON.stringify(guard, null, 2) + "\n",
   );
-  writeFileSync(
+  writeRedacted(
     join(directory, "vault/manifest.json"),
     JSON.stringify(vault, null, 2) + "\n",
   );
-  writeFileSync(
+  writeRedacted(
     join(directory, "scale/manifest.json"),
     JSON.stringify(scale, null, 2) + "\n",
   );
   for (const [name, document] of Object.entries(requests)) {
-    writeFileSync(
+    writeRedacted(
       join(directory, "requests", name + ".json"),
       JSON.stringify(document, null, 2) + "\n",
     );

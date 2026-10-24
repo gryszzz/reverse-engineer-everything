@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import { redactText } from "../secrets/redact.mjs";
 import { studioError } from "./errors.mjs";
 import { pathInside, repositoryRoot } from "./paths.mjs";
 
@@ -59,7 +60,7 @@ function cleanMode(mode) {
 
 function writeJson(path, value) {
   const temporary = `${path}.${process.pid}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`);
+  writeFileSync(temporary, redactText(`${JSON.stringify(value, null, 2)}\n`));
   renameSync(temporary, path);
 }
 

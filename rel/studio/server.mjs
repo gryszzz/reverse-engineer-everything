@@ -22,6 +22,7 @@ import { engineChildEnv } from "./tool-env.mjs";
 import { writeUpload } from "./uploads.mjs";
 import { approveLink, performLink, planLink } from "./links.mjs";
 import { fileURLToPath } from "node:url";
+import { redactText, redactValue } from "../secrets/redact.mjs";
 import { classifyTarget } from "../intake.mjs";
 import {
   exploreEvidence,
@@ -130,7 +131,17 @@ function send(
 }
 
 function sendJson(res, status, value) {
-  send(res, status, JSON.stringify(value));
+  send(res, status, JSON.stringify(redactValue(value)));
+}
+
+for (const method of ["log", "error", "warn", "info", "debug"]) {
+  const original = console[method].bind(console);
+  console[method] = (...parts) =>
+    original(
+      ...parts.map((part) =>
+        typeof part === "string" ? redactText(part) : part,
+      ),
+    );
 }
 
 function readRaw(req, maxBytes) {
@@ -174,13 +185,18 @@ function runSetupCommand(argv) {
       resolveCommand({
         exit_code: null,
         signal: null,
-        stdout,
-        stderr: error.message,
+        stdout: redactText(stdout),
+        stderr: redactText(error.message),
       });
     });
     child.on("close", (code, signal) => {
       clearTimeout(timer);
-      resolveCommand({ exit_code: code, signal, stdout, stderr });
+      resolveCommand({
+        exit_code: code,
+        signal,
+        stdout: redactText(stdout),
+        stderr: redactText(stderr),
+      });
     });
   });
 }
@@ -813,10 +829,12 @@ async function handleApi(context) {
             typeof parsed.message === "string" ? parsed.message : parsed.error;
         else projection = projectProcessCapture(parsed, labels);
       } catch {
-        error = `Capture exited ${code} signal ${signal}. ${stderr.slice(0, 400)}`;
+        error = redactText(
+          `Capture exited ${code} signal ${signal}. ${stderr.slice(0, 400)}`,
+        );
       }
       if (!projection && !error)
-        error = `Capture exited ${code} signal ${signal}.`;
+        error = redactText(`Capture exited ${code} signal ${signal}.`);
       store.update(projectId, (current) => {
         current.trace = {
           ...current.trace,

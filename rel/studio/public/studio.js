@@ -1083,7 +1083,7 @@ function buildPanel() {
     !result
       ? emptyState(
           "No build yet",
-          "Paste a spec and a product name that is not the spec target. Each feature gets CRUD routes and a behavior test. Login and logout issue and revoke a token when the spec has them. findBy filters and inventory counts are built when the spec declares them. Stripe checkout stays off until STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and an existing price id are set. Pipeline picks are on Board, under Advanced.",
+          "Paste a spec and a product name that is not the spec target. Each feature gets CRUD routes and a behavior test. Login and logout issue and revoke a token when the spec has them. findBy filters and inventory counts are built when the spec declares them. Stripe checkout stays off until STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and an existing price id are set. A test key can smoke-check checkout. Live mode stays off unless that deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes. Pipeline picks are on Board, under Advanced.",
           null,
           null,
         )
@@ -1104,7 +1104,7 @@ function buildPanel() {
           el(
             "p",
             { class: "note" },
-            "Dry run. Launch still needs Guard PASS and Tony's go-ahead. Login and logout are built when the spec has them. Stripe checkout stays off until an existing test key and price id are set.",
+            "Dry run. Launch still needs Guard PASS and Tony's go-ahead. Login and logout are built when the spec has them. Stripe checkout stays off until an existing test key and price id are set. Live mode stays off unless that deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes.",
           ),
           gapsCard(result.gaps),
           betterCard(result.improvements),

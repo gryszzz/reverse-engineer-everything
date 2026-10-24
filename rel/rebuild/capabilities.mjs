@@ -139,7 +139,7 @@ export function decideCapabilities(spec, plan, improvements = null) {
       ? item(
           "deploy",
           "implemented",
-          "Dockerfile and render.yaml bind the web service to 0.0.0.0 and PORT. No Stripe key is stored in those files.",
+          "Dockerfile and render.yaml bind the web service to 0.0.0.0 and PORT. Stripe env names are listed for the deploy environment. No Stripe key is stored in those files.",
         )
       : item(
           "deploy",
@@ -254,7 +254,7 @@ function pricingReason(pricing) {
   return (
     "Stripe checkout and webhook verification are generated for an existing account. " +
     plans +
-    " They stay off until STRIPE_SECRET_KEY is an sk_test_ key, STRIPE_WEBHOOK_SECRET is set, and STRIPE_PRICE_ID or STRIPE_PRICE_IDS names an existing price. No account or product is created. A live key is refused."
+    " They stay off until STRIPE_SECRET_KEY is an sk_test_ key, STRIPE_WEBHOOK_SECRET is set, and STRIPE_PRICE_ID or STRIPE_PRICE_IDS names an existing price. No account or product is created. A test key can smoke-check checkout. Live mode stays off unless REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes."
   );
 }
 

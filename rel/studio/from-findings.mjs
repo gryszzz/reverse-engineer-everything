@@ -198,7 +198,7 @@ export function draftSpecFromEvidence(
     note:
       features.length === 0
         ? "This Evidence record has no named function or behavior to put in a spec. No features were invented."
-        : `${endpointNote} Checked features stay in the spec. Rebuild gives each feature a data model, write rules, and CRUD routes. A path with one {name} segment gets get, update, and delete on the parent collection. JSON request bodies are accepted. Login, logout, findBy filters, and inventory counts are built when declared. Any other path template is left out. Stripe checkout stays off until an existing test key and price id are set. The collector field is the schema value public-http-get; this draft did not fetch a document.`,
+        : `${endpointNote} Checked features stay in the spec. Rebuild gives each feature a data model, write rules, and CRUD routes. A path with one {name} segment gets get, update, and delete on the parent collection. JSON request bodies are accepted. Login, logout, findBy filters, and inventory counts are built when declared. Any other path template is left out. Stripe checkout stays off until an existing test key and price id are set. Live mode stays off unless that deploy sets REE_BILLING_MODE=live and REE_BILLING_LIVE_APPROVED=yes. The collector field is the schema value public-http-get; this draft did not fetch a document.`,
   };
 }
 
