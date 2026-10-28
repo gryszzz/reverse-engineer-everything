@@ -3,6 +3,24 @@ name: REE macOS smoke
 on:
   push:
     branches: [main, "rel/first-lab-foundations"]
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".nvmrc"
+      - ".github/actions/npm-cache/**"
+      - "ree.mjs"
+      - "rel.mjs"
+      - "Start-REE.command"
+      - "Start-REE-Studio.command"
+      - "Start-REL.command"
+      - "FIRST_10_MINUTES.md"
+      - "rel/**"
+      - "experiments/rel-first-lab/**"
+      - "experiments/rel-visual-lab/**"
+      - "experiments/ree-investigation-boundary/**"
+      - ".github/workflows/rel-macos-smoke.yml"
   pull_request:
     branches: [main, "rel/first-lab-foundations"]
     paths:
@@ -24,6 +42,10 @@ on:
       - "experiments/ree-investigation-boundary/**"
       - ".github/workflows/rel-macos-smoke.yml"
   workflow_dispatch:
+
+concurrency:
+  group: rel-macos-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

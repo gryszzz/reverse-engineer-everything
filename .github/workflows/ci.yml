@@ -6,8 +6,7 @@ on:
   pull_request:
     branches: [main, "rel/first-lab-foundations", "release/*"]
   schedule:
-    - cron: "23 0-2,4-23 * * *"
-    - cron: "23 3 * * *"
+    - cron: "23 3 * * 0"
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -96,7 +95,7 @@ jobs:
           CI_REPOSITORY: ${{ github.repository }}
           CI_REPOSITORY_ID: ${{ github.repository_id }}
           CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          CI_FORCE_FULL: ${{ github.event.schedule == '23 3 * * *' }}
+          CI_FORCE_FULL: ${{ github.event.schedule == '23 3 * * 0' }}
         run: node scripts/ci/qualification.mjs
       - name: Select verification lanes
         id: plan

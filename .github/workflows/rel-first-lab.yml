@@ -3,6 +3,25 @@ name: REE first real analysis
 on:
   push:
     branches: [main, "rel/first-lab-foundations"]
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".nvmrc"
+      - ".github/actions/npm-cache/**"
+      - "REE_START_HERE.md"
+      - "experiments/rel-first-lab/**"
+      - "experiments/rel-visual-lab/**"
+      - "experiments/ree-bench/**"
+      - "ree.mjs"
+      - "rel.mjs"
+      - "rel/**"
+      - ".codex/**"
+      - ".agents/skills/ree-investigator/**"
+      - "README.md"
+      - "AGENTS.md"
+      - ".github/workflows/rel-first-lab.yml"
   pull_request:
     branches: [main, "rel/first-lab-foundations"]
     paths:
@@ -25,6 +44,10 @@ on:
       - "AGENTS.md"
       - ".github/workflows/rel-first-lab.yml"
   workflow_dispatch:
+
+concurrency:
+  group: rel-first-lab-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
